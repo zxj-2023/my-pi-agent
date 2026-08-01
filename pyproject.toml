@@ -1,0 +1,18 @@
+[project]
+name = "my-pi-agent"
+version = "0.1.0"
+description = "my_agent_core: minimal agent framework modeled on pi / pig-mono (learning project)"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=2.50.0",
+    "python-dotenv>=1.0,<2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<10.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

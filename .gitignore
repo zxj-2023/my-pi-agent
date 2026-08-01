@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 本地工具配置（Claude Code / Codex / Superpowers / MCP）
+.claude/
+.codex/
+.superpowers/
+.mcp.json
