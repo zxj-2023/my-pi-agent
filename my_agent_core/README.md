@@ -1,6 +1,6 @@
 # my_agent_core
 
-从零实现的最简 ReAct agent。只依赖 `openai` SDK 与标准库，不依赖任何 agent 框架。
+从零实现的最简 ReAct agent。只依赖 `openai` SDK、`pydantic` 与标准库，不依赖任何 agent 框架。
 
 项目方向：pig-mono 式两层结构——本包 = **框架层**（对应 `pig-agent-core`）；
 未来用它搭独立的 **coding agent 层**（对应 `pig-coding-agent`）。
@@ -10,12 +10,12 @@
 
 约 200 行 Python，一个完整的 ReAct（Reason + Act）循环：模型决定是否调用工具，
 本项目负责执行工具、把观察结果写回消息历史，循环持续——直到模型认为可以直接
-回答为止。所有协议细节（工具 schema 生成、`tool_calls` 解析、错误容错）全部
-手写，透明可审查。
+回答为止。工具 schema 生成与参数校验委托 `pydantic`，其余协议细节
+（`tool_calls` 解析、调度、错误容错）全部手写，透明可审查。
 
 特性：
 
-- `@tool` 装饰器：从函数名、docstring、类型标注自动生成发给模型的 JSON schema
+- `@tool` 装饰器：从函数名、docstring、类型标注自动生成发给模型的 JSON schema（pydantic 驱动，支持全集类型与默认值）
 - ReAct 循环：Reason → Act → Observe → 重复，经典退出条件（`tool_calls` 为空即结束）
 - 工具容错：工具异常、非法参数、不存在的工具名全部转成描述性消息回给模型，
   让模型有机会自我纠正
@@ -85,11 +85,17 @@ def get_weather(city: str) -> str:
     """Get the weather for a city."""      # docstring 会成为工具描述
     return f"{city}: sunny, 22°C"
 
+@tool
+def search_docs(query: str, tags: list[str], limit: int = 5) -> str:
+    """Search docs by query and tags."""   # 复杂类型、默认值都可以
+    return f"results for {query} (tags={tags}, limit={limit})"
+
 # 然后把它传入 run_agent 的 tools 列表：
-run_agent(question, tools=[get_weather], client=client, model=model)
+run_agent(question, tools=[get_weather, search_docs], client=client, model=model)
 ```
 
-支持的参数类型标注：`int`、`float`、`str`、`bool`；暂不支持默认值参数。
+参数类型支持 pydantic 全集（`list` / `dict` / `Optional` / 嵌套 `BaseModel` 等），
+允许默认值；无标注参数与 `*args` / `**kwargs` 在装饰时拒绝。
 
 ## 设计取舍
 
@@ -127,8 +133,8 @@ run_agent(question, tools=[get_weather], client=client, model=model)
 
 - [ ] 2.1 `loop.py`：`run_loop` 骨架 —— 循环、经典退出条件、`LoopOutcome`、
       事件发射（暂不含中间件）→ 验证：框架 §7 #2–#5、#11（FakeLLM 驱动）
-- [ ] 2.2 `loop.py`：`validate_arguments` 执行前校验（缺必填 / 类型不符 /
-      多余参数逐条报错；bool/int 区分）→ 验证：框架 §7 #6
+- [ ] 2.2 `loop.py`：执行前参数校验（经 `Tool.model` pydantic 校验 + 强转，
+      逐条错误消息复用 tools.py 的 `_format_validation_error`）→ 验证：框架 §7 #6
 - [ ] 2.3 `loop.py`：六段管道完成 —— `before_tool` / `after_tool` 中间件、
       `ToolBlocked` 拦截、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
 - [ ] 2.4 `loop.py`：`max_iterations`（默认 `None` 不限）

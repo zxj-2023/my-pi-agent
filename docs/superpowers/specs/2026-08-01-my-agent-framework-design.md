@@ -250,7 +250,7 @@ def run_loop(
 1. tools_by_name.get(name)      → 未命中 → "Unknown tool 'X'. Available: a, b"（沿用现有措辞）
 2. json.loads(arguments)        → 失败   → "Invalid JSON arguments for tool 'X': ..."（沿用）
                                   结果非 dict → "Invalid arguments for tool 'X': expected JSON object"
-3. validate_arguments(...)      → 违规非空 → 校验错误字符串（逐条列出违规，pi 风格，见下）
+3. tool.model.model_validate(args) → ValidationError → 校验错误字符串（逐条列出，pi 风格，见下；含类型强转）
 4. before_tool(name, args)      → ToolBlocked(reason) → "Tool 'X' blocked: reason"
                                   其他异常           → "Error in before_tool for 'X': ..."
                                   正常返回           → 用返回的 args（可被改写）继续
@@ -262,21 +262,23 @@ def run_loop(
 ```
 
 ```python
-def validate_arguments(name: str, args: dict, schema: dict) -> str | None:
-    """对 @tool 生成的 schema 做最小校验（不引 jsonschema 依赖，~30 行）。
-    通过返回 None；失败返回错误文本，逐条列出违规（仿 pi validateToolArguments 格式）：
-
-        Validation failed for tool "get_weather":
-          - missing required argument 'city'
-          - 'retries': expected integer, got str
-          - 'verbose': unexpected argument
-
-    检查规则三条（与 @tool schema 的表达力完全对齐）：
-    - 缺必填（装饰器生成时所有 property 都是 required）
-    - 按 TYPE_MAP 验类型：integer→int、number→int|float、string→str、boolean→bool
-      （注意：Python 的 bool 是 int 子类，integer/number 判定须显式排除 bool）
-    - 多余参数（函数签名不接受；显式报错比 func 的 TypeError 对模型更清晰）
-    """
+# —— 已由 2026-08-03-pydantic-tool-schema-design.md 取代 ——
+# 校验不再是手写函数，而是 Tool 上的 pydantic 参数模型：
+#
+#     validated = tool.model.model_validate(args)     # 校验 + 类型强转（"37" → 37）
+#     # ValidationError → _format_validation_error(name, exc) → 逐条错误字符串
+#
+# 原三条规则全部由 pydantic 覆盖：
+# - 缺必填   → pydantic required 检查（装饰器生成的模型字段即真实签名）
+# - 类型不符 → pydantic 类型检查；bool/int 区分：v2 lax 模式实际接受 bool→int，
+#              故裸 int/float 标注由 @tool 加 BeforeValidator 显式拒绝 bool
+# - 多余参数 → 动态模型 extra="forbid"
+# 错误消息直接沿用 pydantic 原始 msg，逐条列出（pi 风格）：
+#
+#     Validation failed for tool "get_weather":
+#       - city: Field required
+#       - retries: Input should be a valid integer
+#       - verbose: Extra inputs are not permitted
 ```
 
 ### 4.5 `agent.py`
@@ -356,12 +358,12 @@ AgentEnd(final_text="Tokyo is sunny...", iterations=2, stop_reason="end_turn")
 | LLM API / 网络错误 | `openai_chat` | 直接抛 → 穿出 `run_loop` → 穿出 `Agent.run()` → 调用方处理 |
 | 模型幻觉出不存在的工具名 | `execute_one` 步骤 1 | 错误字符串 + `is_error=True`，模型可自我纠正 |
 | 模型生成的参数 JSON 非法 / 非对象 | 步骤 2 | 错误字符串（`json.loads` 失败信息或 "expected JSON object"） |
-| 模型参数缺必填 / 类型不符 / 多余参数 | 步骤 3 | `validate_arguments` 逐条列出违规成错误字符串，工具不执行 |
+| 模型参数缺必填 / 类型不符 / 多余参数 | 步骤 3 | `tool.model.model_validate`（pydantic）逐条列出违规成错误字符串，工具不执行 |
 | `before_tool` 拦截 | 步骤 4 | `ToolBlocked` → 错误字符串 "Tool 'X' blocked: reason"，工具不执行 |
 | 中间件自身抛其他异常 | 步骤 4 / 6 | 同样转错误字符串——保住"tool_calls 必配对"不变式 |
 | 工具函数抛异常 | 步骤 5 | 错误字符串 "Error executing tool 'X': ..." |
 | `on_event` 抛异常 | 事件发射处 | 不兜底，向上抛（视为使用方 bug） |
-| 装饰器遇到不支持的标注/默认值 | `@tool` | 装饰时（import 阶段）抛 `TypeError`（不变） |
+| 装饰器遇到无标注参数 / *args/**kwargs / 无法建模的类型 | `@tool` | 装饰时（import 阶段）抛 `TypeError`（默认值合法，见 2026-08-03 规格） |
 | `OPENAI_API_KEY` 缺失 | `build_client` | 启动时 `RuntimeError`（不变） |
 
 ## 7. 测试与验收标准
@@ -380,12 +382,12 @@ class FakeLLM:
 
 | # | 测试 | 验证点 |
 |---|---|---|
-| 1 | schema 生成 | `@tool` / `schemas_for` 行为（名字/docstring/类型标注 → schema；零参数；不支持标注报错） |
+| 1 | schema 生成 | `@tool` / `schemas_for` 行为（名字/docstring/类型标注 → pydantic schema；零参数；默认值/Optional/复杂类型；无标注与 *args/**kwargs 报错） |
 | 2 | 直接回答路径 | FakeLLM 返回纯 content → 一轮、`stop_reason="end_turn"`、`final_text` 正确 |
 | 3 | 工具调用路径 | 一轮 tool_calls + 一轮最终回答 → transcript 中 tool 消息 content 为真实执行结果（配对验证） |
 | 4 | 一轮多个 tool_calls | 两个调用各自配对写回 |
 | 5 | 未知工具 / 坏 JSON / 工具异常 | 错误字符串写回且循环继续，最终正常结束 |
-| 6 | 参数校验（新） | 缺必填 / 类型不符（含 bool 与 int 的区分）/ 多余参数 → 错误逐条列出违规，工具未执行（副作用探针）；arguments 非 JSON object → 错误字符串 |
+| 6 | 参数校验（新） | pydantic 校验 + 强转（"37"→37）；缺必填 / 类型不符（含 bool 与 int 的区分）/ 多余参数 → 错误逐条列出违规，工具未执行（副作用探针）；arguments 非 JSON object → 错误字符串 |
 | 7 | `before_tool` 拦截（新） | 抛 `ToolBlocked("no")` → tool 消息含 "blocked: no"，工具函数未被调用（用副作用探针验证） |
 | 8 | `before_tool` 改写参数（新） | 返回改写的 args → 工具收到改写值 |
 | 9 | `after_tool` 改写结果（新） | 返回改写 result → transcript 中是改写后的文本 |
