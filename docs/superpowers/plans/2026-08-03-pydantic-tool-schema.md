@@ -622,7 +622,8 @@ Edit 2 —— `validate_arguments` 代码块整体替换。定位以 `def valida
 #
 # 原三条规则全部由 pydantic 覆盖：
 # - 缺必填   → pydantic required 检查（装饰器生成的模型字段即真实签名）
-# - 类型不符 → pydantic 类型检查（v2 默认严格区分 bool/int，无需特殊处理）
+# - 类型不符 → pydantic 类型检查；bool/int 区分：v2 lax 模式实际接受 bool→int，
+#              故裸 int/float 标注由 @tool 加 BeforeValidator 显式拒绝 bool
 # - 多余参数 → 动态模型 extra="forbid"
 # 错误消息直接沿用 pydantic 原始 msg，逐条列出（pi 风格）：
 #

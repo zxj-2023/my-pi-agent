@@ -94,8 +94,11 @@ def tool(func: Callable[..., Any]) -> Tool:
 要点：
 
 - **`extra="forbid"`**：让 pydantic 模型天然覆盖原手写校验器三规则中的「多余参数」；
-  「缺必填」「类型不符」是 pydantic 本职。原 §4.4 特意处理的 bool/int 区分
-  （Python 的 bool 是 int 子类）在 pydantic v2 中默认严格区分，无需额外处理。
+  「缺必填」「类型不符」是 pydantic 本职。
+- **bool/int 区分**（2026-08-03 实现期修正）：实测 pydantic v2 lax 模式**接受**
+  bool→int/float（与最初「v2 默认严格区分」的假设相反），故 `@tool` 对裸 `int`/
+  `float` 标注包一层 `BeforeValidator` 显式拒绝 bool（复合标注如 `Optional[int]`
+  不递归处理，属已知边界）；JSON schema 不受影响。
 - **`_clean_schema`**：约 5 行的递归函数，删除 pydantic 输出中各级 `title` 键
   （模型名与字段名的 title 对模型是纯噪音），其余结构（`$defs`、`anyOf`、
   `default` 等）原样保留。
