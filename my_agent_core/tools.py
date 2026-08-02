@@ -9,9 +9,9 @@ from __future__ import annotations
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, get_type_hints
+from typing import Annotated, Any, Callable, get_type_hints
 
-from pydantic import BaseModel, ConfigDict, create_model
+from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError, create_model
 
 
 @dataclass
@@ -23,6 +23,27 @@ class Tool:
     parameters: dict[str, Any]
     func: Callable[..., Any]
     model: type[BaseModel]   # pydantic 参数模型：schema 生成与运行期校验共用
+
+
+def _reject_bool_for_int(v: Any) -> Any:
+    """int 字段前置校验：拒绝 bool（pydantic v2 lax 模式默认接受 bool→int）。"""
+    if isinstance(v, bool):
+        raise ValueError("Input should be a valid integer, got bool")
+    return v
+
+
+def _reject_bool_for_float(v: Any) -> Any:
+    """float 字段前置校验：拒绝 bool（pydantic v2 lax 模式默认接受 bool→float）。"""
+    if isinstance(v, bool):
+        raise ValueError("Input should be a valid number, got bool")
+    return v
+
+
+# 裸标注 → 包装后的类型（仅 int/float，不递归 Optional 等复合标注）
+_NUMERIC_GUARDS: dict[type, Any] = {
+    int: Annotated[int, BeforeValidator(_reject_bool_for_int)],
+    float: Annotated[float, BeforeValidator(_reject_bool_for_float)],
+}
 
 
 def tool(func: Callable[..., Any]) -> Tool:
@@ -46,7 +67,10 @@ def tool(func: Callable[..., Any]) -> Tool:
                 "has no type annotation（没有类型标注）"
             )
         default = ... if param.default is inspect.Parameter.empty else param.default
-        fields[param_name] = (hints[param_name], default)
+        # 裸 int/float 加 BeforeValidator 拒绝 bool；Optional[int] 等复合标注不处理
+        ann = hints[param_name]
+        ann = _NUMERIC_GUARDS.get(ann, ann)
+        fields[param_name] = (ann, default)
 
     try:
         model = create_model(
@@ -111,8 +135,22 @@ def call_tool(tool_call: Any, tools_by_name: dict[str, Tool]) -> str:
         return f"Invalid JSON arguments for tool '{name}': {exc}"
 
     try:
-        result = target.func(**args)
+        validated = target.model.model_validate(args)   # 校验 + 类型强转
+    except ValidationError as exc:
+        return _format_validation_error(name, exc)
+
+    try:
+        result = target.func(**validated.model_dump())
     except Exception as exc:  # 工具错误 → 消息，喂回模型
         return f"Error executing tool '{name}': {exc}"
 
     return str(result)
+
+
+def _format_validation_error(name: str, exc: ValidationError) -> str:
+    """把 pydantic 校验错误转成逐条消息回给模型（pi 风格，消息用 pydantic 原文）。"""
+    lines = [f'Validation failed for tool "{name}":']
+    for err in exc.errors():
+        field = err["loc"][0] if err["loc"] else "?"
+        lines.append(f"  - {field}: {err['msg']}")
+    return "\n".join(lines)
