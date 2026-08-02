@@ -11,57 +11,75 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, get_type_hints
 
-# Python 类型标注 → JSON Schema 类型映射表（装饰器的核心机密）
-TYPE_MAP: dict[type, str] = {
-    int: "integer",
-    float: "number",
-    str: "string",
-    bool: "boolean",
-}
+from pydantic import BaseModel, ConfigDict, create_model
 
 
 @dataclass
 class Tool:
-    """一个可被模型调用的工具：函数本体 + 发给模型的 JSON schema。"""
+    """一个可被模型调用的工具：函数本体 + 发给模型的 JSON schema + 参数模型。"""
 
     name: str
     description: str
     parameters: dict[str, Any]
     func: Callable[..., Any]
+    model: type[BaseModel]   # pydantic 参数模型：schema 生成与运行期校验共用
 
 
 def tool(func: Callable[..., Any]) -> Tool:
     """@tool 装饰器：从函数的名字、docstring、签名推导 Tool。
 
-    - 参数必须带 TYPE_MAP 内的类型标注，否则装饰时抛 TypeError
-    - 不支持默认值参数（保持 schema 最简，明确失败）
-    - 零参数合法：properties == {}，required == []
+    schema 生成由 pydantic 驱动：参数类型支持 pydantic 全集
+    （list/dict/Optional/嵌套等），允许默认值；无标注参数与
+    *args/**kwargs 在装饰时抛 TypeError（明确失败）。
     """
-    properties: dict[str, Any] = {}
-    required: list[str] = []
     hints = get_type_hints(func)
+    fields: dict[str, Any] = {}
     for param_name, param in inspect.signature(func).parameters.items():
-        if param.default is not inspect.Parameter.empty:
+        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
             raise TypeError(
-                f"tool '{func.__name__}': parameter '{param_name}' has a default "
-                "value, which is not supported (keep the schema minimal)"
+                f"tool '{func.__name__}': parameter '{param_name}' is "
+                "*args/**kwargs, which is not supported（不支持）"
             )
-        json_type = TYPE_MAP.get(hints.get(param_name))
-        if json_type is None:
-            supported = ", ".join(t.__name__ for t in TYPE_MAP)
+        if param_name not in hints:
             raise TypeError(
-                f"tool '{func.__name__}': parameter '{param_name}' has annotation "
-                f"{hints.get(param_name)!r}; supported types: {supported}"
+                f"tool '{func.__name__}': parameter '{param_name}' "
+                "has no type annotation（没有类型标注）"
             )
-        properties[param_name] = {"type": json_type}
-        required.append(param_name)
+        default = ... if param.default is inspect.Parameter.empty else param.default
+        fields[param_name] = (hints[param_name], default)
+
+    try:
+        model = create_model(
+            f"{func.__name__}_Args",
+            __config__=ConfigDict(extra="forbid"),   # 多余参数 → 校验错误
+            **fields,
+        )
+        parameters = _clean_schema(model.model_json_schema())
+    except Exception as exc:   # 无法建模的类型 → 装饰时明确失败
+        raise TypeError(
+            f"tool '{func.__name__}': cannot build parameter schema: {exc}"
+        ) from exc
 
     return Tool(
         name=func.__name__,
         description=inspect.getdoc(func) or "",
-        parameters={"type": "object", "properties": properties, "required": required},
+        parameters=parameters,
         func=func,
+        model=model,
     )
+
+
+def _clean_schema(schema: Any) -> Any:
+    """递归删除 pydantic 生成的各级 title 键（对模型是纯噪音）。"""
+    if isinstance(schema, dict):
+        cleaned = {k: _clean_schema(v) for k, v in schema.items() if k != "title"}
+        # 删除 pydantic 的 additionalProperties（ConfigDict(extra="forbid") 产生）
+        if cleaned.get("additionalProperties") is False:
+            cleaned.pop("additionalProperties")
+        return cleaned
+    if isinstance(schema, list):
+        return [_clean_schema(item) for item in schema]
+    return schema
 
 
 def schemas_for(tools: list[Tool]) -> list[dict[str, Any]]:

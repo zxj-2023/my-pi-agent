@@ -5,6 +5,7 @@ description = "my_agent_core: minimal agent framework modeled on pi / pig-mono (
 requires-python = ">=3.11"
 dependencies = [
     "openai>=2.50.0",
+    "pydantic>=2.0",
     "python-dotenv>=1.0,<2.0",
 ]
 
