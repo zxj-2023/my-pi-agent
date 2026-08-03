@@ -94,7 +94,7 @@ def tool(func: Callable[..., Any]) -> Tool:
 
 
 def _clean_schema(schema: Any) -> Any:
-    """递归删除 pydantic 生成的各级 title 键（对模型是纯噪音）。"""
+    """递归清理 pydantic schema：删除各级 title 键与 additionalProperties: false（对模型是纯噪音）。"""
     if isinstance(schema, dict):
         cleaned = {k: _clean_schema(v) for k, v in schema.items() if k != "title"}
         # 删除 pydantic 的 additionalProperties（ConfigDict(extra="forbid") 产生）
