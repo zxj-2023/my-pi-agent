@@ -1,5 +1,5 @@
 [project]
-name = "my-pi-agent"
+name = "my-agent-core"
 version = "0.1.0"
 description = "my_agent_core: minimal agent framework modeled on pi / pig-mono (learning project)"
 requires-python = ">=3.11"
@@ -9,11 +9,18 @@ dependencies = [
     "python-dotenv>=1.0,<2.0",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_agent_core"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0,<10.0",
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src"]
 testpaths = ["tests"]

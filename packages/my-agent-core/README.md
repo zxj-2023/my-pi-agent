@@ -1,8 +1,8 @@
-# my_agent_core
+# my-agent-core
 
 从零实现的最简 ReAct agent。只依赖 `openai` SDK、`pydantic` 与标准库，不依赖任何 agent 框架。
 
-项目方向：pig-mono 式两层结构——本包 = **框架层**（对应 `pig-agent-core`）；
+项目方向：pig-mono 式两层结构——本包 = **框架层**（对应 `pig-agent-core`，独立 uv 项目，src 布局下 Python 包名为 `my_agent_core`）；
 未来用它搭独立的 **coding agent 层**（对应 `pig-coding-agent`）。
 详见文末「TODO：v1 实现路线」与设计文档（`docs/superpowers/specs/`）。
 
@@ -28,7 +28,7 @@
 ```powershell
 uv sync                        # 安装依赖
 Copy-Item .env.example .env    # 然后把真实配置填进 .env（不是 .env.example）
-uv run python -m my_agent_core.main # 在项目根目录执行
+uv run python -m my_agent_core.main # 在本包目录（packages/my-agent-core）执行
 ```
 
 环境变量：
@@ -48,13 +48,18 @@ uv run pytest -q
 ## 项目结构
 
 ```
-my_agent_core/
-├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
-├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
-├── agent.py     # ReAct 循环（run_agent）
-└── main.py      # demo 入口：三个示例工具 + 三个示例问题
-tests/
-└── test_my_agent_core.py   # 离线测试（FakeLLM 驱动，按框架文档 §7 从零编写）
+my-agent-core/           # 独立 uv 项目（本包根）
+├── pyproject.toml       # 包名 my-agent-core，src 布局 + hatchling 构建
+├── .env.example         # 环境变量模板（复制为 .env 填真实值）
+├── src/
+│   └── my_agent_core/   # Python 包（import 名仍是下划线 my_agent_core）
+│       ├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
+│       ├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
+│       ├── agent.py     # ReAct 循环（run_agent）
+│       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
+└── tests/
+    ├── test_tools.py    # Tool/ToolResult/tool() 离线测试
+    └── test_registry.py # ToolRegistry 离线测试
 ```
 
 ## 工作原理
