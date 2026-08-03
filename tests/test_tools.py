@@ -1,4 +1,4 @@
-"""tools.py 离线测试：schema 生成（装饰期）+ call_tool 分发（运行期）。
+"""tools.py 离线测试：schema 生成（装饰期）+ Tool 类能力 + call_tool 分发（运行期）。
 
 无需 API key。测试清单对应
 docs/superpowers/specs/2026-08-03-pydantic-tool-schema-design.md §7。
@@ -9,7 +9,7 @@ from typing import Literal, Optional
 import pytest
 from pydantic import BaseModel
 
-from my_agent_core.tools import Tool, call_tool, schemas_for, tool
+from my_agent_core.tools import Tool, ToolResult, call_tool, schemas_for, tool
 
 
 def make_tool_call(name: str, arguments: str) -> SimpleNamespace:
@@ -27,7 +27,7 @@ def test_schema_basic_types():
     def f(a: int, b: str, c: float, d: bool) -> None:
         """doc"""
 
-    assert f.parameters == {
+    assert f.to_openai_schema()["function"]["parameters"] == {
         "type": "object",
         "properties": {
             "a": {"type": "integer"},
@@ -46,7 +46,7 @@ def test_schema_zero_params():
     def f() -> str:
         """doc"""
 
-    assert f.parameters == {"type": "object", "properties": {}}
+    assert f.to_openai_schema()["function"]["parameters"] == {"type": "object", "properties": {}}
 
 
 def test_schema_default_values():
@@ -56,8 +56,8 @@ def test_schema_default_values():
     def f(city: str, retries: int = 3) -> None:
         """doc"""
 
-    assert f.parameters["required"] == ["city"]
-    assert f.parameters["properties"]["retries"] == {"type": "integer", "default": 3}
+    assert f.to_openai_schema()["function"]["parameters"]["required"] == ["city"]
+    assert f.to_openai_schema()["function"]["parameters"]["properties"]["retries"] == {"type": "integer", "default": 3}
 
 
 def test_schema_optional():
@@ -67,9 +67,9 @@ def test_schema_optional():
     def f(a: Optional[int], b: Optional[int] = None) -> None:
         """doc"""
 
-    props = f.parameters["properties"]
+    props = f.to_openai_schema()["function"]["parameters"]["properties"]
     assert props["a"] == {"anyOf": [{"type": "integer"}, {"type": "null"}]}
-    assert f.parameters["required"] == ["a"]
+    assert f.to_openai_schema()["function"]["parameters"]["required"] == ["a"]
     assert props["b"]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
     assert props["b"]["default"] is None
 
@@ -89,12 +89,12 @@ def test_schema_complex_types():
     ) -> None:
         """doc"""
 
-    props = f.parameters["properties"]
+    props = f.to_openai_schema()["function"]["parameters"]["properties"]
     assert props["tags"] == {"type": "array", "items": {"type": "string"}}
     assert props["meta"] == {"type": "object", "additionalProperties": {"type": "integer"}}
     assert props["mode"]["enum"] == ["fast", "slow"]
     assert props["addr"] == {"$ref": "#/$defs/Address"}
-    assert f.parameters["$defs"]["Address"]["properties"]["city"] == {"type": "string"}
+    assert f.to_openai_schema()["function"]["parameters"]["$defs"]["Address"]["properties"]["city"] == {"type": "string"}
 
 
 def test_schema_has_no_titles():
@@ -113,7 +113,7 @@ def test_schema_has_no_titles():
             for item in node:
                 yield from collect_keys(item)
 
-    assert "title" not in list(collect_keys(f.parameters))
+    assert "title" not in list(collect_keys(f.to_openai_schema()["function"]["parameters"]))
 
 
 def test_reject_missing_annotation():
@@ -166,7 +166,7 @@ def test_schemas_for_shape():
             "function": {
                 "name": "multiply",
                 "description": "Multiply two integers.",
-                "parameters": multiply.parameters,
+                "parameters": multiply.to_openai_schema()["function"]["parameters"],
             },
         }
     ]
@@ -258,3 +258,125 @@ def test_call_tool_nondict_json_never_raises():
     """#14d 回归：arguments 解析出非 dict 也不抛。"""
     result = call_tool(make_tool_call("multiply", "[1, 2]"), _registry(multiply))
     assert result.startswith('Validation failed for tool "multiply":')
+
+
+# ---------- Tool 类能力（新增） ----------
+
+
+def test_tool_name_override():
+    """name 覆盖：@tool(name=...)。"""
+    from my_agent_core.tools import tool as _tool
+
+    @_tool(name="get_weather_v2")
+    def f(city: str) -> str:
+        """doc"""
+        return ""
+
+    assert f.name == "get_weather_v2"
+
+
+def test_tool_description_override():
+    """description 覆盖：@tool(description=...)。"""
+    from my_agent_core.tools import tool as _tool
+
+    @_tool(description="Override desc")
+    def f(city: str) -> str:
+        """Original doc"""
+        return ""
+
+    assert f.description == "Override desc"
+
+
+def test_tool_params_model_override():
+    """params_model 覆盖：外部传入 BaseModel。"""
+    from my_agent_core.tools import tool as _tool
+    from pydantic import BaseModel as BM
+
+    class MyArgs(BM):
+        city: str
+
+    @_tool(params_model=MyArgs)
+    def f(city: str) -> str:
+        """doc"""
+        return city
+
+    assert f.params_model is MyArgs
+    result = f.execute({"city": "北京"})
+    assert result.ok and result.data == "北京"
+
+
+def test_tool_factory_usage():
+    """@tool() 带括号与 @tool 不带括号两种用法等价。"""
+    from my_agent_core.tools import tool as _tool
+
+    @_tool()
+    def a(x: int) -> int:
+        """doc"""
+        return x
+
+    @_tool
+    def b(x: int) -> int:
+        """doc"""
+        return x
+
+    assert a.name == "a" and b.name == "b"
+    assert a.to_openai_schema()["function"]["parameters"] == b.to_openai_schema()["function"]["parameters"]
+
+
+def test_tool_callable():
+    """__call__ 直接调用函数本体。"""
+
+    @tool
+    def multiply(a: int, b: int) -> int:
+        """Multiply two integers."""
+        return a * b
+
+    assert multiply(6, 7) == 42
+
+
+def test_tool_execute_success():
+    """execute 成功 → ToolResult(ok=True, data=...)。"""
+
+    @tool
+    def multiply(a: int, b: int) -> int:
+        """Multiply two integers."""
+        return a * b
+
+    result = multiply.execute({"a": 6, "b": 7})
+    assert result.ok is True
+    assert result.data == 42
+    assert result.error is None
+
+
+def test_tool_execute_validation_error():
+    """execute 校验失败 → ToolResult(ok=False)，永不抛。"""
+
+    @tool
+    def f(a: int) -> int:
+        """doc"""
+        return a
+
+    result = f.execute({"a": "abc"})
+    assert result.ok is False
+    assert result.error is not None
+    assert "a: Input should be a valid integer" in result.error
+
+
+def test_tool_execute_tool_exception():
+    """execute 工具异常 → ToolResult(ok=False)，永不抛。"""
+
+    @tool
+    def boom(x: int) -> int:
+        """Always fails."""
+        raise RuntimeError("kaboom")
+
+    result = boom.execute({"x": 1})
+    assert result.ok is False
+    assert result.error == "Error executing tool 'boom': kaboom"
+
+
+def test_tool_result_serialize():
+    """ToolResult.serialize：成功返回 str(data)，失败返回错误文本。"""
+    assert ToolResult(ok=True, data=42).serialize() == "42"
+    assert ToolResult(ok=False, error="bad").serialize() == "bad"
+    assert ToolResult(ok=False).serialize() == "Unknown error"
