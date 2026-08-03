@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from my_agent_core.tools import Tool, call_tool, schemas_for
+from my_agent_core.registry import ToolRegistry
 
 
 def run_agent(
@@ -28,10 +28,12 @@ def run_agent(
     if system_prompt is not None:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": question})
-    # tools 节点的分发表：call_tool 按 tool_call.function.name 在这里找到目标函数
-    tools_by_name = {t.name: t for t in tools}
+    # tools 注册表：execute 按 tool_call.function.name 在这里找到目标工具
+    registry = ToolRegistry()
+    for t in tools:
+        registry.register(t)
     # schemas = 请求的 tools 参数：全部工具的 JSON schema
-    schemas = schemas_for(tools)
+    schemas = registry.get_schemas()
 
     iteration = 0
     while True:  # 无无限循环护栏：退出完全由模型自己判断
@@ -75,7 +77,7 @@ def run_agent(
                 f"[round {iteration}] 调用工具 "
                 f"{tc.function.name}({tc.function.arguments})"
             )
-            observation = call_tool(tc, tools_by_name)  # 错误会被转成消息文本，不会抛异常
+            observation = registry.execute(tc).serialize()  # 错误会被转成消息文本，不会抛异常
             print(f"[round {iteration}] 观察: {observation}")
             messages.append(
                 {

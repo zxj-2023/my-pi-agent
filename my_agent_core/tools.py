@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 from dataclasses import dataclass
 from typing import Any, Callable, get_type_hints
 
@@ -144,27 +143,3 @@ def _format_validation_error(name: str, exc: ValidationError) -> str:
         field = err["loc"][0] if err["loc"] else "?"
         lines.append(f"  - {field}: {err['msg']}")
     return "\n".join(lines)
-
-
-# ---- 兼容包装（Task 2 移除）：agent.py 与旧测试暂用，保持行为不变 ----
-
-
-def schemas_for(tools: list[Tool]) -> list[dict[str, Any]]:
-    """（临时）生成 OpenAI API 的 tools 参数。"""
-    return [t.to_openai_schema() for t in tools]
-
-
-def call_tool(tool_call: Any, tools_by_name: dict[str, Tool]) -> str:
-    """（临时）执行单个 tool_call。任何错误都转成描述性字符串，永不抛出。"""
-    name = tool_call.function.name
-    target = tools_by_name.get(name)
-    if target is None:
-        available = ", ".join(sorted(tools_by_name))
-        return f"Unknown tool '{name}'. Available: {available}"
-
-    try:
-        args = json.loads(tool_call.function.arguments)
-    except (json.JSONDecodeError, TypeError) as exc:
-        return f"Invalid JSON arguments for tool '{name}': {exc}"
-
-    return target.execute(args).serialize()

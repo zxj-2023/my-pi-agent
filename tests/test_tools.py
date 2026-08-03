@@ -1,20 +1,14 @@
-"""tools.py 离线测试：schema 生成（装饰期）+ Tool 类能力 + call_tool 分发（运行期）。
+"""tools.py 离线测试：schema 生成（装饰期）+ Tool 类能力（执行期）。
 
 无需 API key。测试清单对应
 docs/superpowers/specs/2026-08-03-pydantic-tool-schema-design.md §7。
 """
-from types import SimpleNamespace
 from typing import Literal, Optional
 
 import pytest
 from pydantic import BaseModel
 
-from my_agent_core.tools import Tool, ToolResult, call_tool, schemas_for, tool
-
-
-def make_tool_call(name: str, arguments: str) -> SimpleNamespace:
-    """构造与 OpenAI SDK 结构一致的假 tool_call。"""
-    return SimpleNamespace(function=SimpleNamespace(name=name, arguments=arguments))
+from my_agent_core.tools import Tool, ToolResult, tool
 
 
 # ---------- 装饰期：schema 生成（规格 §7 #1–#8） ----------
@@ -150,114 +144,6 @@ def test_name_and_description():
 
     assert get_weather.name == "get_weather"
     assert get_weather.description == "Get the weather for a city."
-
-
-def test_schemas_for_shape():
-    """#15 schemas_for 输出形状回归。"""
-
-    @tool
-    def multiply(a: int, b: int) -> int:
-        """Multiply two integers."""
-        return a * b
-
-    assert schemas_for([multiply]) == [
-        {
-            "type": "function",
-            "function": {
-                "name": "multiply",
-                "description": "Multiply two integers.",
-                "parameters": multiply.to_openai_schema()["function"]["parameters"],
-            },
-        }
-    ]
-
-
-# ---------- 运行期：call_tool 校验与分发（规格 §7 #9–#14） ----------
-
-
-@tool
-def multiply(a: int, b: int) -> int:
-    """Multiply two integers."""
-    return a * b
-
-
-@tool
-def greet(name: str, greeting: str = "Hello") -> str:
-    """Greet someone."""
-    return f"{greeting}, {name}!"
-
-
-def _registry(*tools: Tool) -> dict[str, Tool]:
-    return {t.name: t for t in tools}
-
-
-def test_call_tool_success():
-    """#9 正常调用返回 str(result)。"""
-    result = call_tool(make_tool_call("multiply", '{"a": 6, "b": 7}'), _registry(multiply))
-    assert result == "42"
-
-
-def test_call_tool_coerces_string_to_int():
-    """#10 类型强转："37" → 37。"""
-    result = call_tool(make_tool_call("multiply", '{"a": "6", "b": 7}'), _registry(multiply))
-    assert result == "42"
-
-
-def test_call_tool_missing_required():
-    """#11a 缺必填 → 逐条错误消息。"""
-    result = call_tool(make_tool_call("multiply", '{"a": 6}'), _registry(multiply))
-    assert result.startswith('Validation failed for tool "multiply":')
-    assert "b: Field required" in result
-
-
-def test_call_tool_wrong_type():
-    """#11b 类型不符 → 逐条错误消息。"""
-    result = call_tool(make_tool_call("multiply", '{"a": "abc", "b": 7}'), _registry(multiply))
-    assert result.startswith('Validation failed for tool "multiply":')
-    assert "a: Input should be a valid integer" in result
-
-
-def test_call_tool_extra_argument():
-    """#11c 多余参数 → 逐条错误消息。"""
-    result = call_tool(make_tool_call("multiply", '{"a": 6, "b": 7, "c": 8}'), _registry(multiply))
-    assert result.startswith('Validation failed for tool "multiply":')
-    assert "c: Extra inputs are not permitted" in result
-
-
-def test_call_tool_applies_defaults():
-    """#13 默认值参数不传 → 函数收到默认值。"""
-    result = call_tool(make_tool_call("greet", '{"name": "pi"}'), _registry(greet))
-    assert result == "Hello, pi!"
-
-
-def test_call_tool_unknown_tool():
-    """#14a 回归：未知工具名。"""
-    result = call_tool(make_tool_call("nope", "{}"), _registry(multiply))
-    assert result == "Unknown tool 'nope'. Available: multiply"
-
-
-def test_call_tool_invalid_json():
-    """#14b 回归：非法 JSON。"""
-    result = call_tool(make_tool_call("multiply", "{not json"), _registry(multiply))
-    assert result.startswith("Invalid JSON arguments for tool 'multiply':")
-
-
-def test_call_tool_tool_exception():
-    """#14c 回归：工具自身异常 → 错误字符串，永不抛。"""
-
-    @tool
-    def boom(x: int) -> int:
-        """Always fails."""
-        raise RuntimeError("kaboom")
-
-    result = call_tool(make_tool_call("boom", '{"x": 1}'), _registry(boom))
-    assert result == "Error executing tool 'boom': kaboom"
-
-
-def test_call_tool_nondict_json_never_raises():
-    """#14d 回归：arguments 解析出非 dict 也不抛。"""
-    result = call_tool(make_tool_call("multiply", "[1, 2]"), _registry(multiply))
-    assert result.startswith('Validation failed for tool "multiply":')
 
 
 # ---------- Tool 类能力（新增） ----------
