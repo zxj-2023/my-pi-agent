@@ -266,18 +266,17 @@ def run_loop(
 # 校验不再是手写函数，而是 Tool 上的 pydantic 参数模型：
 #
 #     validated = tool.params_model.model_validate(args)  # 校验 + 类型强转（"37" → 37）
-#     # ValidationError → _format_validation_error(name, exc) → 逐条错误字符串
+#     # ValidationError → str(exc)（pydantic 原始错误文本）
 #
 # 原三条规则全部由 pydantic 覆盖：
 # - 缺必填   → pydantic required 检查（装饰器生成的模型字段即真实签名）
 # - 类型不符 → pydantic 类型检查（bool→int 强转不算错，属宽松取舍，见 2026-08-03 规格）
 # - 多余参数 → 动态模型 extra="forbid"
-# 错误消息直接沿用 pydantic 原始 msg，逐条列出（pi 风格）：
+# 错误消息直接用 pydantic 原始文本（str(exc)），不做额外格式化：
 #
-#     Validation failed for tool "get_weather":
-#       - city: Field required
-#       - retries: Input should be a valid integer
-#       - verbose: Extra inputs are not permitted
+#     1 validation error for get_weather_Args
+#     city
+#       Field required [type=missing, input_value={}, input_type=dict]
 ```
 
 ### 4.5 `agent.py`

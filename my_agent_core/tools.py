@@ -75,14 +75,13 @@ class Tool:
             ) from exc
 
     def to_openai_schema(self) -> dict[str, Any]:
-        """生成 OpenAI tools 参数（pydantic schema，已删 title 噪音）。"""
-        parameters = _clean_schema(self.params_model.model_json_schema())
+        """生成 OpenAI tools 参数（pydantic 原始 schema）。"""
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": parameters,
+                "parameters": self.params_model.model_json_schema(),
             },
         }
 
@@ -91,7 +90,7 @@ class Tool:
         try:
             validated = self.params_model.model_validate(args)
         except ValidationError as exc:
-            return ToolResult(ok=False, error=_format_validation_error(self.name, exc))
+            return ToolResult(ok=False, error=str(exc))
         try:
             result = self.func(**validated.model_dump())
         except Exception as exc:  # 工具错误 → 消息，喂回模型
@@ -122,24 +121,3 @@ def tool(
     if func is None:
         return decorator
     return decorator(func)
-
-
-def _clean_schema(schema: Any) -> Any:
-    """递归清理 pydantic schema：删除各级 title 键与 additionalProperties: false（对模型是纯噪音）。"""
-    if isinstance(schema, dict):
-        cleaned = {k: _clean_schema(v) for k, v in schema.items() if k != "title"}
-        if cleaned.get("additionalProperties") is False:
-            cleaned.pop("additionalProperties")
-        return cleaned
-    if isinstance(schema, list):
-        return [_clean_schema(item) for item in schema]
-    return schema
-
-
-def _format_validation_error(name: str, exc: ValidationError) -> str:
-    """把 pydantic 校验错误转成逐条消息回给模型（pi 风格，消息用 pydantic 原文）。"""
-    lines = [f'Validation failed for tool "{name}":']
-    for err in exc.errors():
-        field = err["loc"][0] if err["loc"] else "?"
-        lines.append(f"  - {field}: {err['msg']}")
-    return "\n".join(lines)

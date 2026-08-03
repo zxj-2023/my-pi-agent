@@ -136,7 +136,7 @@ run_agent(question, tools=[get_weather, search_docs], client=client, model=model
 - [ ] 2.1 `loop.py`：`run_loop` 骨架 —— 循环、经典退出条件、`LoopOutcome`、
       事件发射（暂不含中间件）→ 验证：框架 §7 #2–#5、#11（FakeLLM 驱动）
 - [ ] 2.2 `loop.py`：执行前参数校验（经 `Tool.model` pydantic 校验 + 强转，
-      逐条错误消息复用 tools.py 的 `_format_validation_error`）→ 验证：框架 §7 #6
+      错误消息用 pydantic 原始文本 `str(exc)`）→ 验证：框架 §7 #6
 - [ ] 2.3 `loop.py`：六段管道完成 —— `before_tool` / `after_tool` 中间件、
       `ToolBlocked` 拦截、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
 - [ ] 2.4 `loop.py`：`max_iterations`（默认 `None` 不限）

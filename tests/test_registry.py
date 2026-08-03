@@ -92,12 +92,11 @@ def test_execute_coerces_string_to_int():
 
 
 def test_execute_validation_error():
-    """缺必填 → ToolResult(ok=False)，含逐条消息。"""
+    """缺必填 → ToolResult(ok=False)，含 pydantic 错误消息。"""
     result = _registry(multiply).execute(make_tool_call("multiply", '{"a": 6}'))
     assert result.ok is False
     assert result.error is not None
-    assert result.error.startswith('Validation failed for tool "multiply":')
-    assert "b: Field required" in result.error
+    assert "Field required" in result.error
 
 
 def test_execute_unknown_tool():
@@ -131,7 +130,7 @@ def test_execute_nondict_json_never_raises():
     """arguments 解析出非 dict 也不抛。"""
     result = _registry(multiply).execute(make_tool_call("multiply", "[1, 2]"))
     assert result.ok is False
-    assert result.error.startswith('Validation failed for tool "multiply":')
+    assert result.error is not None
 
 
 def test_execute_applies_defaults():
