@@ -8,7 +8,7 @@ from typing import Literal, Optional
 import pytest
 from pydantic import BaseModel
 
-from my_agent_core.tools import Tool, ToolResult, tool
+from my_agent_core.tools import ToolResult, tool
 
 
 # ---------- 装饰期：schema 生成（规格 §7 #1–#8） ----------

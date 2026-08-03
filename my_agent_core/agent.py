@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from my_agent_core.registry import ToolRegistry
+from my_agent_core.tools import Tool
 
 
 def run_agent(

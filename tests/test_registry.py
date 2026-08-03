@@ -132,3 +132,10 @@ def test_execute_nondict_json_never_raises():
     result = _registry(multiply).execute(make_tool_call("multiply", "[1, 2]"))
     assert result.ok is False
     assert result.error.startswith('Validation failed for tool "multiply":')
+
+
+def test_execute_applies_defaults():
+    """默认值参数不传 → 函数收到默认值。"""
+    result = _registry(greet).execute(make_tool_call("greet", '{"name": "pi"}'))
+    assert result.ok is True
+    assert result.data == "Hello, pi!"
