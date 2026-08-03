@@ -403,7 +403,7 @@ def call_tool(tool_call: Any, tools_by_name: dict[str, Tool]) -> str:
 - [ ] **Step 4: 运行测试，确认全部通过**
 
 Run: `uv run python -m pytest tests/test_tools.py -q`
-Expected: PASS（29 个测试全绿：8 迁移 schema + 2 reject + 1 name + 1 schemas_for + 9 新类测试 + 10 call_tool 回归）。
+Expected: PASS（29 个测试全绿：6 迁移 schema + 2 reject + 1 name + 1 schemas_for + 9 新类测试 + 10 call_tool 回归）。
 
 - [ ] **Step 5: 提交**
 
@@ -665,7 +665,7 @@ from my_agent_core.registry import ToolRegistry
 - [ ] **Step 7: 运行全量测试，确认通过**
 
 Run: `uv run python -m pytest -q`
-Expected: PASS（约 30 个测试全绿：test_tools.py 18 + test_registry.py 11，以实际为准）。
+Expected: PASS（29 个测试全绿：test_tools.py 18 + test_registry.py 11）。
 
 - [ ] **Step 8: 真实运行 demo（规格 §7 集成）**
 
@@ -761,7 +761,7 @@ Edit 2 —— 六段管道第 2 步描述（line 251-252 区域）：
 - [ ] **Step 4: 文档自检**
 
 Run: `uv run python -m pytest -q`（确认文档改动没碰坏代码）
-Expected: PASS（约 30 passed）。
+Expected: PASS（29 passed）。
 再人工通读三处 diff：`git diff CLAUDE.md my_agent_core/README.md docs/superpowers/specs/2026-08-01-my-agent-framework-design.md`，确认没有残留「schemas_for」「call_tool」「run_agent 里手写 tools_by_name」的旧表述（`git grep -n "schemas_for\|call_tool" -- "*.py"` 应无命中）。
 
 - [ ] **Step 5: 提交**
