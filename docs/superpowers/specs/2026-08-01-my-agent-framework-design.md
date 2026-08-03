@@ -270,8 +270,7 @@ def run_loop(
 #
 # 原三条规则全部由 pydantic 覆盖：
 # - 缺必填   → pydantic required 检查（装饰器生成的模型字段即真实签名）
-# - 类型不符 → pydantic 类型检查；bool/int 区分：v2 lax 模式实际接受 bool→int，
-#              故裸 int/float 标注由 @tool 加 BeforeValidator 显式拒绝 bool
+# - 类型不符 → pydantic 类型检查（bool→int 强转不算错，属宽松取舍，见 2026-08-03 规格）
 # - 多余参数 → 动态模型 extra="forbid"
 # 错误消息直接沿用 pydantic 原始 msg，逐条列出（pi 风格）：
 #
@@ -387,7 +386,7 @@ class FakeLLM:
 | 3 | 工具调用路径 | 一轮 tool_calls + 一轮最终回答 → transcript 中 tool 消息 content 为真实执行结果（配对验证） |
 | 4 | 一轮多个 tool_calls | 两个调用各自配对写回 |
 | 5 | 未知工具 / 坏 JSON / 工具异常 | 错误字符串写回且循环继续，最终正常结束 |
-| 6 | 参数校验（新） | pydantic 校验 + 强转（"37"→37）；缺必填 / 类型不符（含 bool 与 int 的区分）/ 多余参数 → 错误逐条列出违规，工具未执行（副作用探针）；arguments 非 JSON object → 错误字符串 |
+| 6 | 参数校验（新） | pydantic 校验 + 强转（"37"→37）；缺必填 / 类型不符 / 多余参数 → 错误逐条列出违规，工具未执行（副作用探针）；arguments 非 JSON object → 错误字符串 |
 | 7 | `before_tool` 拦截（新） | 抛 `ToolBlocked("no")` → tool 消息含 "blocked: no"，工具函数未被调用（用副作用探针验证） |
 | 8 | `before_tool` 改写参数（新） | 返回改写的 args → 工具收到改写值 |
 | 9 | `after_tool` 改写结果（新） | 返回改写 result → transcript 中是改写后的文本 |

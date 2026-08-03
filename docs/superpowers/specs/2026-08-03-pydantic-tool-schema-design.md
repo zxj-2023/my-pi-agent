@@ -95,10 +95,9 @@ def tool(func: Callable[..., Any]) -> Tool:
 
 - **`extra="forbid"`**：让 pydantic 模型天然覆盖原手写校验器三规则中的「多余参数」；
   「缺必填」「类型不符」是 pydantic 本职。
-- **bool/int 区分**（2026-08-03 实现期修正）：实测 pydantic v2 lax 模式**接受**
-  bool→int/float（与最初「v2 默认严格区分」的假设相反），故 `@tool` 对裸 `int`/
-  `float` 标注包一层 `BeforeValidator` 显式拒绝 bool（复合标注如 `Optional[int]`
-  不递归处理，属已知边界）；JSON schema 不受影响。
+- **bool/int 不区分**（2026-08-03 实现期修正）：pydantic v2 lax 模式接受
+  bool→int/float（`True` 会强转为 `1`）。这是刻意的宽松取舍——不拦截，模型传错
+  类型时静默接受，换取更少的代码与心智负担。
 - **`_clean_schema`**：约 5 行的递归函数，删除 pydantic 输出中各级 `title` 键
   （模型名与字段名的 title 对模型是纯噪音），其余结构（`$defs`、`anyOf`、
   `default` 等）原样保留。
@@ -196,15 +195,14 @@ Validation failed for tool "get_weather":
 10. 类型强转：`"37"` → `37` 生效
 11. 缺必填 / 类型不符（`"abc"` → int）/ 多余参数 → `Validation failed for tool "X":`
     逐条消息
-12. bool/int 严格区分：int 参数传 `true` → 校验失败（钉死 pydantic v2 行为）
-13. 默认值参数不传 → 函数收到默认值
-14. 回归：未知工具名、非法 JSON、工具自身异常 → 字符串行为与现状一致；
+12. 默认值参数不传 → 函数收到默认值
+13. 回归：未知工具名、非法 JSON、工具自身异常 → 字符串行为与现状一致；
     `call_tool` 永不抛
 
 **集成**
 
-15. `schemas_for` 输出形状回归不变
-16. 真实运行 `uv run python -m my_agent_core.main`：三个问题答案符合预期
+14. `schemas_for` 输出形状回归不变
+15. 真实运行 `uv run python -m my_agent_core.main`：三个问题答案符合预期
     （703 / 当前时间 / 两城市天气）
 
 ## 8. 非目标（明确不做）

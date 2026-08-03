@@ -224,12 +224,6 @@ def test_call_tool_extra_argument():
     assert "c: Extra inputs are not permitted" in result
 
 
-def test_call_tool_bool_not_accepted_as_int():
-    """#12 bool/int 严格区分（钉死 pydantic v2 行为）。"""
-    result = call_tool(make_tool_call("multiply", '{"a": true, "b": 7}'), _registry(multiply))
-    assert result.startswith('Validation failed for tool "multiply":')
-
-
 def test_call_tool_applies_defaults():
     """#13 默认值参数不传 → 函数收到默认值。"""
     result = call_tool(make_tool_call("greet", '{"name": "pi"}'), _registry(greet))

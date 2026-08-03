@@ -9,9 +9,9 @@ from __future__ import annotations
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Annotated, Any, Callable, get_type_hints
+from typing import Any, Callable, get_type_hints
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 
 @dataclass
@@ -23,27 +23,6 @@ class Tool:
     parameters: dict[str, Any]
     func: Callable[..., Any]
     model: type[BaseModel]   # pydantic 参数模型：schema 生成与运行期校验共用
-
-
-def _reject_bool_for_int(v: Any) -> Any:
-    """int 字段前置校验：拒绝 bool（pydantic v2 lax 模式默认接受 bool→int）。"""
-    if isinstance(v, bool):
-        raise ValueError("Input should be a valid integer, got bool")
-    return v
-
-
-def _reject_bool_for_float(v: Any) -> Any:
-    """float 字段前置校验：拒绝 bool（pydantic v2 lax 模式默认接受 bool→float）。"""
-    if isinstance(v, bool):
-        raise ValueError("Input should be a valid number, got bool")
-    return v
-
-
-# 裸标注 → 包装后的类型（仅 int/float，不递归 Optional 等复合标注）
-_NUMERIC_GUARDS: dict[type, Any] = {
-    int: Annotated[int, BeforeValidator(_reject_bool_for_int)],
-    float: Annotated[float, BeforeValidator(_reject_bool_for_float)],
-}
 
 
 def tool(func: Callable[..., Any]) -> Tool:
@@ -67,10 +46,7 @@ def tool(func: Callable[..., Any]) -> Tool:
                 "has no type annotation（没有类型标注）"
             )
         default = ... if param.default is inspect.Parameter.empty else param.default
-        # 裸 int/float 加 BeforeValidator 拒绝 bool；Optional[int] 等复合标注不处理
-        ann = hints[param_name]
-        ann = _NUMERIC_GUARDS.get(ann, ann)
-        fields[param_name] = (ann, default)
+        fields[param_name] = (hints[param_name], default)
 
     try:
         model = create_model(
