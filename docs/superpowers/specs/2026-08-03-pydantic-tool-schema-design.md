@@ -44,7 +44,7 @@ pydantic 这类通用库允许使用。手写映射表的局限（无 list/dict/
 ### 3.1 删除
 
 - `TYPE_MAP` 整张映射表
-- 装饰器里手写的参数遍历校验（现第 43~57 行）
+- 装饰器里手写的参数遍历校验（`tool()` 中按 `TYPE_MAP` 查类型、拼 `properties` 的循环）
 
 ### 3.2 `Tool` dataclass 新增字段
 
