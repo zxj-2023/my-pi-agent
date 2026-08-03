@@ -248,7 +248,7 @@ def run_loop(
 
 ```
 1. tools_by_name.get(name)      → 未命中 → "Unknown tool 'X'. Available: a, b"（沿用现有措辞）
-2. json.loads(arguments)        → 失败   → "Invalid JSON arguments for tool 'X': ..."（沿用）
+2. json.loads(arguments)        → 失败   → "Invalid JSON arguments for tool 'X': ..."（沿用；现由 ToolRegistry.execute 负责）
                                   结果非 dict → "Invalid arguments for tool 'X': expected JSON object"
 3. tool.model.model_validate(args) → ValidationError → 校验错误字符串（逐条列出，pi 风格，见下；含类型强转）
 4. before_tool(name, args)      → ToolBlocked(reason) → "Tool 'X' blocked: reason"
@@ -265,7 +265,7 @@ def run_loop(
 # —— 已由 2026-08-03-pydantic-tool-schema-design.md 取代 ——
 # 校验不再是手写函数，而是 Tool 上的 pydantic 参数模型：
 #
-#     validated = tool.model.model_validate(args)     # 校验 + 类型强转（"37" → 37）
+#     validated = tool.params_model.model_validate(args)  # 校验 + 类型强转（"37" → 37）
 #     # ValidationError → _format_validation_error(name, exc) → 逐条错误字符串
 #
 # 原三条规则全部由 pydantic 覆盖：

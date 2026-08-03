@@ -44,7 +44,8 @@ The client is plain `openai.OpenAI(...)`, so any OpenAI-compatible endpoint work
 
 Three files form a complete ReAct (Reason + Act) loop — `tool_calls` parsing, scheduling, error tolerance are written by hand; schema generation and parameter validation are delegated to pydantic:
 
-- **`my_agent_core/tools.py`** — up-translation layer. `@tool` builds a `Tool` (function + JSON schema + pydantic 参数模型) from the function name, docstring, and type hints (pydantic 全集类型，允许默认值；无标注参数与 `*args`/`**kwargs` 在装饰时拒绝). `schemas_for` wraps tools into the OpenAI `tools` request field. `call_tool` dispatches one tool call and **never raises** — unknown tool name, invalid JSON args, and tool exceptions all become descriptive strings fed back to the model so it can self-correct.
+- **`my_agent_core/tools.py`** — up-translation layer. `@tool` (支持 `name`/`description`/`params_model` 覆盖) builds a `Tool` class (function + JSON schema + pydantic 参数模型 + `to_openai_schema`/`execute`/`__call__`) from the function name, docstring, and type hints (pydantic 全集类型，允许默认值；无标注参数与 `*args`/`**kwargs` 在装饰时拒绝). `ToolResult` 承载执行结果（ok/data/error，永不抛）。
+- **`my_agent_core/registry.py`** — `ToolRegistry`：工具注册表（register/unregister/get/get_schemas/execute），`execute` 收完整 `tool_call`（内部 JSON 解析 + 查表），全部错误转 `ToolResult`。
 - **`my_agent_core/agent.py`** — `run_agent(question, *, tools, client, model, system_prompt=None)`, the scheduler. **Messages are plain OpenAI wire-format dicts in a list — there is no Message class; the protocol format IS the state.** Loop: send full history + schemas → if the response has no `tool_calls`, return the text (classic exit condition); else execute each tool call, append `role:"tool"` observations paired by `tool_call_id`, and repeat.
 - **`my_agent_core/main.py`** — demo entry point: 3 example tools + 3 fixed questions; supplies its own `DEMO_SYSTEM_PROMPT`.
 

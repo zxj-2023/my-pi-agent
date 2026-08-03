@@ -15,7 +15,7 @@
 
 特性：
 
-- `@tool` 装饰器：从函数名、docstring、类型标注自动生成发给模型的 JSON schema（pydantic 驱动，支持全集类型与默认值）
+- `@tool` 装饰器：从函数名、docstring、类型标注自动生成发给模型的 JSON schema（pydantic 驱动，支持全集类型与默认值）；支持 `name`/`description`/`params_model` 覆盖
 - ReAct 循环：Reason → Act → Observe → 重复，经典退出条件（`tool_calls` 为空即结束）
 - 工具容错：工具异常、非法参数、不存在的工具名全部转成描述性消息回给模型，
   让模型有机会自我纠正
@@ -49,7 +49,8 @@ uv run pytest -q
 
 ```
 my_agent_core/
-├── tools.py     # @tool 装饰器 + schema 生成 + 工具调用分发
+├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
+├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
 ├── agent.py     # ReAct 循环（run_agent）
 └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 tests/
@@ -71,7 +72,8 @@ tests/
 
 1. **上行翻译**：`@tool` 把 Python 函数翻译成模型看得懂的 JSON schema，
    放进请求的 `tools` 字段
-2. **下行调度**：读响应的 `tool_calls`——非空就逐个执行工具，把结果作为
+2. **下行调度**：读响应的 `tool_calls`——非空就逐个经 `ToolRegistry.execute` 执行
+   （收完整 `tool_call`，内部解析 + 查表，永不抛），把 `ToolResult` 序列化后作为
    `role: "tool"` 消息写回 messages（与助手消息的 `tool_call_id` 配对），
    再问一轮；为空则循环结束，返回模型的文本
 
