@@ -7,7 +7,11 @@ dependencies = [
     "openai>=2.50.0",
     "pydantic>=2.0",
     "python-dotenv>=1.0,<2.0",
+    "my-agent-llm",
 ]
+
+[tool.uv.sources]
+my-agent-llm = { path = "../my-agent-llm" }
 
 [build-system]
 requires = ["hatchling"]

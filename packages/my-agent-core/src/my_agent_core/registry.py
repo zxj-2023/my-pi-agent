@@ -26,11 +26,11 @@ class ToolRegistry:
         """生成全部工具的 OpenAI tools 参数。"""
         return [t.to_openai_schema() for t in self._tools.values()]
 
-    def execute(self, tool_call: Any) -> ToolResult:
-        """执行单个 tool_call（收完整协议对象）。任何错误都转成 ToolResult，永不抛。"""
-        name = tool_call.function.name
+    def execute(self, tool_call: dict) -> ToolResult:
+        """执行单个 tool_call（收协议 dict）。任何错误都转成 ToolResult，永不抛。"""
+        name = tool_call["function"]["name"]
         try:
-            args = json.loads(tool_call.function.arguments)
+            args = json.loads(tool_call["function"]["arguments"])
         except (json.JSONDecodeError, TypeError) as exc:
             return ToolResult(ok=False, error=f"Invalid JSON arguments for tool '{name}': {exc}")
         target = self._tools.get(name)

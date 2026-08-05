@@ -2,15 +2,17 @@
 
 无需 API key。对应 docs/superpowers/specs/2026-08-03-tool-class-design.md §7。
 """
-from types import SimpleNamespace
-
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import tool
 
 
-def make_tool_call(name: str, arguments: str) -> SimpleNamespace:
-    """构造与 OpenAI SDK 结构一致的假 tool_call。"""
-    return SimpleNamespace(function=SimpleNamespace(name=name, arguments=arguments))
+def make_tool_call(name: str, arguments: str) -> dict:
+    """构造协议形状的假 tool_call（与 Response.tool_calls 元素一致）。"""
+    return {
+        "id": "fake-id",
+        "type": "function",
+        "function": {"name": name, "arguments": arguments},
+    }
 
 
 @tool
