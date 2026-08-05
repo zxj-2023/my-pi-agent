@@ -50,7 +50,7 @@ class LLM:
             kwargs.setdefault("temperature", self.config.temperature)
         if max_tokens is not None:
             kwargs.setdefault("max_tokens", max_tokens)
-        else:
+        elif self.config.max_tokens is not None:
             kwargs.setdefault("max_tokens", self.config.max_tokens)
         return self._provider.chat(
             messages, model=model or self.model, tools=tools, **kwargs

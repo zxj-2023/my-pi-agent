@@ -55,3 +55,24 @@ def test_chat_falls_back_to_config_sampling_params():
     llm.chat([Message(role="user", content="hi")])
     assert fp.calls[0]["temperature"] == 0.3
     assert fp.calls[0]["max_tokens"] == 123
+
+
+def test_chat_omits_max_tokens_when_config_none():
+    """config.max_tokens=None → chat 不注入 max_tokens 键（anthropic 4096 回落不受影响）。"""
+    from my_agent_llm.models import Response
+
+    llm = LLM(config=Config(provider="openai", api_key="k", model="m"))
+
+    class FakeProvider:
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, messages, *, model, tools=None, **kwargs):
+            self.calls.append(kwargs)
+            return Response(content="ok", model=model)
+
+    fp = FakeProvider()
+    llm._provider = fp
+    llm.chat([Message(role="user", content="hi")])
+    assert "max_tokens" not in fp.calls[0]
+    assert fp.calls[0]["temperature"] == 0.7  # temperature 仍回落 config 默认
