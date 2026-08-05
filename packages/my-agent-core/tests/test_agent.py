@@ -13,7 +13,7 @@ class FakeLLM:
         self.calls: list[dict] = []
 
     def chat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": messages, "tools": tools})
+        self.calls.append({"messages": list(messages), "tools": tools})
         return self.responses.pop(0)
 
 
@@ -65,6 +65,9 @@ def test_multiple_tool_calls():
     assert len(tool_msgs) == 2
     assert tool_msgs[0].metadata["tool_call_id"] == "1"
     assert tool_msgs[1].metadata["tool_call_id"] == "2"
+    # assistant 消息的 metadata 必须带 tool_calls（provider 下轮请求依赖它）
+    assistant_msgs = [m for m in second_call if m.role == "assistant"]
+    assert assistant_msgs[0].metadata["tool_calls"] == tcs
 
 
 def test_unknown_tool_error_recovered():
