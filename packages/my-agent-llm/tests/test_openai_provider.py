@@ -67,12 +67,13 @@ def test_chat_extracts_tool_calls():
 
 
 def test_stream_yields_chunks():
-    """stream → 文本增量序列。"""
+    """stream → 文本增量序列；usage-only 末块（choices 为空）跳过。"""
     class FakeStream:
         def __init__(self):
             self.chunks = [
                 SimpleNamespace(id="1", choices=[SimpleNamespace(delta=SimpleNamespace(content="a"), finish_reason=None)]),
                 SimpleNamespace(id="2", choices=[SimpleNamespace(delta=SimpleNamespace(content="b"), finish_reason="stop")]),
+                SimpleNamespace(id="3", choices=[]),  # usage-only 末块
             ]
         def __iter__(self):
             return iter(self.chunks)

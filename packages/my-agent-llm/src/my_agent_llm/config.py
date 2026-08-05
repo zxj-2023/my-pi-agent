@@ -1,5 +1,5 @@
 """LLM 客户端配置：集中校验、可复用、不可变。"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Config(BaseModel):
@@ -14,5 +14,4 @@ class Config(BaseModel):
     max_retries: int = Field(default=3, ge=0)
     base_url: str | None = None
 
-    class Config:
-        frozen = True
+    model_config = ConfigDict(frozen=True)

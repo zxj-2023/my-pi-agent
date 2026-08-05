@@ -29,5 +29,5 @@ def test_config_rejects_negative_max_retries():
 def test_config_frozen():
     """frozen：构造后不可改。"""
     c = Config()
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         c.provider = "anthropic"

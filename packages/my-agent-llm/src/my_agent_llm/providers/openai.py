@@ -113,7 +113,7 @@ class OpenAIProvider(Provider):
         tools: list[dict] | None = None,
         **kwargs,
     ) -> Iterator[StreamChunk]:
-        """同步流式：逐 delta 产块，末块带 tool_calls + usage。"""
+        """同步流式：逐 delta 产文本块；v1 简化：末块 tool_calls/usage 由调用方自行汇总。"""
         stream = self.client.chat.completions.create(
             model=model,
             messages=self._convert_messages(messages),
@@ -122,6 +122,8 @@ class OpenAIProvider(Provider):
             **kwargs,
         )
         for chunk in stream:
+            if not chunk.choices:
+                continue  # usage-only 末块（choices 为空）——跳过，流式结束
             choice = chunk.choices[0]
             delta = choice.delta
             if getattr(delta, "content", None):
@@ -138,6 +140,8 @@ class OpenAIProvider(Provider):
         **kwargs,
     ) -> Response:
         """异步对话。"""
+        if self.async_client is None:
+            raise RuntimeError("async_client not provided; cannot run async methods")
         response = await self.async_client.chat.completions.create(
             model=model,
             messages=self._convert_messages(messages),
@@ -162,6 +166,8 @@ class OpenAIProvider(Provider):
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """异步流式。"""
+        if self.async_client is None:
+            raise RuntimeError("async_client not provided; cannot run async methods")
         stream = await self.async_client.chat.completions.create(
             model=model,
             messages=self._convert_messages(messages),
@@ -170,6 +176,8 @@ class OpenAIProvider(Provider):
             **kwargs,
         )
         async for chunk in stream:
+            if not chunk.choices:
+                continue  # usage-only 末块（choices 为空）——跳过，流式结束
             choice = chunk.choices[0]
             delta = choice.delta
             if getattr(delta, "content", None):

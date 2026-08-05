@@ -34,3 +34,24 @@ def test_routes_to_provider():
     assert isinstance(LLM(config=Config(provider="openai", api_key="k"))._provider, OpenAIProvider)
     assert isinstance(LLM(config=Config(provider="deepseek", api_key="k"))._provider, DeepSeekProvider)
     assert isinstance(LLM(config=Config(provider="anthropic", api_key="k"))._provider, AnthropicProvider)
+
+
+def test_chat_falls_back_to_config_sampling_params():
+    """chat 未显式传 temperature/max_tokens → 用 config 值。"""
+    from my_agent_llm.models import Response
+
+    llm = LLM(config=Config(provider="openai", api_key="k", model="m", temperature=0.3, max_tokens=123))
+
+    class FakeProvider:
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, messages, *, model, tools=None, **kwargs):
+            self.calls.append(kwargs)
+            return Response(content="ok", model=model)
+
+    fp = FakeProvider()
+    llm._provider = fp
+    llm.chat([Message(role="user", content="hi")])
+    assert fp.calls[0]["temperature"] == 0.3
+    assert fp.calls[0]["max_tokens"] == 123

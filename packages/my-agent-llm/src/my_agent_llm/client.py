@@ -44,8 +44,14 @@ class LLM:
              model: str | None = None, temperature: float | None = None,
              max_tokens: int | None = None, **kwargs) -> Response:
         """同步对话：完整历史 + 可选工具。核心方法。"""
-        kwargs.setdefault("temperature", temperature) if temperature is not None else None
-        kwargs.setdefault("max_tokens", max_tokens) if max_tokens is not None else None
+        if temperature is not None:
+            kwargs.setdefault("temperature", temperature)
+        else:
+            kwargs.setdefault("temperature", self.config.temperature)
+        if max_tokens is not None:
+            kwargs.setdefault("max_tokens", max_tokens)
+        else:
+            kwargs.setdefault("max_tokens", self.config.max_tokens)
         return self._provider.chat(
             messages, model=model or self.model, tools=tools, **kwargs
         )
@@ -62,5 +68,8 @@ class LLM:
 
     async def achat_stream(self, messages: list[Message], *, tools: list[dict] | None = None,
                            model: str | None = None, **kwargs) -> AsyncIterator[StreamChunk]:
-        """异步流式。"""
-        return self._provider.achat_stream(messages, model=model or self.model, tools=tools, **kwargs)
+        """异步流式。调用方直接 `async for chunk in llm.achat_stream(...)` 迭代，不 await。"""
+        async for chunk in self._provider.achat_stream(
+            messages, model=model or self.model, tools=tools, **kwargs
+        ):
+            yield chunk

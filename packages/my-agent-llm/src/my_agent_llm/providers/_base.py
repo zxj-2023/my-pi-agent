@@ -51,3 +51,4 @@ class Provider(ABC):
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """异步流式。"""
+        yield  # 抽象标记：子类必须实现为异步生成器

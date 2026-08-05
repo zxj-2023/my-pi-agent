@@ -1,8 +1,6 @@
 """DeepSeek provider：OpenAI 兼容端点 + reasoning_content 提取。"""
 from collections.abc import AsyncIterator, Iterator
 
-import openai
-
 from ..config import Config
 from ..models import Message, Response, StreamChunk
 from .openai import OpenAIProvider
@@ -48,6 +46,8 @@ class DeepSeekProvider(OpenAIProvider):
             stream=True,
             **kwargs,
         ):
+            if not chunk.choices:
+                continue  # usage-only 末块（choices 为空）——跳过，流式结束
             choice = chunk.choices[0]
             delta = choice.delta
             if getattr(delta, "reasoning_content", None):
@@ -59,6 +59,8 @@ class DeepSeekProvider(OpenAIProvider):
             yield StreamChunk(content="", metadata={"reasoning_content": "".join(reasoning_parts)})
 
     async def achat(self, messages, *, model, tools=None, **kwargs) -> Response:
+        if self.async_client is None:
+            raise RuntimeError("async_client not provided; cannot run async methods")
         response = await self.async_client.chat.completions.create(
             model=model,
             messages=self._convert_messages(messages),
@@ -76,6 +78,8 @@ class DeepSeekProvider(OpenAIProvider):
         )
 
     async def achat_stream(self, messages, *, model, tools=None, **kwargs) -> AsyncIterator[StreamChunk]:
+        if self.async_client is None:
+            raise RuntimeError("async_client not provided; cannot run async methods")
         reasoning_parts: list[str] = []
         stream = await self.async_client.chat.completions.create(
             model=model,
@@ -85,6 +89,8 @@ class DeepSeekProvider(OpenAIProvider):
             **kwargs,
         )
         async for chunk in stream:
+            if not chunk.choices:
+                continue  # usage-only 末块（choices 为空）——跳过，流式结束
             choice = chunk.choices[0]
             delta = choice.delta
             if getattr(delta, "reasoning_content", None):

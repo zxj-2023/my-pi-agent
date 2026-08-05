@@ -170,9 +170,17 @@ class AnthropicProvider(Provider):
             reasoning = self._extract_reasoning(final.content)
             usage = self._extract_usage(final)
             if tool_calls or reasoning or usage:
-                yield StreamChunk(content="", tool_calls=tool_calls, usage=usage)
+                yield StreamChunk(
+                    content="",
+                    tool_calls=tool_calls,
+                    usage=usage,
+                    finish_reason=final.stop_reason,
+                    metadata={"reasoning_content": reasoning} if reasoning else None,
+                )
 
     async def achat(self, messages, *, model, tools=None, **kwargs) -> Response:
+        if self.async_client is None:
+            raise RuntimeError("async_client not provided; cannot run async methods")
         system, ant_messages = self._convert_messages(messages)
         ant_tools = self._resolve_tools(tools, kwargs)
         kwargs.pop("tools", None)
@@ -194,6 +202,8 @@ class AnthropicProvider(Provider):
         )
 
     async def achat_stream(self, messages, *, model, tools=None, **kwargs) -> AsyncIterator[StreamChunk]:
+        if self.async_client is None:
+            raise RuntimeError("async_client not provided; cannot run async methods")
         system, ant_messages = self._convert_messages(messages)
         ant_tools = self._resolve_tools(tools, kwargs)
         kwargs.pop("tools", None)
@@ -212,4 +222,10 @@ class AnthropicProvider(Provider):
             reasoning = self._extract_reasoning(final.content)
             usage = self._extract_usage(final)
             if tool_calls or reasoning or usage:
-                yield StreamChunk(content="", tool_calls=tool_calls, usage=usage)
+                yield StreamChunk(
+                    content="",
+                    tool_calls=tool_calls,
+                    usage=usage,
+                    finish_reason=final.stop_reason,
+                    metadata={"reasoning_content": reasoning} if reasoning else None,
+                )
