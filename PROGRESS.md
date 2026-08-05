@@ -99,16 +99,19 @@ my-pi-agent/
   - 修复波次又引入 **回归：`LLM.chat` 注入 `max_tokens=None` 废掉 anthropic 4096 回落**（复审抓到，第二轮修复为源头不注入）
 - **验证**：33 个离线测试全绿，无 warning。
 
----
+### 阶段 7：agent 层接入 `my-agent-llm`（已完成）
 
-## 进行中
+**目标**：`run_agent` 从裸 `openai.OpenAI` 改为用统一 `LLM` 类 + `Message`。
 
-### 阶段 7：agent 层接入 `my-agent-llm`（进行中）
-
-**目标**：`run_agent` 从裸 `openai.OpenAI` 改为用统一 `LLM` 类。
-
-- 已确认决策：agent 内部统一用 `Message` 对象（对齐 pig-mono，wire dict 是 OpenAI 专属形状，`Message` 才是跨 provider 的统一契约）；`run_agent` 收 `llm` 对象。
-- 待定：`registry.execute` 收 tool_call 的形状（dict vs 属性对象；参考 pig-mono——它从 `Response.tool_calls` dict 拆 name+args 后喂 `execute_sync(name, args)`）。
+- 规格：`docs/superpowers/specs/2026-08-03-agent-llm-integration-design.md`
+- 提交：`6035bdc` `f9138cd` `本次提交`
+- **改了什么**：
+  - `run_agent` 签名 `client+model` → `llm` 对象；messages 从 wire dict → `list[Message]`
+  - `ToolRegistry.execute` 收协议 dict（`tool_call["function"]["name"]`），agent 直接喂 `Response.tool_calls`
+  - `main.py` `build_client()` → `build_llm()`（`.env` 映射到 `Config`）
+  - 新增 `tests/test_agent.py`（假 LLM 离线测循环）
+- **过程中的关键教训**：`Response.tool_calls` 是协议 dict 而非 SDK 对象——registry 接口从「属性对象」改为「dict」以对齐，避免 agent 里造中间形状。
+- **验证**：`uv run python -m pytest -q` 全绿（34 个）；demo 链路通到真实 API 但被 401 拦下（`.env` key 失效/过期），最终答案未验证。
 
 ---
 

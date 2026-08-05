@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from my_agent_llm import Config, LLM
 
 from my_agent_core.agent import run_agent
 from my_agent_core.tools import tool
@@ -48,27 +48,27 @@ DEMO_SYSTEM_PROMPT = (
 )
 
 
-def build_client() -> OpenAI:
+def build_llm() -> LLM:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is missing. Add it to .env.")
-    options: dict[str, str] = {"api_key": api_key}
+    options: dict[str, str] = {"provider": "openai", "api_key": api_key}
     if base_url := os.getenv("OPENAI_BASE_URL"):
         options["base_url"] = base_url
-    return OpenAI(**options)
+    if model := os.getenv("OPENAI_MODEL"):
+        options["model"] = model
+    return LLM(config=Config(**options))
 
 
 def main() -> None:
     load_dotenv()
-    client = build_client()
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    llm = build_llm()
     for question in QUESTIONS:
         print(f"\n=== 问题: {question} ===")
         answer = run_agent(
             question,
             tools=TOOLS,
-            client=client,
-            model=model,
+            llm=llm,
             system_prompt=DEMO_SYSTEM_PROMPT,
         )
         print(f"\n最终答案: {answer}")
