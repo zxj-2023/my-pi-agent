@@ -2,11 +2,16 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterator
 
+from ..config import Config
 from ..models import Message, Response, StreamChunk
 
 
 class Provider(ABC):
     """各 provider 的统一接口。"""
+
+    @abstractmethod
+    def __init__(self, config: Config):
+        """统一构造契约：所有 provider 都收 Config。"""
 
     @abstractmethod
     def chat(
@@ -51,4 +56,4 @@ class Provider(ABC):
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """异步流式。"""
-        yield  # 抽象标记：子类必须实现为异步生成器
+        yield StreamChunk(content="")  # 抽象标记：子类必须实现为异步生成器（基类永不执行）

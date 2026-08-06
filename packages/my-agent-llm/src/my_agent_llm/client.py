@@ -4,15 +4,7 @@ from collections.abc import AsyncIterator, Iterator
 from .config import Config
 from .models import Message, Response, StreamChunk
 from .providers import Provider
-from .providers.anthropic import AnthropicProvider
-from .providers.deepseek import DeepSeekProvider
-from .providers.openai import OpenAIProvider
-
-_PROVIDER_CLASSES: dict[str, type[Provider]] = {
-    "openai": OpenAIProvider,
-    "deepseek": DeepSeekProvider,
-    "anthropic": AnthropicProvider,
-}
+from .providers.registry import PROVIDER_REGISTRY
 
 
 class LLM:
@@ -22,14 +14,14 @@ class LLM:
         """两种构造：传 Config 对象，或散参（内部包成 Config）。"""
         if config is None:
             config = Config(**kwargs)
-        if config.provider not in _PROVIDER_CLASSES:
+        if config.provider not in PROVIDER_REGISTRY:
             raise ValueError(
                 f"Unknown provider '{config.provider}'. "
-                f"Available: {', '.join(sorted(_PROVIDER_CLASSES))}"
+                f"Available: {', '.join(sorted(PROVIDER_REGISTRY))}"
             )
         if not config.api_key:
             raise ValueError(f"No API key for provider: {config.provider}")
-        provider_cls = _PROVIDER_CLASSES[config.provider]
+        provider_cls = PROVIDER_REGISTRY[config.provider]
         self._provider: Provider = provider_cls(config)
         self.config = config
 
