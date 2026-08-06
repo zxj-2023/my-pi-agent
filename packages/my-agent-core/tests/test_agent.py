@@ -179,17 +179,20 @@ def test_before_tool_blocks():
 
 
 def test_before_tool_rewrites_args():
-    """before_tool 返回改写的 args → 工具收到改写值（#8）。"""
+    """before_tool 返回改写的 args → 工具收到改写值；ToolCallStart 携带改写后 args（#8）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
     def rewrite(name, args):
         return {"a": args["a"] * 10, "b": args["b"]}
 
-    agent = Agent(llm=llm, tools=[multiply], before_tool=rewrite)
+    events = []
+    agent = Agent(llm=llm, tools=[multiply], before_tool=rewrite, on_event=events.append)
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
+    start = [e for e in events if isinstance(e, ToolCallStart)][0]
+    assert start.args == {"a": 20, "b": 3}  # ToolCallStart 携带 before_tool 改写后的参数
 
 
 def test_after_tool_rewrites_result():
@@ -218,6 +221,20 @@ def test_middleware_exception_becomes_error():
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error in before_tool" in tool_msgs[0].content
+
+
+def test_after_tool_exception_becomes_error():
+    """after_tool 抛异常 → 转错误字符串，transcript 不变形（#10 补）。"""
+    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
+
+    def boom(name, args, result):
+        raise ValueError("after boom")
+
+    agent = Agent(llm=llm, tools=[multiply], after_tool=boom)
+    agent.run("compute")
+    tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert "Error in after_tool" in tool_msgs[0].content
 
 
 def test_malformed_arguments_does_not_crash():

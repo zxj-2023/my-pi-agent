@@ -84,9 +84,13 @@ class Agent:
                 return resp.content
             # ── Act + Observe：逐个执行本轮全部 tool_calls，结果写回 messages。
             for tc in resp.tool_calls:
-                observation, is_error, args = self._execute_tool(tc)  # 永不抛；args 为实际生效参数
-                emit(ToolCallStart(tc["id"], tc["function"]["name"], args))
-                emit(ToolCallEnd(tc["id"], tc["function"]["name"], observation, is_error))
+                name, args, err = self._prepare_tool(tc)  # 永不抛；args 为实际生效参数
+                emit(ToolCallStart(tc["id"], name, args))
+                if err is not None:
+                    observation, is_error = err, True
+                else:
+                    observation, is_error = self._execute_tool(tc, args)  # 永不抛
+                emit(ToolCallEnd(tc["id"], name, observation, is_error))
                 self.messages.append(
                     Message(role="tool", content=observation, metadata={"tool_call_id": tc["id"]})
                 )
@@ -98,35 +102,43 @@ class Agent:
         system = [m for m in self.messages if m.role == "system"]
         self.messages = system if system else []
 
-    def _execute_tool(self, tc: dict) -> tuple[str, bool, dict]:
-        """执行单个 tool_call：before_tool 拦截/改写 → registry.execute → after_tool 改写。永不抛。
+    def _prepare_tool(self, tc: dict) -> tuple[str, dict, str | None]:
+        """解析 JSON + before_tool 阶段：返回 (name, args, 错误文本或 None)。永不抛。
 
-        返回 (观察文本, is_error, args)。任何错误都走同一条路：错误字符串 + is_error=True。
-        args 是实际生效的参数字典（含 before_tool 改写；畸形 JSON 时为空 dict）。
+        args 为实际生效参数（before_tool 改写后；畸形 JSON 时为空 dict）。
+        err 非 None 表示该调用在 execute 前被拦截（畸形 JSON / ToolBlocked / before_tool 异常）。
         """
         name = tc["function"]["name"]
         try:
             args = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, TypeError) as exc:
-            return f"Invalid JSON arguments for tool '{name}': {exc}", True, {}
+            return name, {}, f"Invalid JSON arguments for tool '{name}': {exc}"
         # before_tool：拦截（抛 ToolBlocked）或改写（返回新 args）
         if self.before_tool is not None:
             try:
                 args = self.before_tool(name, args)
             except ToolBlocked as exc:
-                return f"Tool '{name}' blocked: {exc}", True, args
+                return name, args, f"Tool '{name}' blocked: {exc}"
             except Exception as exc:
-                return f"Error in before_tool for '{name}': {exc}", True, args
+                return name, args, f"Error in before_tool for '{name}': {exc}"
+        return name, args, None
+
+    def _execute_tool(self, tc: dict, args: dict) -> tuple[str, bool]:
+        """执行阶段：以改写后 args 构造 effective 协议 dict → registry.execute → after_tool。永不抛。
+
+        返回 (观察文本, is_error)。调用方保证 args 已通过 _prepare_tool 校验/改写。
+        """
+        name = tc["function"]["name"]
         # 执行：以 before_tool 改写后的 args 生效（序列化回协议 dict 交给 registry）
         try:
             effective = {**tc, "function": {**tc["function"], "arguments": json.dumps(args)}}
             result = self.registry.execute(effective)
         except Exception as exc:  # json.dumps 兜底（registry.execute 自身声明永不抛）
-            return f"Error executing tool '{name}': {exc}", True, args
+            return f"Error executing tool '{name}': {exc}", True
         # after_tool：改写结果
         if self.after_tool is not None:
             try:
                 result = self.after_tool(name, args, result)
             except Exception as exc:
-                return f"Error in after_tool for '{name}': {exc}", True, args
-        return result.serialize(), not result.ok, args
+                return f"Error in after_tool for '{name}': {exc}", True
+        return result.serialize(), not result.ok
