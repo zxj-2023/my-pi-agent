@@ -10,7 +10,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from my_agent_llm import Config, LLM
 
-from my_agent_core.agent import run_agent
+from my_agent_core.agent import Agent
+from my_agent_core.events import AgentEnd, ToolCallEnd, ToolCallStart, TurnStart
 from my_agent_core.tools import tool
 
 QUESTIONS = [
@@ -48,6 +49,18 @@ DEMO_SYSTEM_PROMPT = (
 )
 
 
+def print_events(event) -> None:
+    """把循环事件打印成 demo 过程输出（Agent 不内置 print，输出是应用层的选择）。"""
+    if isinstance(event, TurnStart):
+        print(f"[round {event.iteration}]")
+    elif isinstance(event, ToolCallStart):
+        print(f"  调用工具 {event.name}({event.args})")
+    elif isinstance(event, ToolCallEnd):
+        print(f"  观察: {event.result}")
+    elif isinstance(event, AgentEnd):
+        print(f"最终回答: {event.final_text}")
+
+
 def build_llm() -> LLM:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -65,13 +78,15 @@ def main() -> None:
     llm = build_llm()
     for question in QUESTIONS:
         print(f"\n=== 问题: {question} ===")
-        answer = run_agent(
-            question,
-            tools=TOOLS,
+        agent = Agent(
             llm=llm,
+            tools=TOOLS,
             system_prompt=DEMO_SYSTEM_PROMPT,
+            on_event=print_events,
         )
-        print(f"\n最终答案: {answer}")
+        answer = agent.run(question)
+        if answer is None:
+            print("（达到 max_iterations 上限，未得到最终回答）")
 
 
 if __name__ == "__main__":
