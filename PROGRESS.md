@@ -99,6 +99,22 @@ my-pi-agent/
   - 修复波次又引入 **回归：`LLM.chat` 注入 `max_tokens=None` 废掉 anthropic 4096 回落**（复审抓到，第二轮修复为源头不注入）
 - **验证**：33 个离线测试全绿，无 warning。
 
+### 阶段 6.1：流式 tool_calls 聚合修复 + 注册表拆分（2026-08-06，未提交）
+
+**目标**：修复「openai/deepseek 流式不聚合 tool_calls」的文档违约；顺带拆出 provider 注册表、补基类构造契约。
+
+- **改了什么**：
+  - `providers/registry.py`（新增）：`PROVIDER_REGISTRY` 注册表从 `client.py` 拆出（跨模块引用，去下划线正名）
+  - `_base.py`：补抽象 `__init__(self, config: Config)` 构造契约；`achat_stream` 抽象标记 `yield` 改 `yield StreamChunk(content="")`（修 pyright 返回类型）
+  - `openai.py`：新增模块级 `_ToolCallAccumulator`（按 index 聚合增量 tool_calls 片段）；`stream`/`achat_stream` 聚合 tool_calls + 捕获 usage，结束补发末块
+  - `deepseek.py`：复用 `_ToolCallAccumulator`，流式聚合 tool_calls + usage + reasoning；四个覆盖方法参数注解补齐（与 openai 基准一致）
+  - 新增 3 个流式聚合测试（openai 同步 / openai 异步 / deepseek 带 reasoning），先红后绿
+- **过程中的关键教训**：
+  - 原注释「v1 简化：末块由调用方汇总」**无文档背书**——spec §7.2 与计划 docstring 都要求「末块带完整 tool_calls + usage」，是实现时静默偏离
+  - OpenAI 兼容流式把 tool_call 分片送达（id/name 只出现一次、arguments 是碎片 JSON），必须按 index 键控拼接
+  - pig-mono 内部流式**不一致**：openai 用 tool-aware 完整版，deepseek/azure/groq 用 `iter_openai_stream_choices` 简版（只有文本、`break` 在 finish_reason、吃不到 usage）。我们两端对齐到完整版，deepseek 比 pig-mono 的还完整
+- **验证**：my-agent-llm 33→36 测试全绿；my-agent-core 34 测试不受影响。
+
 ### 阶段 7：agent 层接入 `my-agent-llm`（已完成）
 
 **目标**：`run_agent` 从裸 `openai.OpenAI` 改为用统一 `LLM` 类 + `Message`。

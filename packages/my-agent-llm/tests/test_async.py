@@ -136,6 +136,50 @@ def test_openai_achat_stream():
     assert [c.content for c in out] == ["a", "b"]
 
 
+def test_openai_achat_stream_aggregates_tool_calls():
+    """OpenAI achat_stream → 末块聚合 tool_calls + usage。"""
+    chunks = [
+        SimpleNamespace(id="1", choices=[SimpleNamespace(
+            delta=SimpleNamespace(
+                content=None,
+                tool_calls=[SimpleNamespace(
+                    index=0, id="call_1",
+                    function=SimpleNamespace(name="get_weather", arguments=""),
+                )],
+            ),
+            finish_reason=None,
+        )], usage=None),
+        SimpleNamespace(id="2", choices=[SimpleNamespace(
+            delta=SimpleNamespace(
+                content=None,
+                tool_calls=[SimpleNamespace(
+                    index=0, id=None,
+                    function=SimpleNamespace(name=None, arguments='{"city":"Tokyo"}'),
+                )],
+            ),
+            finish_reason="tool_calls",
+        )], usage=None),
+        SimpleNamespace(id="3", choices=[], usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)),
+    ]
+    p = OpenAIProvider(
+        Config(api_key="test"),
+        client=FakeAsyncOpenAI([]),
+        async_client=FakeAsyncOpenAI([FakeAsyncStream(chunks)]),
+    )
+
+    async def collect():
+        return [c async for c in p.achat_stream([Message(role="user", content="hi")], model="gpt-4.1-mini")]
+
+    out = asyncio.run(collect())
+    assert [c.content for c in out] == [""]
+    assert out[0].tool_calls == [{
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'},
+    }]
+    assert out[0].usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+
 def test_openai_achat_missing_async_client():
     """async_client 未注入 → achat 抛 RuntimeError（fail-loud）。"""
     p = OpenAIProvider(Config(api_key="test"), client=FakeAsyncOpenAI([]))

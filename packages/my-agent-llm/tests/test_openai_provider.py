@@ -82,3 +82,57 @@ def test_stream_yields_chunks():
     p.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: FakeStream())))
     chunks = list(p.stream([Message(role="user", content="hi")], model="gpt-4.1-mini"))
     assert [c.content for c in chunks] == ["a", "b"]
+
+
+def test_stream_aggregates_tool_calls():
+    """流式增量 tool_calls → 末块聚合完整（id/name 来一次、arguments 碎片拼接）。"""
+    class FakeStream:
+        def __init__(self):
+            self.chunks = [
+                # 工具调用增量片段：index 0，id + name 只出现在第一片
+                SimpleNamespace(id="1", choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        content=None,
+                        tool_calls=[SimpleNamespace(
+                            index=0, id="call_1",
+                            function=SimpleNamespace(name="get_weather", arguments=""),
+                        )],
+                    ),
+                    finish_reason=None,
+                )], usage=None),
+                SimpleNamespace(id="2", choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        content=None,
+                        tool_calls=[SimpleNamespace(
+                            index=0, id=None,
+                            function=SimpleNamespace(name=None, arguments='{"city":'),
+                        )],
+                    ),
+                    finish_reason=None,
+                )], usage=None),
+                SimpleNamespace(id="3", choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        content=None,
+                        tool_calls=[SimpleNamespace(
+                            index=0, id=None,
+                            function=SimpleNamespace(name=None, arguments='"Tokyo"}'),
+                        )],
+                    ),
+                    finish_reason="tool_calls",
+                )], usage=None),
+                SimpleNamespace(id="4", choices=[], usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)),
+            ]
+        def __iter__(self):
+            return iter(self.chunks)
+
+    p = _provider([])
+    p.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: FakeStream())))
+    chunks = list(p.stream([Message(role="user", content="hi")], model="gpt-4.1-mini"))
+    # 无文本增量（content=None），只剩一个聚合末块
+    assert [c.content for c in chunks] == [""]
+    assert chunks[0].tool_calls == [{
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'},
+    }]
+    assert chunks[0].usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
