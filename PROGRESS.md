@@ -129,12 +129,36 @@ my-pi-agent/
 - **过程中的关键教训**：`Response.tool_calls` 是协议 dict 而非 SDK 对象——registry 接口从「属性对象」改为「dict」以对齐，避免 agent 里造中间形状。
 - **验证**：`uv run python -m pytest -q` 全绿（34 个）；demo 链路通到真实 API 但被 401 拦下（`.env` key 失效/过期），最终答案未验证。
 
+### 阶段 8：单层 Agent 类 + 事件（2026-08-06）
+
+**目标**：`run_agent` 函数 → pig-mono 式单层 `Agent` 类（状态 + 循环 + 工具执行），适配 my-agent-llm。
+
+- 规格：`docs/superpowers/specs/2026-08-01-my-agent-framework-design.md`（2026-08-06 修订版）
+- 计划：`docs/superpowers/plans/2026-08-06-single-agent-class.md`
+- 提交：`30bbf51` `58bacf9` `ee13328` `229096d` `ef94c74` `e1b9629`（worktree 分支 `worktree-phase2-single-agent`）
+- **改了什么**：
+  - `agent.py`：`run_agent` → `Agent` 类（`run`/`reset`/`_prepare_tool`/`_execute_tool`）；`loop.py`/`llm.py` 不存在（单层）
+  - `events.py`（新增）：8 个事件 dataclass，`AssistantMessageAdded.message` 为 `Message` 对象
+  - 中间件：`_prepare_tool`（解析 + `before_tool` 拦截/改写）+ `_execute_tool(tc, args)`（执行 + `after_tool`），拦截用 `raise ToolBlocked`
+  - `main.py` demo 改用 `Agent` + `on_event` 打印循环过程
+  - `__init__.py` 导出公共 API（`Agent`/`tool`/`Tool`/`ToolResult`/`ToolRegistry`/`ToolBlocked`/事件）
+  - 测试：`test_agent.py` 迁移 + 扩充（5→13），新增 `test_events.py`（10）
+- **过程中的关键教训**：
+  - 单层形态下循环无法脱离 Agent 独立测试，测试缝隙靠注入鸭子类型 `FakeLLM`（`Agent(llm=FakeLLM(...))`）保住；`LLM.chat` 本身就是缝隙，不需要抽象 `llm_call` 函数
+  - 工具执行复用 `ToolRegistry.execute` 外包中间件，不手写六段管道；`before_tool` 改写 args 需重序列化回协议 dict（`registry.execute` 内部会重解析）
+  - **ToolCallStart 时序回归**：把 `_execute_tool` 设计成「一把梭执行完才返回 args」导致 start 事件在工具执行后发射——评审抓出，拆 `_prepare_tool` + `_execute_tool` 两阶段修复
+  - `run()` 裸 `json.loads` 打穿「永不抛」——畸形 JSON 参数会让循环崩溃，解析收敛进 `_prepare_tool` 由守卫兜住
+- **验证**：`uv run python -m pytest -q` 全绿（53 个：17+12+8+10，agent 8→13）；demo 真跑三题通过（703 / 时间 / 双城天气）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
-- 阶段 1：`llm.py` 缝隙 + 事件类（已部分被 my-agent-llm 覆盖）
-- 阶段 2：`loop.py` 无状态循环 + 中间件
+- 阶段 2：单层 `Agent` 类 + 事件（已完成）
+- 阶段 3：session 管理
+- 阶段 4：context 管理
+- 阶段 5：skill 机制
+- 阶段 6：动态工具
 - 阶段 3：`Agent` 类（有状态外壳）
 - 阶段 4-7：session / context / skills / 动态工具
 - coding agent 层（`my_coding_agent`）——框架层完成后

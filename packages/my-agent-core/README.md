@@ -55,11 +55,14 @@ my-agent-core/           # 独立 uv 项目（本包根）
 │   └── my_agent_core/   # Python 包（import 名仍是下划线 my_agent_core）
 │       ├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
 │       ├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
-│       ├── agent.py     # ReAct 循环（run_agent）
+│       ├── agent.py     # Agent 类（单层：状态 + 循环 + 工具执行）+ ToolBlocked
+│       ├── events.py    # 8 个事件 dataclass（on_event 通知）
 │       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 └── tests/
     ├── test_tools.py    # Tool/ToolResult/tool() 离线测试
-    └── test_registry.py # ToolRegistry 离线测试
+    ├── test_registry.py # ToolRegistry 离线测试
+    ├── test_events.py   # events.py 事件 dataclass 测试
+    └── test_agent.py    # Agent 循环离线测试（FakeLLM 驱动）
 ```
 
 ## 工作原理
@@ -77,10 +80,13 @@ my-agent-core/           # 独立 uv 项目（本包根）
 
 1. **上行翻译**：`@tool` 把 Python 函数翻译成模型看得懂的 JSON schema，
    放进请求的 `tools` 字段
-2. **下行调度**：读响应的 `tool_calls`——非空就逐个经 `ToolRegistry.execute` 执行
-   （收完整 `tool_call`，内部解析 + 查表，永不抛），把 `ToolResult` 序列化后作为
+2. **下行调度**（`Agent.run` 内联循环）：读响应的 `tool_calls`——非空就逐个经
+   `_prepare_tool`（解析 + `before_tool` 拦截/改写）→ `ToolRegistry.execute`
+   （内部查表 + pydantic 校验，永不抛）→ `after_tool`（改写结果），把观察文本作为
    `role: "tool"` 消息写回 messages（与助手消息的 `tool_call_id` 配对），
-   再问一轮；为空则循环结束，返回模型的文本
+   再问一轮；为空则循环结束，返回模型的文本。循环各阶段发射事件（`on_event` 订阅），
+   工具路径任何错误（坏 JSON / 未知工具 / 校验失败 / 工具异常 / 中间件拦截）都转成
+   描述性消息喂回模型，让模型有机会自我纠正
 
 ## 添加新工具
 
@@ -138,16 +144,16 @@ answer = agent.run(question)
 > 不再存在；循环测试全部转为「构造 `Agent(llm=FakeLLM(...))` → run」驱动。
 > 详见框架设计文档 §2 / §7。
 
-- [ ] 2.1 `events.py`：`Event` 基类 + 8 个事件 dataclass（`AssistantMessageAdded.message`
+- [x] 2.1 `events.py`：`Event` 基类 + 8 个事件 dataclass（`AssistantMessageAdded.message`
       为 `Message` 对象）→ 验证：可导入可实例化（行为由循环测试覆盖）
-- [ ] 2.2 `agent.py` 重写为 `Agent` 类：`run()` 内联循环、`reset()` 保留 system prompt、
+- [x] 2.2 `agent.py` 重写为 `Agent` 类：`run()` 内联循环、`reset()` 保留 system prompt、
       复用 `ToolRegistry.execute` → 验证：框架 §7 #2–#5、#11、#13、#14（FakeLLM 驱动）
-- [ ] 2.3 `_execute_tool` 中间件：`before_tool` 拦截（抛 `ToolBlocked`）/改写、
-      `after_tool` 改写、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
-- [ ] 2.4 `max_iterations`（默认 `None` 不限）→ 验证：框架 §7 #12
-- [ ] 2.5 `main.py` 改用 `Agent` + `on_event` 打印循环过程；`__init__.py` 导出公共 API
+- [x] 2.3 中间件：`_prepare_tool`（解析 + `before_tool` 拦截/改写）+ `_execute_tool(tc, args)`
+      （执行 + `after_tool` 改写）、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
+- [x] 2.4 `max_iterations`（默认 `None` 不限）→ 验证：框架 §7 #12
+- [x] 2.5 `main.py` 改用 `Agent` + `on_event` 打印循环过程；`__init__.py` 导出公共 API
       （`Agent` / `tool` / `Tool` / `ToolResult` / `ToolRegistry` / `ToolBlocked` / 事件类型）
-- [ ] 2.6 更新本 README 的「添加新工具」示例与「设计取舍」措辞（`run_agent` → `Agent`）
+- [x] 2.6 更新本 README 的「添加新工具」示例与「设计取舍」措辞（`run_agent` → `Agent`）
 - **阶段验证**：`uv run pytest -q` 全绿（#1–#15，框架 §7.2：框架 v1 完成）；
   真实运行 `uv run python -m my_agent_core.main`，三个问题答案符合预期
   （703 / 当前时间 / 两城市天气）
