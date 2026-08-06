@@ -97,8 +97,10 @@ def search_docs(query: str, tags: list[str], limit: int = 5) -> str:
     """Search docs by query and tags."""   # 复杂类型、默认值都可以
     return f"results for {query} (tags={tags}, limit={limit})"
 
-# 然后把它传入 run_agent 的 tools 列表：
-run_agent(question, tools=[get_weather, search_docs], client=client, model=model)
+# 然后把它组装进 Agent：
+from my_agent_llm import LLM
+agent = Agent(llm=LLM(...), tools=[get_weather, search_docs], system_prompt="...")
+answer = agent.run(question)
 ```
 
 参数类型支持 pydantic 全集（`list` / `dict` / `Optional` / 嵌套 `BaseModel` 等），
@@ -106,12 +108,14 @@ run_agent(question, tools=[get_weather, search_docs], client=client, model=model
 
 ## 设计取舍
 
-- **库层没有默认系统提示词**：`run_agent` 的 `system_prompt` 默认为 `None`，
+- **库层没有默认系统提示词**：`Agent` 的 `system_prompt` 默认为 `None`，
   不发送 system 消息；给模型什么人设由应用层决定（`main.py` 的 demo 自行
   传入 `DEMO_SYSTEM_PROMPT`）
 - **没有无限循环护栏**：退出完全由模型判断；模型若陷入工具循环会持续消耗
-  token，需手动 Ctrl+C 终止。如需护栏请自行添加最大轮数限制
+  token，需手动 Ctrl+C 终止。如需护栏请设置 `max_iterations` 最大轮数限制
 - **同步顺序执行**：模型一轮发起多个 `tool_calls` 时逐个执行
+- **单层 `Agent` 类**：状态（`messages`）+ 循环 + 工具执行全在一个类（pig-mono 式）；
+  循环无法脱离 Agent 单独测试，离线测试靠注入鸭子类型 `FakeLLM`（`Agent(llm=FakeLLM(...))`）
 
 ## TODO：v1 实现路线
 
@@ -120,92 +124,78 @@ run_agent(question, tools=[get_weather, search_docs], client=client, model=model
 独立包）在这七阶段之后另行设计与实现。pig-mono（`D:/code/python/pig-mono`）
 是 pi 的 Python 移植版，为直接参考。
 
-**原则**：阶段 1–2 纯新增（旧代码不动，测试按 §7 清单逐步新建），阶段 3
-切换到 `Agent` 类、测试补齐，阶段 4 起逐层叠加。每步带验证方式；
-测试编号引自设计文档
+**原则**：阶段 2（单层 Agent）是主要演进——`agent.py` 重写为 `Agent` 类，新增
+`events.py`；阶段 3 起逐层叠加。每步带验证方式；测试编号引自设计文档
 （`docs/superpowers/specs/` 下：框架 = `...-framework-design.md`、
 会话 = `...-session-design.md`、上下文 = `...-context-design.md`、
 技能 = `...-skills-design.md`、可扩展性 = `...-extensibility-design.md`）。
 
-### 阶段 1：LLM 缝隙与事件（纯新增，旧代码不动）
+### 阶段 2：单层 `Agent` 类 + 事件（框架 v1 完成）
 
-- [ ] 1.1 `llm.py`：`openai_chat` —— SDK 响应 → wire dict（含 `tool_calls`
-      与不含两种翻译）；reasoning 三字段探测归一到 `reasoning_content`、
-      发送前剥离 → 验证：框架 §7 #14
-- [ ] 1.2 `events.py`：`Event` 基类 + 8 个事件 dataclass
-      → 验证：可导入可实例化（行为由后续阶段测试覆盖）
-- **阶段验证**：`uv run pytest -q` 全绿（#1、#14 先行通过；旧代码未动）
+> **2026-08-06 修订**：原设计的两层（`run_loop` 纯函数 + `Agent` 外壳）已改为
+> **pig-mono 式单层 `Agent` 类**（状态 + 循环 + 工具执行全在一个类），并适配
+> my-agent-llm（消息 `list[Message]`、Agent 直接持有 `LLM`）。`llm.py` / `loop.py`
+> 不再存在；循环测试全部转为「构造 `Agent(llm=FakeLLM(...))` → run」驱动。
+> 详见框架设计文档 §2 / §7。
 
-### 阶段 2：循环核心（纯新增，与旧代码并存）
-
-- [ ] 2.1 `loop.py`：`run_loop` 骨架 —— 循环、经典退出条件、`LoopOutcome`、
-      事件发射（暂不含中间件）→ 验证：框架 §7 #2–#5、#11（FakeLLM 驱动）
-- [ ] 2.2 `loop.py`：执行前参数校验（经 `Tool.model` pydantic 校验 + 强转，
-      错误消息用 pydantic 原始文本 `str(exc)`）→ 验证：框架 §7 #6
-- [ ] 2.3 `loop.py`：六段管道完成 —— `before_tool` / `after_tool` 中间件、
-      `ToolBlocked` 拦截、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
-- [ ] 2.4 `loop.py`：`max_iterations`（默认 `None` 不限）
-      → 验证：框架 §7 #12
-- **阶段验证**：`uv run pytest -q` 全绿（#2–#12 加入测试集）
-
-### 阶段 3：切换（框架 v1 完成）
-
-- [ ] 3.1 `agent.py` 重写为 `Agent` 类：`run()` 多轮累积、`reset()` 保留
-      system prompt、`_llm_call` 缝隙绑定 → 验证：框架 §7 #13
-- [ ] 3.2 `tools.py` 移除 `call_tool`；`__init__.py` 导出公共 API
-      （`Agent` / `tool` / `Tool` / `ToolBlocked` / 事件类型）
-- [ ] 3.3 `main.py` demo 改用 `Agent`；同步更新本 README 的「添加新工具」
-      示例与「设计取舍」措辞（`run_agent` → `Agent`）
-- [ ] 3.4 补齐剩余用例（`tests/test_my_agent_core.py` 按框架 §7 清单）
-      → 验证：#15 与其余项全通过
+- [ ] 2.1 `events.py`：`Event` 基类 + 8 个事件 dataclass（`AssistantMessageAdded.message`
+      为 `Message` 对象）→ 验证：可导入可实例化（行为由循环测试覆盖）
+- [ ] 2.2 `agent.py` 重写为 `Agent` 类：`run()` 内联循环、`reset()` 保留 system prompt、
+      复用 `ToolRegistry.execute` → 验证：框架 §7 #2–#5、#11、#13、#14（FakeLLM 驱动）
+- [ ] 2.3 `_execute_tool` 中间件：`before_tool` 拦截（抛 `ToolBlocked`）/改写、
+      `after_tool` 改写、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
+- [ ] 2.4 `max_iterations`（默认 `None` 不限）→ 验证：框架 §7 #12
+- [ ] 2.5 `main.py` 改用 `Agent` + `on_event` 打印循环过程；`__init__.py` 导出公共 API
+      （`Agent` / `tool` / `Tool` / `ToolResult` / `ToolRegistry` / `ToolBlocked` / 事件类型）
+- [ ] 2.6 更新本 README 的「添加新工具」示例与「设计取舍」措辞（`run_agent` → `Agent`）
 - **阶段验证**：`uv run pytest -q` 全绿（#1–#15，框架 §7.2：框架 v1 完成）；
   真实运行 `uv run python -m my_agent_core.main`，三个问题答案符合预期
   （703 / 当前时间 / 两城市天气）
 
-### 阶段 4：session 管理
+### 阶段 3：session 管理
 
-- [ ] 4.1 `session.py`：JSONL 格式读写（header + typed message 行）、
+- [ ] 3.1 `session.py`：JSONL 格式读写（header + typed message 行）、
       `create_session` / `load_session` / `append_messages`（单次批量追加）、
       加载宽容规则（撕裂尾行、未配对尾部 tool_calls 丢弃；中段损坏带行号报错）
       → 验证：会话 §8 #1–#5
-- [ ] 4.2 `store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
+- [ ] 3.2 `store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
       前缀匹配，歧义报错）/ delete；id = 时间戳 + 8 位随机 hex，碰撞重试
       → 验证：会话 §8 #10
-- [ ] 4.3 `Agent` 集成：`session=` 参数（不存在即创建 / 存在即恢复 / 恢复时
+- [ ] 3.3 `Agent` 集成：`session=` 参数（不存在即创建 / 存在即恢复 / 恢复时
       文件为准）、turn 边界落盘、`resume_run()` 崩溃续跑、`reset()` 重写文件
       → 验证：会话 §8 #6、#7、#8、#9、#11
 - **阶段验证**：`uv run pytest -q` 全绿；真实跨进程演示——进程 1 创建会话 +
   问一个问题后退出；进程 2 `open(前缀)` 恢复 + 追问引用上一轮答案的问题，
   模型答得上
 
-### 阶段 5：context 管理
+### 阶段 4：context 管理
 
-- [ ] 5.1 `context.py`：`estimate_tokens`（chars/4 启发式）+
+- [ ] 4.1 `context.py`：`estimate_tokens`（chars/4 启发式）+
       `truncate_result`（头尾保留截断，经 `after_tool` 挂的 recipe）
       → 验证：上下文 §7 #1、#11
-- [ ] 5.2 `context.py`：`ContextManager` —— 超 0.8·budget 触发、切点对齐
+- [ ] 4.2 `context.py`：`ContextManager` —— 超 0.8·budget 触发、切点对齐
       user 边界（绝不切 tool 配对）、独立摘要调用（pi 风格结构化 prompt +
       “不要续聊”约束）、缓存复用、迭代再摘要、摘要失败降级不压缩
       → 验证：上下文 §7 #3–#9
-- [ ] 5.3 `Agent` 集成：`context_budget=` / `keep_recent_tokens=`（默认
+- [ ] 4.3 `Agent` 集成：`context_budget=` / `keep_recent_tokens=`（默认
       `None` 不启用）、`transform_context=` / `compaction_summarizer=`
       可注入策略（管线：内建压缩先、用户钩子后、钩子 fail-loud）、
-      压缩挂在 `_llm_call` 缝隙（循环与 transcript 不感知）、`reset()`
-      清缓存、`ContextCompacted` 事件 → 验证：上下文 §7 #2、#10 +
+      压缩在 `Agent` 层做（单层形态下无 `_llm_call` 缝隙，见框架设计文档 §2.2 决策 2）、
+      `reset()` 清缓存、`ContextCompacted` 事件 → 验证：上下文 §7 #2、#10 +
       可扩展性 §7 #8–#12
 - **阶段验证**：`uv run pytest -q` 全绿；真实运行：设一个小 budget
       （如 4000）跑多轮工具对话，事件可见压缩发生，后续轮次仍能引用早期信息
 
-### 阶段 6：skill 机制
+### 阶段 5：skill 机制
 
-- [ ] 6.1 `skills.py`：`Skill` / `SkillDiagnostic` 模型、手写 `parse_frontmatter`
+- [ ] 5.1 `skills.py`：`Skill` / `SkillDiagnostic` 模型、手写 `parse_frontmatter`
       （不引 PyYAML）、`load_skills` 发现（SKILL.md = skill 根不下钻 / 根级
       `.md` / 递归子目录 / 容错诊断）、规范校验（name / description）
       → 验证：skill §7 #1–#4
-- [ ] 6.2 `skills.py`：`format_skills_for_prompt`（agentskills.io XML 清单，
+- [ ] 5.2 `skills.py`：`format_skills_for_prompt`（agentskills.io XML 清单，
       只含 name + description）+ `read_skill_tool`（按名取正文，未知名字 →
       错误字符串列可用清单）→ 验证：skill §7 #5–#7
-- [ ] 6.3 `Agent` 集成：`skill_dirs=` 参数（清单拼 system 尾部、`read_skill`
+- [ ] 5.3 `Agent` 集成：`skill_dirs=` 参数（清单拼 system 尾部、`read_skill`
       置于 tools 首位、诊断公开）、`invoke_skill()` 显式调用（`<skill>` 包装
       跑一轮）→ 验证：skill §7 #8–#11
 - **阶段验证**：`uv run pytest -q` 全绿；真实 demo：写两个 SKILL.md
@@ -213,15 +203,15 @@ run_agent(question, tools=[get_weather, search_docs], client=client, model=model
       模型自主 `read_skill` 后按正文指令作答；`invoke_skill` 显式调用
       隐藏 skill 成功
 
-### 阶段 7：动态工具
+### 阶段 6：动态工具
 
-- [ ] 7.1 `run_loop` 的 `tools` 参数改 `get_tools`（每 turn 快照重建
-      schemas 与分发表）；`Agent.tools` 改为可变注册表（对外只读）
+- [ ] 6.1 `Agent.tools` 改为可变注册表（对外只读，写入口仅 register/unregister）；
+      `run()` 每 turn 从注册表重建 schemas 与分发表
       → 验证：可扩展性 §7 #2、#5
-- [ ] 7.2 `Agent.register_tool` / `unregister_tool`（撞名 / 未知名报错）
+- [ ] 6.2 `Agent.register_tool` / `unregister_tool`（撞名 / 未知名报错）
       + `ToolsChanged` 事件（事件集 7→8）
       → 验证：可扩展性 §7 #1、#3、#4、#6
-- [ ] 7.3 agent-as-tool 配方验证（子代理包装成工具，内外双层 FakeLLM）
+- [ ] 6.3 agent-as-tool 配方验证（子代理包装成工具，内外双层 FakeLLM）
       → 验证：可扩展性 §7 #7
 - **阶段验证**：`uv run pytest -q` 全绿
 
@@ -249,8 +239,8 @@ run_agent(question, tools=[get_weather, search_docs], client=client, model=model
       搜索索引（对应 pi `harness/session/` 完整版）
 - [ ] skill 进阶：附带文件（正文路径引用）、user/project 分层作用域 +
       ignore 文件、动态刷新、REPL `/skill` 命令（对应 pi 完整 skill 机制）
-- [ ] 可靠性：LLM 调用重试/指数退避（只对 429/5xx/连接错误，只改 `llm.py`
-      缝隙；对应 pi 的 `RetryPolicy`）
+- [ ] 可靠性：LLM 调用重试/指数退避（只对 429/5xx/连接错误，包在 `LLM` 门面
+      或 Agent 层；对应 pi 的 `RetryPolicy`）
 - [ ] usage 保留与成本统计：assistant wire dict 挂 `_usage`（发送前剥离）、
       `Agent.total_usage` 累加；是「context 进阶 · usage 锚定估算」与
       会话级统计的前置
