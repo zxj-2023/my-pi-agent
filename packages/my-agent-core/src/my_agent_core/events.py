@@ -6,30 +6,30 @@ from my_agent_llm import Message
 
 @dataclass(frozen=True)
 class Event:
-    """事件基类：仅用于类型标注 Callable[[Event], None]。"""
+    """事件基类：所有事件都继承它，供 Callable[[Event], None] 类型标注。"""
 
 
 @dataclass(frozen=True)
-class AgentStart:
+class AgentStart(Event):
     """run() 开始。"""
 
 
 @dataclass(frozen=True)
-class TurnStart:
+class TurnStart(Event):
     """一轮 LLM 调用开始。"""
 
     iteration: int
 
 
 @dataclass(frozen=True)
-class AssistantMessageAdded:
+class AssistantMessageAdded(Event):
     """助手消息已追加进 messages。"""
 
     message: Message
 
 
 @dataclass(frozen=True)
-class ToolCallStart:
+class ToolCallStart(Event):
     """一个工具调用开始。"""
 
     call_id: str
@@ -38,7 +38,7 @@ class ToolCallStart:
 
 
 @dataclass(frozen=True)
-class ToolCallEnd:
+class ToolCallEnd(Event):
     """一个工具调用结束（含结果文本与是否错误）。"""
 
     call_id: str
@@ -48,7 +48,7 @@ class ToolCallEnd:
 
 
 @dataclass(frozen=True)
-class AgentEnd:
+class AgentEnd(Event):
     """run() 结束。stop_reason: "end_turn" | "max_iterations"。"""
 
     final_text: str | None
@@ -57,7 +57,7 @@ class AgentEnd:
 
 
 @dataclass(frozen=True)
-class ContextCompacted:
+class ContextCompacted(Event):
     """context 管理完成一次摘要压缩时发射（context 设计文档，本期只定义不发射）。"""
 
     tokens_before: int
@@ -66,7 +66,7 @@ class ContextCompacted:
 
 
 @dataclass(frozen=True)
-class ToolsChanged:
+class ToolsChanged(Event):
     """工具注册/注销时发射（可扩展性设计文档，本期只定义不发射）。"""
 
     action: str

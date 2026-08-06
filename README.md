@@ -18,7 +18,7 @@
 cd packages/my-agent-core
 uv sync
 Copy-Item .env.example .env    # 然后把真实配置填进 .env
-uv run python -m my_agent_core.main   # demo（当前是旧 run_agent 版，框架化重构后换 Agent API）
+uv run python -m my_agent_core.main   # demo（Agent API）
 uv run python -m pytest -q     # 离线测试（不需要 API key）
 ```
 

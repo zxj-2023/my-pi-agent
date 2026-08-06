@@ -11,7 +11,8 @@ my-pi-agent/
 │   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
 │   │   ├── tools.py       # Tool 类 + ToolResult + tool() 装饰器
 │   │   ├── registry.py    # ToolRegistry（注册表）
-│   │   ├── agent.py       # run_agent（ReAct 循环）
+│   │   ├── events.py      # 事件 dataclass（8 个，继承 Event 基类）
+│   │   ├── agent.py       # Agent 类（单层：循环 + 工具执行）
 │   │   └── main.py        # demo
 │   └── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
 │       ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
@@ -159,6 +160,4 @@ my-pi-agent/
 - 阶段 4：context 管理
 - 阶段 5：skill 机制
 - 阶段 6：动态工具
-- 阶段 3：`Agent` 类（有状态外壳）
-- 阶段 4-7：session / context / skills / 动态工具
 - coding agent 层（`my_coding_agent`）——框架层完成后
