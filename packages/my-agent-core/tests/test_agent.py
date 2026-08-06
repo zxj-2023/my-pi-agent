@@ -1,7 +1,7 @@
 """Agent 单层循环离线测试（假 LLM 替身，不碰真网络）。"""
 from my_agent_llm import Message, Response
 
-from my_agent_core.agent import Agent
+from my_agent_core.agent import Agent, ToolBlocked
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
@@ -10,7 +10,7 @@ from my_agent_core.events import (
     ToolCallStart,
     TurnStart,
 )
-from my_agent_core.tools import tool
+from my_agent_core.tools import ToolResult, tool
 
 
 class FakeLLM:
@@ -154,3 +154,81 @@ def test_agent_multiple_runs_and_reset():
     agent.reset()
     assert [m.role for m in agent.messages] == ["system"]
     assert agent.messages[0].content == "sys"
+
+
+def test_before_tool_blocks():
+    """before_tool 抛 ToolBlocked → tool 消息含 "blocked"，工具函数未被调用（#7）。"""
+    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    called = []
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="blocked ok")])
+
+    def guard(name, args):
+        raise ToolBlocked("no way")
+
+    def probe(a: int, b: int) -> int:
+        called.append((a, b))
+        return a * b
+
+    probe_tool = tool(probe)
+    agent = Agent(llm=llm, tools=[probe_tool], before_tool=guard)
+    answer = agent.run("compute")
+    assert answer == "blocked ok"
+    assert called == []  # 工具函数未被调用
+    tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert "blocked: no way" in tool_msgs[0].content
+
+
+def test_before_tool_rewrites_args():
+    """before_tool 返回改写的 args → 工具收到改写值（#8）。"""
+    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
+
+    def rewrite(name, args):
+        return {"a": args["a"] * 10, "b": args["b"]}
+
+    agent = Agent(llm=llm, tools=[multiply], before_tool=rewrite)
+    agent.run("compute")
+    tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert tool_msgs[0].content == "60"  # 2*10 * 3
+
+
+def test_after_tool_rewrites_result():
+    """after_tool 返回改写 result → transcript 中是改写后的文本（#9）。"""
+    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
+
+    def rewrite(name, args, result):
+        return ToolResult(ok=True, data=f"[{result.data}]")
+
+    agent = Agent(llm=llm, tools=[multiply], after_tool=rewrite)
+    agent.run("compute")
+    tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert tool_msgs[0].content == "[6]"
+
+
+def test_middleware_exception_becomes_error():
+    """中间件抛其他异常 → 转错误字符串，transcript 不变形（#10）。"""
+    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
+
+    def boom(name, args):
+        raise ValueError("boom")
+
+    agent = Agent(llm=llm, tools=[multiply], before_tool=boom)
+    agent.run("compute")
+    tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert "Error in before_tool" in tool_msgs[0].content
+
+
+def test_malformed_arguments_does_not_crash():
+    """畸形/空 JSON 参数 → 错误写回 tool 消息，run() 不崩溃、正常结束（Important #1 修复验证）。"""
+    for raw in ("not-json", ""):
+        tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": raw}}]
+        llm = FakeLLM([_response(tool_calls=tc), _response(content="recovered")])
+        agent = _agent(llm)
+        answer = agent.run("compute")
+        assert answer == "recovered"
+        second_call = llm.calls[1]["messages"]
+        tool_msgs = [m for m in second_call if m.role == "tool"]
+        assert "Invalid JSON arguments" in tool_msgs[0].content
+        assert tool_msgs[0].metadata["tool_call_id"] == "1"
