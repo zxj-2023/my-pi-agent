@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from my_agent_llm import Config, LLM
 
 from my_agent_core.agent import Agent
-from my_agent_core.events import AgentEnd, ToolCallEnd, ToolCallStart, TurnStart
+from my_agent_core.events import AgentEnd, ToolExecutionEnd, ToolExecutionStart, TurnStart
 from my_agent_core.tools import tool
 
 QUESTIONS = [
@@ -53,9 +53,9 @@ def print_events(event) -> None:
     """把循环事件打印成 demo 过程输出（Agent 不内置 print，输出是应用层的选择）。"""
     if isinstance(event, TurnStart):
         print(f"[round {event.iteration}]")
-    elif isinstance(event, ToolCallStart):
-        print(f"  调用工具 {event.name}({event.args})")
-    elif isinstance(event, ToolCallEnd):
+    elif isinstance(event, ToolExecutionStart):
+        print(f"  调用工具 {event.tool_name}({event.args})")
+    elif isinstance(event, ToolExecutionEnd):
         print(f"  观察: {event.result}")
     elif isinstance(event, AgentEnd):
         print(f"最终回答: {event.final_text}")

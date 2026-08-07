@@ -5,9 +5,11 @@ from my_agent_core.agent import Agent, ToolBlocked
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    AssistantMessageAdded,
-    ToolCallEnd,
-    ToolCallStart,
+    MessageEnd,
+    MessageStart,
+    ToolExecutionEnd,
+    ToolExecutionStart,
+    TurnEnd,
     TurnStart,
 )
 from my_agent_core.tools import ToolResult, tool
@@ -108,7 +110,7 @@ def test_messages_are_message_objects():
 
 
 def test_event_sequence():
-    """事件序列完整顺序：AgentStart → TurnStart → AssistantMessageAdded → ToolCallStart/End → ... → AgentEnd（#11）。"""
+    """事件序列完整顺序：AgentStart → Message(user) → TurnStart → Message(assistant) → ToolExecution → TurnEnd → ... → AgentEnd（#11）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="6")])
     events = []
@@ -116,15 +118,18 @@ def test_event_sequence():
     agent.run("compute")
     kinds = [type(e).__name__ for e in events]
     assert kinds[0] == "AgentStart"
-    assert "TurnStart" in kinds
     assert kinds[-1] == "AgentEnd"
-    assert any(isinstance(e, AssistantMessageAdded) for e in events)
-    assert any(isinstance(e, ToolCallStart) for e in events)
-    assert any(isinstance(e, ToolCallEnd) for e in events)
-    # AgentEnd 携带最终文本与 stop_reason
+    assert "TurnStart" in kinds
+    assert "TurnEnd" in kinds
+    assert any(isinstance(e, MessageStart) for e in events)
+    assert any(isinstance(e, MessageEnd) for e in events)
+    assert any(isinstance(e, ToolExecutionStart) for e in events)
+    assert any(isinstance(e, ToolExecutionEnd) for e in events)
+    # AgentEnd 携带 messages 与 stop_reason
     end = [e for e in events if isinstance(e, AgentEnd)][0]
     assert end.final_text == "6"
     assert end.stop_reason == "end_turn"
+    assert end.messages[-1].role == "assistant"
 
 
 def test_max_iterations():
@@ -179,7 +184,7 @@ def test_before_tool_blocks():
 
 
 def test_before_tool_rewrites_args():
-    """before_tool 返回改写的 args → 工具收到改写值；ToolCallStart 携带改写后 args（#8）。"""
+    """before_tool 返回改写的 args → 工具收到改写值；ToolExecutionStart 携带改写后 args（#8）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
@@ -191,8 +196,8 @@ def test_before_tool_rewrites_args():
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
-    start = [e for e in events if isinstance(e, ToolCallStart)][0]
-    assert start.args == {"a": 20, "b": 3}  # ToolCallStart 携带 before_tool 改写后的参数
+    start = [e for e in events if isinstance(e, ToolExecutionStart)][0]
+    assert start.args == {"a": 20, "b": 3}  # ToolExecutionStart 携带 before_tool 改写后的参数
 
 
 def test_after_tool_rewrites_result():
