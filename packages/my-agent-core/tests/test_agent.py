@@ -116,15 +116,19 @@ def test_event_sequence():
     events = []
     agent = _agent(llm, on_event=events.append)
     agent.run("compute")
-    kinds = [type(e).__name__ for e in events]
-    assert kinds[0] == "AgentStart"
-    assert kinds[-1] == "AgentEnd"
-    assert "TurnStart" in kinds
-    assert "TurnEnd" in kinds
-    assert any(isinstance(e, MessageStart) for e in events)
-    assert any(isinstance(e, MessageEnd) for e in events)
-    assert any(isinstance(e, ToolExecutionStart) for e in events)
-    assert any(isinstance(e, ToolExecutionEnd) for e in events)
+    # 完整时序断言（#11）：AgentStart → user → Turn1(assistant → tool → 观察) → TurnEnd → Turn2(assistant) → AgentEnd
+    assert [type(e).__name__ for e in events] == [
+        "AgentStart",
+        "MessageStart", "MessageEnd",                       # user 消息进 transcript
+        "TurnStart",                                        # iteration=1
+        "MessageStart", "MessageEnd",                       # assistant（携带 tool_calls）
+        "ToolExecutionStart", "ToolExecutionEnd",           # 执行工具
+        "MessageStart", "MessageEnd",                       # tool 观察写回
+        "TurnEnd",
+        "TurnStart",                                        # iteration=2
+        "MessageStart", "MessageEnd",                       # assistant（最终回答）
+        "AgentEnd",
+    ]
     # AgentEnd 携带 messages 与 stop_reason
     end = [e for e in events if isinstance(e, AgentEnd)][0]
     assert end.final_text == "6"
