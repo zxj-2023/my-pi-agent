@@ -144,8 +144,9 @@ answer = agent.run(question)
 > 不再存在；循环测试全部转为「构造 `Agent(llm=FakeLLM(...))` → run」驱动。
 > 详见框架设计文档 §2 / §7。
 
-- [x] 2.1 `events.py`：`Event` 基类 + 8 个事件 dataclass（`AssistantMessageAdded.message`
-      为 `Message` 对象）→ 验证：可导入可实例化（行为由循环测试覆盖）
+- [x] 2.1 `events.py`：`Event` 基类 + 10 个事件 dataclass（对齐 pi 生命周期模型：
+      Agent/Turn/Message/Tool 四组成对，`MessageUpdate`/`ToolExecutionUpdate` 为异步流式预留）
+      → 验证：可导入可实例化（行为由循环测试覆盖）
 - [x] 2.2 `agent.py` 重写为 `Agent` 类：`run()` 内联循环、`reset()` 保留 system prompt、
       复用 `ToolRegistry.execute` → 验证：框架 §7 #2–#5、#11、#13、#14（FakeLLM 驱动）
 - [x] 2.3 中间件：`_prepare_tool`（解析 + `before_tool` 拦截/改写）+ `_execute_tool(tc, args)`

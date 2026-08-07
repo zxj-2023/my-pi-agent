@@ -151,6 +151,19 @@ my-pi-agent/
   - `run()` 裸 `json.loads` 打穿「永不抛」——畸形 JSON 参数会让循环崩溃，解析收敛进 `_prepare_tool` 由守卫兜住
 - **验证**：`uv run python -m pytest -q` 全绿（53 个：17+12+8+10，agent 8→13）；demo 真跑三题通过（703 / 时间 / 双城天气）。
 
+### 阶段 8.1：事件集对齐 pi 生命周期（2026-08-06）
+
+**目标**：事件集 8→10，对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组成对）。
+
+- 计划：`docs/superpowers/plans/2026-08-06-event-lifecycle-refactor.md`
+- 提交：`4f1ead8` `9fa879b`（worktree 分支 `worktree-event-lifecycle`）
+- **改了什么**：
+  - `events.py`：删 `AssistantMessageAdded`；加 `TurnEnd`/`MessageStart`/`MessageUpdate`/`MessageEnd`/`ToolExecutionUpdate`；`ToolCallStart`/`ToolCallEnd` 改名 `ToolExecutionStart`/`ToolExecutionEnd`；`AgentEnd` 加 `messages`（4 字段，messages 在前）
+  - `agent.py`：`run()` 按 pi 时序发射——`MessageStart/End` 对 user/assistant/tool 都发，`ToolExecution*` 代替 `ToolCall*`，`TurnEnd(message, tool_results)` 每轮结束发，`AgentEnd` 带 messages 副本
+  - `main.py`/`__init__.py`：demo 打印 + 公共 API 同步新事件（含 `emit` 导出）
+- **过程中的关键教训**：`MessageUpdate`/`ToolExecutionUpdate` 为异步流式预留（同步不发射）；`MessageStart/End` 对每条进 transcript 的消息都发（pi 语义，非仅 assistant）；中间态下 `__init__.py` 引用旧事件会让全量 pytest 收集失败——重命名事件时消费点（`__init__`/`main.py`）须同 commit 同步
+- **验证**：`uv run python -m pytest -q` 全绿（58 个：17+12+14+15）；demo 真跑三题通过（print_events 用新事件名）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
