@@ -28,6 +28,10 @@ class ToolResult:
         return self.error or "Unknown error"
 
 
+class ToolBlocked(Exception):
+    """before_tool 拦截工具调用时抛出；reason 会变成错误结果喂回模型。"""
+
+
 class Tool:
     """一个可被模型调用的工具：函数本体 + 参数模型 + 协议转换。"""
 

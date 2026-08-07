@@ -25,11 +25,7 @@ from my_agent_core.events import (
     emit,
 )
 from my_agent_core.registry import ToolRegistry
-from my_agent_core.tools import Tool, ToolResult
-
-
-class ToolBlocked(Exception):
-    """before_tool 拦截工具调用时抛出；reason 会变成错误结果喂回模型。"""
+from my_agent_core.tools import Tool, ToolBlocked, ToolResult
 
 
 class Agent:

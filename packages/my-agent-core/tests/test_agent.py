@@ -1,7 +1,7 @@
 """Agent 单层循环离线测试（假 LLM 替身，不碰真网络）。"""
 from my_agent_llm import Message, Response
 
-from my_agent_core.agent import Agent, ToolBlocked
+from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
@@ -12,7 +12,7 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
-from my_agent_core.tools import ToolResult, tool
+from my_agent_core.tools import ToolBlocked, ToolResult, tool
 
 
 class FakeLLM:
