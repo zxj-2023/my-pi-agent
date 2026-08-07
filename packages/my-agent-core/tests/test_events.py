@@ -127,3 +127,42 @@ def test_emit_callback_exception_propagates():
 
     with pytest.raises(ValueError, match="boom"):
         emit(boom, AgentStart())
+
+
+def test_event_has_timestamp():
+    """每个事件实例自动带 timestamp（Unix 秒，接近当前时间）。"""
+    import time
+
+    before = time.time()
+    e = TurnStart(iteration=1)
+    after = time.time()
+    assert before <= e.timestamp <= after
+
+
+def test_all_events_have_timestamp():
+    """全部事件实例都有 timestamp（继承自 Event 基类）。"""
+    def make(cls):
+        if cls is AgentStart:
+            return cls()
+        if cls is TurnStart:
+            return cls(iteration=1)
+        if cls in (MessageStart, MessageEnd):
+            return cls(message=Message(role="assistant", content="hi"))
+        if cls is ToolExecutionStart:
+            return cls(tool_call_id="1", tool_name="f", args={})
+        if cls is ToolExecutionEnd:
+            return cls(tool_call_id="1", tool_name="f", result="", is_error=False)
+        if cls is AgentEnd:
+            return cls(messages=[], final_text=None, iterations=1, stop_reason="end_turn")
+        if cls is ContextCompacted:
+            return cls(tokens_before=1, tokens_after=1, summarized_count=0)
+        if cls is ToolsChanged:
+            return cls(action="registered", name="x")
+        raise AssertionError(f"no constructor for {cls.__name__}")
+
+    for cls in (AgentStart, TurnStart, MessageStart, MessageEnd,
+                ToolExecutionStart, ToolExecutionEnd, AgentEnd,
+                ContextCompacted, ToolsChanged):
+        e = make(cls)
+        assert hasattr(e, "timestamp")
+        assert isinstance(e.timestamp, float)

@@ -6,13 +6,21 @@ MessageUpdate / ToolExecutionUpdate 为异步流式预留：同步阶段只定�
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+import time
 
 from my_agent_llm import Message
 
 
 @dataclass(frozen=True)
 class Event:
-    """事件基类：所有事件都继承它，供 Callable[[Event], None] 类型标注。"""
+    """事件基类：所有事件都继承它，供 Callable[[Event], None] 类型标注。
+
+    自动带 timestamp（Unix 秒，实例化时刻）。用 __post_init__ + object.__setattr__
+    注入而非 dataclass 字段——避免「基类默认字段在子类非默认字段前」的顺序限制。
+    """
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "timestamp", time.time())
 
 
 # ── Agent 生命周期
