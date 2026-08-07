@@ -1,6 +1,11 @@
-"""事件 dataclass + emit —— Agent 循环的生命周期通知（外部经 on_event 观察）。"""
+"""事件 dataclass + emit —— Agent 循环的生命周期通知（外部经 on_event 观察）。
+
+事件集对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组，每组 start/end 成对）。
+MessageUpdate / ToolExecutionUpdate 为异步流式预留：同步阶段只定义不发射。
+"""
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from my_agent_llm import Message
 
@@ -10,11 +15,23 @@ class Event:
     """事件基类：所有事件都继承它，供 Callable[[Event], None] 类型标注。"""
 
 
+# ── Agent 生命周期
 @dataclass(frozen=True)
 class AgentStart(Event):
     """run() 开始。"""
 
 
+@dataclass(frozen=True)
+class AgentEnd(Event):
+    """run() 结束。stop_reason: "end_turn" | "max_iterations"。"""
+
+    messages: list[Message]
+    final_text: str | None
+    iterations: int
+    stop_reason: str
+
+
+# ── Turn 生命周期（一轮 = 一次助手响应 + 工具调用/结果）
 @dataclass(frozen=True)
 class TurnStart(Event):
     """一轮 LLM 调用开始。"""
@@ -23,40 +40,66 @@ class TurnStart(Event):
 
 
 @dataclass(frozen=True)
-class AssistantMessageAdded(Event):
-    """助手消息已追加进 messages。"""
+class TurnEnd(Event):
+    """一轮结束：携带该轮助手消息与工具结果消息。"""
+
+    message: Message
+    tool_results: list[Message]
+
+
+# ── 消息生命周期（user / assistant / tool 消息都会发）
+@dataclass(frozen=True)
+class MessageStart(Event):
+    """一条消息开始进入 transcript。"""
 
     message: Message
 
 
 @dataclass(frozen=True)
-class ToolCallStart(Event):
+class MessageUpdate(Event):
+    """消息增量更新（仅异步流式发射）。"""
+
+    message: Message
+
+
+@dataclass(frozen=True)
+class MessageEnd(Event):
+    """一条消息完整进入 transcript。"""
+
+    message: Message
+
+
+# ── 工具执行生命周期
+@dataclass(frozen=True)
+class ToolExecutionStart(Event):
     """一个工具调用开始。"""
 
-    call_id: str
-    name: str
+    tool_call_id: str
+    tool_name: str
     args: dict
 
 
 @dataclass(frozen=True)
-class ToolCallEnd(Event):
+class ToolExecutionUpdate(Event):
+    """工具结果增量更新（仅异步流式发射）。"""
+
+    tool_call_id: str
+    tool_name: str
+    args: dict
+    partial_result: Any
+
+
+@dataclass(frozen=True)
+class ToolExecutionEnd(Event):
     """一个工具调用结束（含结果文本与是否错误）。"""
 
-    call_id: str
-    name: str
+    tool_call_id: str
+    tool_name: str
     result: str
     is_error: bool
 
 
-@dataclass(frozen=True)
-class AgentEnd(Event):
-    """run() 结束。stop_reason: "end_turn" | "max_iterations"。"""
-
-    final_text: str | None
-    iterations: int
-    stop_reason: str
-
-
+# ── 预留（后续阶段）
 @dataclass(frozen=True)
 class ContextCompacted(Event):
     """context 管理完成一次摘要压缩时发射（context 设计文档，本期只定义不发射）。"""

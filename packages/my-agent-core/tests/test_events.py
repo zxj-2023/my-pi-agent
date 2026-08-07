@@ -8,12 +8,16 @@ from my_agent_llm import Message
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    AssistantMessageAdded,
     ContextCompacted,
     Event,
-    ToolCallEnd,
-    ToolCallStart,
+    MessageEnd,
+    MessageStart,
+    MessageUpdate,
+    ToolExecutionEnd,
+    ToolExecutionStart,
+    ToolExecutionUpdate,
     ToolsChanged,
+    TurnEnd,
     TurnStart,
     emit,
 )
@@ -35,29 +39,47 @@ def test_turn_start_has_iteration():
     assert e.iteration == 1
 
 
-def test_assistant_message_added_carries_message():
-    """AssistantMessageAdded.message 是 Message 对象（非 dict）。"""
+def test_turn_end_fields():
+    """TurnEnd 带 message/tool_results。"""
     m = Message(role="assistant", content="hi")
-    e = AssistantMessageAdded(message=m)
+    t = Message(role="tool", content="6")
+    e = TurnEnd(message=m, tool_results=[t])
     assert e.message is m
+    assert e.tool_results == [t]
 
 
-def test_tool_call_start_fields():
-    """ToolCallStart 带 call_id/name/args。"""
-    e = ToolCallStart(call_id="1", name="multiply", args={"a": 2, "b": 3})
-    assert (e.call_id, e.name, e.args) == ("1", "multiply", {"a": 2, "b": 3})
+def test_message_lifecycle_events_carry_message():
+    """MessageStart/MessageUpdate/MessageEnd 带 Message 对象。"""
+    m = Message(role="assistant", content="hi")
+    assert MessageStart(message=m).message is m
+    assert MessageUpdate(message=m).message is m
+    assert MessageEnd(message=m).message is m
 
 
-def test_tool_call_end_fields():
-    """ToolCallEnd 带 call_id/name/result/is_error。"""
-    e = ToolCallEnd(call_id="1", name="multiply", result="6", is_error=False)
+def test_tool_execution_start_fields():
+    """ToolExecutionStart 带 tool_call_id/tool_name/args。"""
+    e = ToolExecutionStart(tool_call_id="1", tool_name="multiply", args={"a": 2, "b": 3})
+    assert (e.tool_call_id, e.tool_name, e.args) == ("1", "multiply", {"a": 2, "b": 3})
+
+
+def test_tool_execution_update_fields():
+    """ToolExecutionUpdate 带 partial_result。"""
+    e = ToolExecutionUpdate(tool_call_id="1", tool_name="multiply", args={}, partial_result="2")
+    assert e.partial_result == "2"
+
+
+def test_tool_execution_end_fields():
+    """ToolExecutionEnd 带 tool_call_id/tool_name/result/is_error。"""
+    e = ToolExecutionEnd(tool_call_id="1", tool_name="multiply", result="6", is_error=False)
     assert e.result == "6"
     assert e.is_error is False
 
 
 def test_agent_end_fields():
-    """AgentEnd 带 final_text/iterations/stop_reason。"""
-    e = AgentEnd(final_text="hi", iterations=2, stop_reason="end_turn")
+    """AgentEnd 带 messages/final_text/iterations/stop_reason。"""
+    m = Message(role="assistant", content="hi")
+    e = AgentEnd(messages=[m], final_text="hi", iterations=2, stop_reason="end_turn")
+    assert e.messages == [m]
     assert (e.final_text, e.iterations, e.stop_reason) == ("hi", 2, "end_turn")
 
 
@@ -74,14 +96,16 @@ def test_tools_changed_fields():
 
 
 def test_all_events_frozen_and_dataclass():
-    """全部 8 个事件都是 frozen dataclass。"""
-    for cls in (AgentStart, TurnStart, AssistantMessageAdded, ToolCallStart,
-                ToolCallEnd, AgentEnd, ContextCompacted, ToolsChanged):
+    """全部事件都是 frozen dataclass，非空 fields（AgentStart 无字段跳过）。"""
+    with_fields = (TurnStart, TurnEnd, MessageStart, MessageUpdate, MessageEnd,
+                   ToolExecutionStart, ToolExecutionUpdate, ToolExecutionEnd,
+                   AgentEnd, ContextCompacted, ToolsChanged)
+    no_fields = (AgentStart,)
+    for cls in (*with_fields, *no_fields):
         assert is_dataclass(cls)
-        assert cls.__dataclass_params__.frozen  # 全部 frozen
-    for cls in (TurnStart, AssistantMessageAdded, ToolCallStart, ToolCallEnd,
-                AgentEnd, ContextCompacted, ToolsChanged):
-        assert fields(cls)  # 非空 dataclass（AgentStart 无字段，跳过）
+        assert cls.__dataclass_params__.frozen
+    for cls in with_fields:
+        assert fields(cls)
 
 
 def test_emit_forwards_to_callback():
