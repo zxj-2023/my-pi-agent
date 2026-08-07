@@ -1,4 +1,5 @@
-"""事件 dataclass —— Agent 循环的生命周期通知（外部经 on_event 观察）。"""
+"""事件 dataclass + emit —— Agent 循环的生命周期通知（外部经 on_event 观察）。"""
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from my_agent_llm import Message
@@ -71,3 +72,13 @@ class ToolsChanged(Event):
 
     action: str
     name: str
+
+
+def emit(callback: Callable[[Event], None] | None, event: Event) -> None:
+    """把事件转发给回调；callback 为 None 时为空操作。
+
+    契约：on_event 不应抛异常（抛了会中断循环，视为使用方 bug，不做兜底——
+    见框架设计文档 §4.2）。
+    """
+    if callback is not None:
+        callback(event)

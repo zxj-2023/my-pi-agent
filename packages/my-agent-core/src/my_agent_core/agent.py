@@ -20,6 +20,7 @@ from my_agent_core.events import (
     ToolCallEnd,
     ToolCallStart,
     TurnStart,
+    emit,
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import Tool, ToolResult
@@ -58,17 +59,12 @@ class Agent:
 
     def run(self, user_input: str) -> str | None:
         """追加 user 消息 → 内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
-
-        def emit(event: Event) -> None:
-            if self.on_event is not None:
-                self.on_event(event)
-
         self.messages.append(Message(role="user", content=user_input))
-        emit(AgentStart())
+        emit(self.on_event, AgentStart())
         iteration = 0
         while self.max_iterations is None or iteration < self.max_iterations:
             iteration += 1
-            emit(TurnStart(iteration))
+            emit(self.on_event, TurnStart(iteration))
             # ── Reason：把完整消息历史 + 工具说明书发给模型。
             resp = self.llm.chat(messages=self.messages, tools=self.registry.get_schemas())
             assistant = Message(
@@ -77,24 +73,24 @@ class Agent:
                 metadata={"tool_calls": resp.tool_calls} if resp.tool_calls else None,
             )
             self.messages.append(assistant)
-            emit(AssistantMessageAdded(assistant))
+            emit(self.on_event, AssistantMessageAdded(assistant))
             # ── 经典退出条件：模型不再发起工具调用 → 结束。
             if not resp.tool_calls:
-                emit(AgentEnd(resp.content, iteration, "end_turn"))
+                emit(self.on_event, AgentEnd(resp.content, iteration, "end_turn"))
                 return resp.content
             # ── Act + Observe：逐个执行本轮全部 tool_calls，结果写回 messages。
             for tc in resp.tool_calls:
                 name, args, err = self._prepare_tool(tc)  # 永不抛；args 为实际生效参数
-                emit(ToolCallStart(tc["id"], name, args))
+                emit(self.on_event, ToolCallStart(tc["id"], name, args))
                 if err is not None:
                     observation, is_error = err, True
                 else:
                     observation, is_error = self._execute_tool(tc, args)  # 永不抛
-                emit(ToolCallEnd(tc["id"], name, observation, is_error))
+                emit(self.on_event, ToolCallEnd(tc["id"], name, observation, is_error))
                 self.messages.append(
                     Message(role="tool", content=observation, metadata={"tool_call_id": tc["id"]})
                 )
-        emit(AgentEnd(None, iteration, "max_iterations"))
+        emit(self.on_event, AgentEnd(None, iteration, "max_iterations"))
         return None
 
     def reset(self) -> None:
