@@ -238,6 +238,21 @@ def test_hook_exception_becomes_error():
     assert "Error" in tool_msgs[0].content
 
 
+def test_tool_execution_end_hook_exception_becomes_error():
+    """ToolExecutionEnd hook 抛异常 → 转错误字符串，工具已执行但结果被替换。"""
+    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
+
+    def boom(event):
+        raise ValueError("end boom")
+
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.register_hook(ToolExecutionEnd, boom)
+    agent.run("compute")
+    tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert "Error" in tool_msgs[0].content  # 工具执行了，但结果被 End hook 异常替换
+
+
 def test_multiple_hooks_same_event():
     """同一事件挂多个 hook，按注册顺序触发，非 None 短路。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
