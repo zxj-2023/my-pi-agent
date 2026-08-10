@@ -5,6 +5,7 @@ from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    HookResult,
     MessageEnd,
     MessageStart,
     ToolExecutionEnd,
@@ -12,7 +13,7 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
-from my_agent_core.tools import ToolBlocked, ToolResult, tool
+from my_agent_core.tools import tool
 
 
 class FakeLLM:
@@ -114,20 +115,17 @@ def test_event_sequence():
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="6")])
     events = []
-    agent = _agent(llm, on_event=events.append)
+    agent = _agent(llm)
+    for cls in (AgentStart, MessageStart, MessageEnd, TurnStart, TurnEnd,
+                ToolExecutionStart, ToolExecutionEnd, AgentEnd):
+        agent.register_hook(cls, events.append)
     agent.run("compute")
-    # 完整时序断言（#11）：AgentStart → user → Turn1(assistant → tool → 观察) → TurnEnd → Turn2(assistant) → AgentEnd
-    assert [type(e).__name__ for e in events] == [
-        "AgentStart",
-        "MessageStart", "MessageEnd",                       # user 消息进 transcript
-        "TurnStart",                                        # iteration=1
-        "MessageStart", "MessageEnd",                       # assistant（携带 tool_calls）
-        "ToolExecutionStart", "ToolExecutionEnd",           # 执行工具
-        "MessageStart", "MessageEnd",                       # tool 观察写回
-        "TurnEnd",
-        "TurnStart",                                        # iteration=2
-        "MessageStart", "MessageEnd",                       # assistant（最终回答）
-        "AgentEnd",
+    kinds = [type(e).__name__ for e in events]
+    assert kinds == [
+        "AgentStart", "MessageStart", "MessageEnd", "TurnStart",
+        "MessageStart", "MessageEnd", "ToolExecutionStart", "ToolExecutionEnd",
+        "MessageStart", "MessageEnd", "TurnEnd",
+        "TurnStart", "MessageStart", "MessageEnd", "AgentEnd",
     ]
     # AgentEnd 携带 messages 与 stop_reason
     end = [e for e in events if isinstance(e, AgentEnd)][0]
@@ -141,7 +139,8 @@ def test_max_iterations():
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc)])  # 只有一轮 tool_calls，没有最终回答
     events = []
-    agent = _agent(llm, max_iterations=1, on_event=events.append)
+    agent = _agent(llm, max_iterations=1)
+    agent.register_hook(AgentEnd, events.append)
     answer = agent.run("compute")
     assert answer is None
     end = [e for e in events if isinstance(e, AgentEnd)][0]
@@ -165,85 +164,105 @@ def test_agent_multiple_runs_and_reset():
     assert agent.messages[0].content == "sys"
 
 
-def test_before_tool_blocks():
-    """before_tool 抛 ToolBlocked → tool 消息含 "blocked"，工具函数未被调用（#7）。"""
+def test_hook_blocks_tool():
+    """ToolExecutionStart hook 返回 block → 工具未执行，tool 消息含 blocked（#7）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     called = []
     llm = FakeLLM([_response(tool_calls=tc), _response(content="blocked ok")])
 
-    def guard(name, args):
-        raise ToolBlocked("no way")
+    def guard(event):
+        if isinstance(event, ToolExecutionStart):
+            return HookResult(block=True, reason="no way")
+        return None
 
     def probe(a: int, b: int) -> int:
         called.append((a, b))
         return a * b
 
     probe_tool = tool(probe)
-    agent = Agent(llm=llm, tools=[probe_tool], before_tool=guard)
+    agent = Agent(llm=llm, tools=[probe_tool])
+    agent.register_hook(ToolExecutionStart, guard)
     answer = agent.run("compute")
     assert answer == "blocked ok"
-    assert called == []  # 工具函数未被调用
+    assert called == []  # 工具未执行
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "blocked: no way" in tool_msgs[0].content
 
 
-def test_before_tool_rewrites_args():
-    """before_tool 返回改写的 args → 工具收到改写值；ToolExecutionStart 携带改写后 args（#8）。"""
+def test_hook_rewrites_args():
+    """ToolExecutionStart hook 返回 updated_args → 工具收到改写值（#8）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
-    def rewrite(name, args):
-        return {"a": args["a"] * 10, "b": args["b"]}
+    def rewrite(event):
+        if isinstance(event, ToolExecutionStart):
+            return HookResult(updated_args={"a": event.args["a"] * 10, "b": event.args["b"]})
+        return None
 
-    events = []
-    agent = Agent(llm=llm, tools=[multiply], before_tool=rewrite, on_event=events.append)
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.register_hook(ToolExecutionStart, rewrite)
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
-    start = [e for e in events if isinstance(e, ToolExecutionStart)][0]
-    assert start.args == {"a": 20, "b": 3}  # ToolExecutionStart 携带 before_tool 改写后的参数
 
 
-def test_after_tool_rewrites_result():
-    """after_tool 返回改写 result → transcript 中是改写后的文本（#9）。"""
+def test_hook_rewrites_result():
+    """ToolExecutionEnd hook 返回 updated_result → transcript 中是改写后的文本（#9）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
-    def rewrite(name, args, result):
-        return ToolResult(ok=True, data=f"[{result.data}]")
+    def rewrite(event):
+        if isinstance(event, ToolExecutionEnd):
+            return HookResult(updated_result=f"[{event.result}]")
+        return None
 
-    agent = Agent(llm=llm, tools=[multiply], after_tool=rewrite)
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.register_hook(ToolExecutionEnd, rewrite)
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "[6]"
 
 
-def test_middleware_exception_becomes_error():
-    """中间件抛其他异常 → 转错误字符串，transcript 不变形（#10）。"""
+def test_hook_exception_becomes_error():
+    """hook 抛异常 → 转错误字符串，transcript 不变形（#10）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(name, args):
+    def boom(event):
         raise ValueError("boom")
 
-    agent = Agent(llm=llm, tools=[multiply], before_tool=boom)
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.register_hook(ToolExecutionStart, boom)
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
-    assert "Error in before_tool" in tool_msgs[0].content
+    assert "Error" in tool_msgs[0].content
 
 
-def test_after_tool_exception_becomes_error():
-    """after_tool 抛异常 → 转错误字符串，transcript 不变形（#10 补）。"""
+def test_multiple_hooks_same_event():
+    """同一事件挂多个 hook，按注册顺序触发，非 None 短路。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
-    llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
+    order = []
 
-    def boom(name, args, result):
-        raise ValueError("after boom")
+    def first(event):
+        order.append("first")
+        return None  # 放行
 
-    agent = Agent(llm=llm, tools=[multiply], after_tool=boom)
+    def second(event):
+        order.append("second")
+        return HookResult(updated_args={"a": 100, "b": 1})  # 短路
+
+    def third(event):
+        order.append("third")  # 不应被调用
+
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.register_hook(ToolExecutionStart, first)
+    agent.register_hook(ToolExecutionStart, second)
+    agent.register_hook(ToolExecutionStart, third)
     agent.run("compute")
+    assert order == ["first", "second"]  # third 未触发（短路）
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
-    assert "Error in after_tool" in tool_msgs[0].content
+    assert tool_msgs[0].content == "100"  # 第二个 hook 的改写生效
 
 
 def test_malformed_arguments_does_not_crash():
