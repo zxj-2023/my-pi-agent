@@ -222,3 +222,19 @@ def test_resume_ignores_new_system_prompt(tmp_path):
     sys_msgs = [m for m in first if m.role == "system"]
     assert len(sys_msgs) == 1
     assert sys_msgs[0].content == "文件里的system"
+
+
+def test_rewind_then_same_agent_run_syncs_context(tmp_path):
+    """同一 Agent：session.rewind 后 run → LLM 收到的 messages 从回退点开始（不含旧分支尾）。"""
+    llm1 = FakeLLM([_response(content="42")])
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    agent = Agent(llm=llm1, tools=[multiply], session=session)
+    agent.run("q1")
+    q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
+    session.rewind(q1_entry.id)
+    llm2 = FakeLLM([_response(content="另答")])
+    agent.llm = llm2  # 同一 Agent 实例续跑
+    agent.run("换个问法")
+    first = llm2.calls[0]["messages"]
+    assert [m.role for m in first] == ["system", "user", "user"]  # 从回退点开始，旧分支尾不在
+    assert [m.content for m in first] == ["sys", "q1", "换个问法"]

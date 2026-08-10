@@ -72,6 +72,9 @@ class Agent:
 
     def run(self, user_input: str) -> str | None:
         """追加 user 消息 → 内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
+        if self.session is not None:
+            # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准
+            self.messages = self.session.get_current_path_messages()
         user_msg = Message(role="user", content=user_input)
         self.messages.append(user_msg)
         if self.session is not None:
