@@ -168,7 +168,7 @@ answer = agent.run(question)
 - [x] 3.1 `session.py`：`SessionTree`（entry 带 id/parent_id/current_id，add_entry /
       get_current_path / rewind）+ `Session`（add_message / save 原子全量重写 / load /
       get_current_path_messages）→ 验证：会话 §8 #1–#6
-- [x] 3.2 `store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
+- [x] 3.2 `session_store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
       前缀匹配，歧义报错）/ delete / fork（从 entry 复制路径为新会话）；id = 时间戳
       + 8 位随机 hex，碰撞重试 → 验证：会话 §8 #11、#13
 - [x] 3.3 `Agent` 集成：`session=` 参数（收 Session 对象；有则逐条落盘，无则纯内存）、

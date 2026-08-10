@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from my_agent_core.store import SessionMeta, SessionStore
+from my_agent_core.session_store import SessionMeta, SessionStore
 
 
 def test_store_create_list_open_delete(tmp_path):

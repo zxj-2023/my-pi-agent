@@ -8,7 +8,7 @@ from my_agent_core.events import (
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import Tool, ToolResult, tool
 from my_agent_core.session import Session, SessionTree
-from my_agent_core.store import SessionStore
+from my_agent_core.session_store import SessionStore
 
 __all__ = [
     "Agent", "tool", "Tool", "ToolResult", "ToolRegistry",
