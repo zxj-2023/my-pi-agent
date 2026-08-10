@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from my_agent_llm import Config, LLM
 
 from my_agent_core.agent import Agent
-from my_agent_core.events import AgentEnd, ToolExecutionEnd, ToolExecutionStart, TurnStart
+from my_agent_core.events import AgentEnd, HookResult, ToolExecutionEnd, ToolExecutionStart, TurnStart
 from my_agent_core.tools import tool
 
 QUESTIONS = [
@@ -49,7 +49,7 @@ DEMO_SYSTEM_PROMPT = (
 )
 
 
-def print_events(event) -> None:
+def print_events(event) -> HookResult | None:
     """把循环事件打印成 demo 过程输出（Agent 不内置 print，输出是应用层的选择）。"""
     if isinstance(event, TurnStart):
         print(f"[round {event.iteration}]")
@@ -59,6 +59,7 @@ def print_events(event) -> None:
         print(f"  观察: {event.result}")
     elif isinstance(event, AgentEnd):
         print(f"最终回答: {event.final_text}")
+    return None  # 纯观察，不干预
 
 
 def build_llm() -> LLM:
@@ -78,12 +79,11 @@ def main() -> None:
     llm = build_llm()
     for question in QUESTIONS:
         print(f"\n=== 问题: {question} ===")
-        agent = Agent(
-            llm=llm,
-            tools=TOOLS,
-            system_prompt=DEMO_SYSTEM_PROMPT,
-            on_event=print_events,
-        )
+        agent = Agent(llm=llm, tools=TOOLS, system_prompt=DEMO_SYSTEM_PROMPT)
+        agent.register_hook(TurnStart, print_events)
+        agent.register_hook(ToolExecutionStart, print_events)
+        agent.register_hook(ToolExecutionEnd, print_events)
+        agent.register_hook(AgentEnd, print_events)
         answer = agent.run(question)
         if answer is None:
             print("（达到 max_iterations 上限，未得到最终回答）")
