@@ -91,10 +91,8 @@ class Agent:
             tool_results: list[Message] = []
             for tc in resp.tool_calls:
                 name, args, err, _hook = self._prepare_tool(tc)  # 内部触发 ToolExecutionStart + hook
-                if err is not None:
-                    observation, is_error = err, True
-                else:
-                    observation, is_error = self._execute_tool(tc, args)  # 内部触发 ToolExecutionEnd + hook
+                # err 非 None 时它本身就是观察文本；否则执行工具（内部触发 ToolExecutionEnd + hook）
+                observation = err if err is not None else self._execute_tool(tc, args)[0]
                 tool_msg = Message(
                     role="tool", content=observation, metadata={"tool_call_id": tc["id"]})
                 self.messages.append(tool_msg)
@@ -128,9 +126,10 @@ class Agent:
             hook = self._emit(ToolExecutionStart(tc["id"], name, args))
         except Exception as exc:  # hook 抛异常 → 转错误字符串，不中断循环
             return name, args, f"Error in ToolExecutionStart hook for '{name}': {exc}", None
-        if hook is not None and hook.block:
+        # 防御：hook 违反契约返回非 HookResult 真值（如 True）时按无干预处理，避免 AttributeError 穿出
+        if isinstance(hook, HookResult) and hook.block:
             return name, args, f"Tool '{name}' blocked: {hook.reason}", hook
-        if hook is not None and hook.updated_args is not None:
+        if isinstance(hook, HookResult) and hook.updated_args is not None:
             args = hook.updated_args
         return name, args, None, hook
 
@@ -151,6 +150,7 @@ class Agent:
             hook = self._emit(ToolExecutionEnd(tc["id"], name, result.serialize(), not result.ok))
         except Exception as exc:  # hook 抛异常 → 转错误字符串，不中断循环
             return f"Error in ToolExecutionEnd hook for '{name}': {exc}", True
-        if hook is not None and hook.updated_result is not None:
+        # 防御：hook 违反契约返回非 HookResult 真值（如 True）时按无干预处理，避免 AttributeError 穿出
+        if isinstance(hook, HookResult) and hook.updated_result is not None:
             return hook.updated_result, False
         return result.serialize(), not result.ok

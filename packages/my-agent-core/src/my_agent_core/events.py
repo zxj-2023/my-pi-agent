@@ -1,6 +1,7 @@
 """事件 dataclass + HookResult + emit —— Agent 循环的生命周期通知（外部经 hook 观察/干预）。
 
-事件集对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组，每组 start/end 成对）。
+事件集对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组；正常执行 start/end
+成对，被拦截/畸形参数的调用不发射 End）。
 MessageUpdate / ToolExecutionUpdate 为异步流式预留：同步阶段只定义不发射。
 """
 from collections.abc import Callable
