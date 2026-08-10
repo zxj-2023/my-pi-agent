@@ -105,12 +105,12 @@ def test_emit_forwards_to_callback():
 
 
 def test_emit_none_callback_is_noop():
-    """on_event 为 None 时 emit 为空操作（不抛）。"""
+    """callback 为 None 时 emit 为空操作（不抛）。"""
     emit(None, AgentStart())  # 不抛即通过
 
 
 def test_emit_callback_exception_propagates():
-    """回调抛异常直接向上传播（on_event 异常不兜底，视为使用方 bug）。"""
+    """回调抛异常直接向上传播（hook 异常不兜底，视为使用方 bug）。"""
     def boom(event):
         raise ValueError("boom")
 

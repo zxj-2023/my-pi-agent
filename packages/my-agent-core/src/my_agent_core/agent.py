@@ -17,7 +17,6 @@ from my_agent_core.events import (
     AgentStart,
     Event,
     HookResult,
-    Interceptable,
     MessageEnd,
     MessageStart,
     ToolExecutionEnd,
@@ -26,7 +25,7 @@ from my_agent_core.events import (
     TurnStart,
 )
 from my_agent_core.registry import ToolRegistry
-from my_agent_core.tools import Tool, ToolResult
+from my_agent_core.tools import Tool
 
 
 class Agent:
