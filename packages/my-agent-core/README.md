@@ -161,19 +161,23 @@ answer = agent.run(question)
 
 ### 阶段 3：session 管理
 
-- [ ] 3.1 `session.py`：JSONL 格式读写（header + typed message 行）、
-      `create_session` / `load_session` / `append_messages`（单次批量追加）、
-      加载宽容规则（撕裂尾行、未配对尾部 tool_calls 丢弃；中段损坏带行号报错）
-      → 验证：会话 §8 #1–#5
+> **2026-08-06 修订**：原「纯消息序列 + turn 边界批量写」已改为 **pig-mono 式树结构
+> （entry 带 id/parent_id + current 指针）+ 逐条原子落盘 + rewind（移动指针）**。
+> 用户有 rewind 计划，v1 就用树。详见 session 设计文档。
+
+- [ ] 3.1 `session.py`：`SessionTree`（entry 带 id/parent_id/current_id，add_entry /
+      get_current_path / rewind）+ `Session`（add_message / save 原子全量重写 / load /
+      get_current_path_messages）→ 验证：会话 §8 #1–#6
 - [ ] 3.2 `store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
       前缀匹配，歧义报错）/ delete；id = 时间戳 + 8 位随机 hex，碰撞重试
-      → 验证：会话 §8 #10
-- [ ] 3.3 `Agent` 集成：`session=` 参数（不存在即创建 / 存在即恢复 / 恢复时
-      文件为准）、turn 边界落盘、`resume_run()` 崩溃续跑、`reset()` 重写文件
-      → 验证：会话 §8 #6、#7、#8、#9、#11
+      → 验证：会话 §8 #11
+- [ ] 3.3 `Agent` 集成：`session=` 参数（收 Session 对象；有则逐条落盘，无则纯内存）、
+      `reset()` 重写文件 → 验证：会话 §8 #7、#8、#10、#12
+- [ ] 3.4 `rewind`：`Session.rewind(entry_id)` 移动指针（旧分支保留），续跑从回退点长新枝
+      → 验证：会话 §8 #3、#9
 - **阶段验证**：`uv run pytest -q` 全绿；真实跨进程演示——进程 1 创建会话 +
   问一个问题后退出；进程 2 `open(前缀)` 恢复 + 追问引用上一轮答案的问题，
-  模型答得上
+  模型答得上；真实 rewind——问一个问题 → rewind 到开头 → 换个问法 → 模型按新问法答
 
 ### 阶段 4：context 管理
 
