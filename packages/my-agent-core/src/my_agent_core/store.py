@@ -86,3 +86,11 @@ class SessionStore:
     def delete(self, id_or_prefix: str) -> None:
         """删除会话文件。未找到 → ValueError。"""
         self._resolve(id_or_prefix).unlink()
+
+    def fork(self, id_or_prefix: str, entry_id: str) -> Session:
+        """从某会话 entry 分叉：复制根→entry 路径为新会话（新 id/路径，独立演化）。"""
+        src = self.open(id_or_prefix)
+        new = self.create(cwd=src.cwd)
+        for entry in src.tree.get_path_to_entry(entry_id):
+            new.add_message(entry.role, entry.content, **entry.metadata)
+        return new

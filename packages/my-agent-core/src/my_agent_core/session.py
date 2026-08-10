@@ -53,8 +53,14 @@ class SessionTree:
         """根 → current 的路径（Agent 上下文用）。空树返回 []。"""
         if self.current_id is None:
             return []
+        return self.get_path_to_entry(self.current_id)
+
+    def get_path_to_entry(self, entry_id: str) -> list[SessionEntry]:
+        """根 → entry_id 的路径（fork 用）。不存在抛 ValueError。"""
+        if entry_id not in self.entries:
+            raise ValueError(f"Entry {entry_id} not found")
         path: list[SessionEntry] = []
-        cur = self.entries.get(self.current_id)
+        cur = self.entries.get(entry_id)
         while cur is not None:
             path.insert(0, cur)
             cur = self.entries.get(cur.parent_id) if cur.parent_id else None

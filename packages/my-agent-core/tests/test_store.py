@@ -62,3 +62,40 @@ def test_store_list_skips_corrupt_files(tmp_path):
     (tmp_path / "corrupt.jsonl").write_text("not json\n", encoding="utf-8")
     metas = store.list()
     assert all(m.id != "corrupt" for m in metas)
+
+
+def test_store_fork_copies_path_to_new_session(tmp_path):
+    """fork 复制根→entry 路径为新会话；新会话 id 不同、树 = 复制路径（#13）。"""
+    store = SessionStore(tmp_path)
+    session = store.create(system_prompt="sys")
+    session.add_message("user", "q1")
+    a = session.add_message("assistant", "a1")
+    session.add_message("user", "q2")  # current 移到 q2（fork 点 a1 之前的旧枝）
+    forked = store.fork(session.id, a.id)
+    assert forked.id != session.id
+    assert forked.cwd == session.cwd
+    assert [e.content for e in forked.tree.get_current_path()] == ["sys", "q1", "a1"]
+
+
+def test_store_fork_sessions_evolve_independently(tmp_path):
+    """fork 后新旧会话独立演化（互不影响）（#13）。"""
+    store = SessionStore(tmp_path)
+    session = store.create(system_prompt="sys")
+    session.add_message("user", "q1")
+    a = session.add_message("assistant", "a1")
+    forked = store.fork(session.id, a.id)
+    # 旧会话继续
+    session.add_message("user", "q2")
+    # 新会话从文件恢复后继续
+    re_forked = store.open(forked.id)
+    re_forked.add_message("user", "新枝")
+    assert [e.content for e in session.tree.get_current_path()] == ["sys", "q1", "a1", "q2"]
+    assert [e.content for e in re_forked.tree.get_current_path()] == ["sys", "q1", "a1", "新枝"]
+
+
+def test_store_fork_missing_entry_raises(tmp_path):
+    """fork 到不存在的 entry 抛 ValueError（§7）。"""
+    store = SessionStore(tmp_path)
+    session = store.create()
+    with pytest.raises(ValueError):
+        store.fork(session.id, "nope")
