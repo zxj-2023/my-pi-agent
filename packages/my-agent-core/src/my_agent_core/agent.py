@@ -25,6 +25,7 @@ from my_agent_core.events import (
     TurnStart,
 )
 from my_agent_core.registry import ToolRegistry
+from my_agent_core.session import Session
 from my_agent_core.tools import Tool
 
 
@@ -32,15 +33,24 @@ class Agent:
     """单层 Agent：持有 llm / 工具注册表 / 消息，内联 ReAct 循环。"""
 
     def __init__(self, *, llm: LLM, tools: list[Tool], system_prompt: str | None = None,
-                 max_iterations: int | None = None):
-        """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。"""
+                 max_iterations: int | None = None, session: Session | None = None):
+        """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
+
+        session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
+        当前路径恢复 messages，此时 system_prompt 被忽略（文件为准，决策 5）。
+        """
         self.llm = llm
         self.registry = ToolRegistry()
         for t in tools:
             self.registry.register(t)
-        self.messages: list[Message] = []  # 公开可读：transcript 即全部状态
-        if system_prompt is not None:
-            self.messages.append(Message(role="system", content=system_prompt))
+        self.session = session
+        if session is not None:
+            # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
+            self.messages = session.get_current_path_messages()
+        else:
+            self.messages = []  # 公开可读：transcript 即全部状态
+            if system_prompt is not None:
+                self.messages.append(Message(role="system", content=system_prompt))
         self.max_iterations = max_iterations
         self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
 
@@ -64,6 +74,8 @@ class Agent:
         """追加 user 消息 → 内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
         user_msg = Message(role="user", content=user_input)
         self.messages.append(user_msg)
+        if self.session is not None:
+            self.session.add_message("user", user_input)
         self._emit(AgentStart())
         self._emit(MessageStart(user_msg))
         self._emit(MessageEnd(user_msg))
@@ -79,6 +91,11 @@ class Agent:
                 metadata={"tool_calls": resp.tool_calls} if resp.tool_calls else None,
             )
             self.messages.append(assistant)
+            if self.session is not None:
+                if resp.tool_calls:
+                    self.session.add_message("assistant", assistant.content, tool_calls=resp.tool_calls)
+                else:
+                    self.session.add_message("assistant", assistant.content)
             self._emit(MessageStart(assistant))
             self._emit(MessageEnd(assistant))
             # ── 经典退出条件：模型不再发起工具调用 → 结束。
@@ -96,6 +113,8 @@ class Agent:
                 tool_msg = Message(
                     role="tool", content=observation, metadata={"tool_call_id": tc["id"]})
                 self.messages.append(tool_msg)
+                if self.session is not None:
+                    self.session.add_message("tool", observation, tool_call_id=tc["id"])
                 self._emit(MessageStart(tool_msg))
                 self._emit(MessageEnd(tool_msg))
                 tool_results.append(tool_msg)
@@ -106,9 +125,13 @@ class Agent:
         return None
 
     def reset(self) -> None:
-        """清空 messages（保留 system prompt）。"""
-        system = [m for m in self.messages if m.role == "system"]
-        self.messages = system if system else []
+        """清空 messages（保留 system prompt）。有 session 时同步清空树 + 重写文件。"""
+        if self.session is not None:
+            self.session.reset()
+            self.messages = self.session.get_current_path_messages()
+        else:
+            system = [m for m in self.messages if m.role == "system"]
+            self.messages = system if system else []
 
     def _prepare_tool(self, tc: dict) -> tuple[str, dict, str | None, HookResult | None]:
         """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。
