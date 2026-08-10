@@ -164,6 +164,23 @@ my-pi-agent/
 - **过程中的关键教训**：`MessageUpdate`/`ToolExecutionUpdate` 为异步流式预留（同步不发射）；`MessageStart/End` 对每条进 transcript 的消息都发（pi 语义，非仅 assistant）；中间态下 `__init__.py` 引用旧事件会让全量 pytest 收集失败——重命名事件时消费点（`__init__`/`main.py`）须同 commit 同步
 - **验证**：`uv run python -m pytest -q` 全绿（58 个：17+12+14+15）；demo 真跑三题通过（print_events 用新事件名）。
 
+### 阶段 8.2：hook 统一（事件+中间件 → hook 注册表，2026-08-06）
+
+**目标**：扩展机制从「事件观察（on_event）+ 中间件干预（before_tool/after_tool/ToolBlocked）」统一为「hook 注册表」（仿 CC）。
+
+- 计划：`docs/superpowers/plans/2026-08-06-hook-unification.md`
+- 提交：`adbb49c` `5a7cb37` `21b9c50` `e3ba480`（worktree 分支 `worktree-hook-unification`）
+- **改了什么**：
+  - `events.py`：加 `HookResult`（block/reason/updated_args/updated_result）+ `Interceptable` 标记；`ToolExecutionStart/End` 继承 `Interceptable`（可被 hook 干预）
+  - `agent.py`：删 `on_event`/`before_tool`/`after_tool` 参数；加 `_hooks` 注册表 + `register_hook`/`unregister_hook`/`_emit`；`_prepare_tool`/`_execute_tool` 用 HookResult（拦截/改参数/改结果）
+  - `tools.py`：删 `ToolBlocked`
+  - `main.py`/`__init__.py`：demo 用 `register_hook`；公共 API 加 `HookResult`/`Interceptable`
+- **过程中的关键教训**：
+  - hook 回调返回 None = 纯观察、返回 HookResult = 干预；同一事件可挂多个 hook、非 None 短路
+  - `ToolExecutionStart/End` 触发点移入 `_prepare_tool`/`_execute_tool`（干预结果要在工具执行前/后拿到）
+  - **hook 异常语义分裂**：工具路径 hook 异常转错误字符串（保住「tool_calls 必配对」不变式），观察路径 hook 异常向上抛（视为使用方 bug）——设计文档 §4.2/§8 原先自相矛盾，本次消解
+- **验证**：`uv run python -m pytest -q` 全绿（63 个：17+12+14+20）；demo 真跑三题通过（multiply=703 / 时间 / 双城天气）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）

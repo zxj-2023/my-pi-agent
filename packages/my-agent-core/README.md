@@ -55,8 +55,8 @@ my-agent-core/           # 独立 uv 项目（本包根）
 │   └── my_agent_core/   # Python 包（import 名仍是下划线 my_agent_core）
 │       ├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
 │       ├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
-│       ├── agent.py     # Agent 类（单层：状态 + 循环 + 工具执行）+ ToolBlocked
-│       ├── events.py    # 10 个事件 dataclass + emit（on_event 生命周期通知）
+│       ├── agent.py     # Agent 类（单层：状态 + 循环 + 工具执行）+ hook 注册表
+│       ├── events.py    # 10 个事件 dataclass + HookResult + emit（hook 生命周期通知/干预）
 │       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 └── tests/
     ├── test_tools.py    # Tool/ToolResult/tool() 离线测试
@@ -81,11 +81,11 @@ my-agent-core/           # 独立 uv 项目（本包根）
 1. **上行翻译**：`@tool` 把 Python 函数翻译成模型看得懂的 JSON schema，
    放进请求的 `tools` 字段
 2. **下行调度**（`Agent.run` 内联循环）：读响应的 `tool_calls`——非空就逐个经
-   `_prepare_tool`（解析 + `before_tool` 拦截/改写）→ `ToolRegistry.execute`
-   （内部查表 + pydantic 校验，永不抛）→ `after_tool`（改写结果），把观察文本作为
-   `role: "tool"` 消息写回 messages（与助手消息的 `tool_call_id` 配对），
-   再问一轮；为空则循环结束，返回模型的文本。循环各阶段发射事件（`on_event` 订阅），
-   工具路径任何错误（坏 JSON / 未知工具 / 校验失败 / 工具异常 / 中间件拦截）都转成
+   `_prepare_tool`（解析 + `ToolExecutionStart` hook 拦截/改参数）→ `ToolRegistry.execute`
+   （内部查表 + pydantic 校验，永不抛）→ `_execute_tool`（执行 + `ToolExecutionEnd` hook 改结果），
+   把观察文本作为 `role: "tool"` 消息写回 messages（与助手消息的 `tool_call_id` 配对），
+   再问一轮；为空则循环结束，返回模型的文本。循环各阶段触发 hook（`register_hook` 挂载），
+   工具路径任何错误（坏 JSON / 未知工具 / 校验失败 / 工具异常 / hook 拦截）都转成
    描述性消息喂回模型，让模型有机会自我纠正
 
 ## 添加新工具
@@ -149,11 +149,11 @@ answer = agent.run(question)
       → 验证：可导入可实例化（行为由循环测试覆盖）
 - [x] 2.2 `agent.py` 重写为 `Agent` 类：`run()` 内联循环、`reset()` 保留 system prompt、
       复用 `ToolRegistry.execute` → 验证：框架 §7 #2–#5、#11、#13、#14（FakeLLM 驱动）
-- [x] 2.3 中间件：`_prepare_tool`（解析 + `before_tool` 拦截/改写）+ `_execute_tool(tc, args)`
-      （执行 + `after_tool` 改写）、中间件异常转错误字符串 → 验证：框架 §7 #7–#10
+- [x] 2.3 hook 注册表：`_prepare_tool`（解析 + `ToolExecutionStart` hook 拦截/改参数）+ `_execute_tool`
+      （执行 + `ToolExecutionEnd` hook 改结果）、hook 异常转错误字符串 → 验证：框架 §7 #7–#10
 - [x] 2.4 `max_iterations`（默认 `None` 不限）→ 验证：框架 §7 #12
-- [x] 2.5 `main.py` 改用 `Agent` + `on_event` 打印循环过程；`__init__.py` 导出公共 API
-      （`Agent` / `tool` / `Tool` / `ToolResult` / `ToolRegistry` / `ToolBlocked` / 事件类型）
+- [x] 2.5 `main.py` 改用 `Agent` + `register_hook` 打印循环过程；`__init__.py` 导出公共 API
+      （`Agent` / `tool` / `Tool` / `ToolResult` / `ToolRegistry` / `HookResult` / `Interceptable` / 事件类型）
 - [x] 2.6 更新本 README 的「添加新工具」示例与「设计取舍」措辞（`run_agent` → `Agent`）
 - **阶段验证**：`uv run pytest -q` 全绿（#1–#15，框架 §7.2：框架 v1 完成）；
   真实运行 `uv run python -m my_agent_core.main`，三个问题答案符合预期
@@ -178,7 +178,7 @@ answer = agent.run(question)
 ### 阶段 4：context 管理
 
 - [ ] 4.1 `context.py`：`estimate_tokens`（chars/4 启发式）+
-      `truncate_result`（头尾保留截断，经 `after_tool` 挂的 recipe）
+      `truncate_result`（头尾保留截断，经 `ToolExecutionEnd` hook 挂的 recipe）
       → 验证：上下文 §7 #1、#11
 - [ ] 4.2 `context.py`：`ContextManager` —— 超 0.8·budget 触发、切点对齐
       user 边界（绝不切 tool 配对）、独立摘要调用（pi 风格结构化 prompt +
@@ -233,7 +233,7 @@ answer = agent.run(question)
       Claude Code `/rewind` 的极简版，用户指定的下一优先级）
 - [ ] **coding agent 层**（新主线，独立包 `my_coding_agent`，基于 my_agent_core
       框架，对应 `pig-coding-agent`；待专门设计）：CLI 入口、coding 系统
-      提示、权限门控（落点 `before_tool`）、内置工具组装（read / write /
+      提示、权限门控（落点 `ToolExecutionStart` hook）、内置工具组装（read / write /
       edit / bash 归属框架层还是本层待定）
 - [ ] async 化：只改 `llm_call` 缝隙两侧（对应 pi 的全异步形态）
 - [ ] 流式输出：`message_update` 类增量事件（对应 pi 的 `message_start/update/end`）
