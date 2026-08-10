@@ -7,6 +7,8 @@ from my_agent_core.events import (
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import Tool, ToolResult, tool
+from my_agent_core.session import Session, SessionTree
+from my_agent_core.store import SessionStore
 
 __all__ = [
     "Agent", "tool", "Tool", "ToolResult", "ToolRegistry",
@@ -14,5 +16,6 @@ __all__ = [
     "AgentStart", "AgentEnd", "TurnStart", "TurnEnd",
     "MessageStart", "MessageUpdate", "MessageEnd",
     "ToolExecutionStart", "ToolExecutionUpdate", "ToolExecutionEnd",
+    "Session", "SessionTree", "SessionStore",
     "ContextCompacted", "ToolsChanged",
 ]

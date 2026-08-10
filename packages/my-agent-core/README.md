@@ -165,19 +165,19 @@ answer = agent.run(question)
 > （entry 带 id/parent_id + current 指针）+ 逐条原子落盘 + rewind（移动指针）**。
 > 用户有 rewind 计划，v1 就用树。详见 session 设计文档。
 
-- [ ] 3.1 `session.py`：`SessionTree`（entry 带 id/parent_id/current_id，add_entry /
+- [x] 3.1 `session.py`：`SessionTree`（entry 带 id/parent_id/current_id，add_entry /
       get_current_path / rewind）+ `Session`（add_message / save 原子全量重写 / load /
       get_current_path_messages）→ 验证：会话 §8 #1–#6
-- [ ] 3.2 `store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
+- [x] 3.2 `store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
       前缀匹配，歧义报错）/ delete；id = 时间戳 + 8 位随机 hex，碰撞重试
       → 验证：会话 §8 #11
-- [ ] 3.3 `Agent` 集成：`session=` 参数（收 Session 对象；有则逐条落盘，无则纯内存）、
+- [x] 3.3 `Agent` 集成：`session=` 参数（收 Session 对象；有则逐条落盘，无则纯内存）、
       `reset()` 重写文件 → 验证：会话 §8 #7、#8、#10、#12
-- [ ] 3.4 `rewind`：`Session.rewind(entry_id)` 移动指针（旧分支保留），续跑从回退点长新枝
+- [x] 3.4 `rewind`：`Session.rewind(entry_id)` 移动指针（旧分支保留），续跑从回退点长新枝
       → 验证：会话 §8 #3、#9
-- **阶段验证**：`uv run pytest -q` 全绿；真实跨进程演示——进程 1 创建会话 +
-  问一个问题后退出；进程 2 `open(前缀)` 恢复 + 追问引用上一轮答案的问题，
-  模型答得上；真实 rewind——问一个问题 → rewind 到开头 → 换个问法 → 模型按新问法答
+- **阶段验证**：`uv run python -m pytest -q` 全绿（会话 §8 #1–#12）；真实跨进程演示（需 .env）：
+  进程 1 `store.create()` + `agent.run(一个问题)` 退出；进程 2 `store.open(前缀)` +
+  `agent.run(引用上一轮答案的问题)` → 模型答得上
 
 ### 阶段 4：context 管理
 
