@@ -56,7 +56,7 @@ my-agent-core/           # 独立 uv 项目（本包根）
 │       ├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
 │       ├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
 │       ├── agent.py     # Agent 类（单层：状态 + 循环 + 工具执行）+ hook 注册表
-│       ├── events.py    # 10 个事件 dataclass + HookResult + emit（hook 生命周期通知/干预）
+│       ├── events.py    # 10 个事件 dataclass + HookResult（hook 生命周期通知/干预）
 │       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 └── tests/
     ├── test_tools.py    # Tool/ToolResult/tool() 离线测试

@@ -1,14 +1,12 @@
-"""events.py 事件 dataclass + emit 离线测试：可导入、可实例化、字段正确、转发正确。"""
+"""events.py 事件 dataclass + HookResult 离线测试：可导入、可实例化、字段正确。"""
 from dataclasses import fields, is_dataclass
-
-import pytest
 
 from my_agent_llm import Message
 
 from my_agent_core.events import (
     AgentEnd, AgentStart, ContextCompacted, Event, HookResult, Interceptable,
     MessageEnd, MessageStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart,
-    ToolExecutionUpdate, ToolsChanged, TurnEnd, TurnStart, emit,
+    ToolExecutionUpdate, ToolsChanged, TurnEnd, TurnStart,
 )
 
 
@@ -95,27 +93,6 @@ def test_all_events_frozen_and_dataclass():
         assert cls.__dataclass_params__.frozen
     for cls in with_fields:
         assert fields(cls)
-
-
-def test_emit_forwards_to_callback():
-    """emit 把事件转发给回调。"""
-    received = []
-    emit(received.append, TurnStart(iteration=1))
-    assert received == [TurnStart(iteration=1)]
-
-
-def test_emit_none_callback_is_noop():
-    """callback 为 None 时 emit 为空操作（不抛）。"""
-    emit(None, AgentStart())  # 不抛即通过
-
-
-def test_emit_callback_exception_propagates():
-    """回调抛异常直接向上传播（hook 异常不兜底，视为使用方 bug）。"""
-    def boom(event):
-        raise ValueError("boom")
-
-    with pytest.raises(ValueError, match="boom"):
-        emit(boom, AgentStart())
 
 
 def test_event_has_timestamp():

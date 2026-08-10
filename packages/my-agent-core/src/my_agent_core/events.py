@@ -1,10 +1,9 @@
-"""事件 dataclass + HookResult + emit —— Agent 循环的生命周期通知（外部经 hook 观察/干预）。
+"""事件 dataclass + HookResult —— Agent 循环的生命周期通知（外部经 hook 观察/干预）。
 
 事件集对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组；正常执行 start/end
 成对，被拦截/畸形参数的调用不发射 End）。
 MessageUpdate / ToolExecutionUpdate 为异步流式预留：同步阶段只定义不发射。
 """
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 import time
@@ -141,13 +140,3 @@ class HookResult:
     reason: str | None = None
     updated_args: dict | None = None
     updated_result: str | None = None
-
-
-def emit(callback: Callable[[Event], None] | None, event: Event) -> None:
-    """把事件转发给回调；callback 为 None 时为空操作。
-
-    契约：hook 不应抛异常（抛了会中断循环，视为使用方 bug，不做兜底——
-    见框架设计文档 §4.2）。
-    """
-    if callback is not None:
-        callback(event)
