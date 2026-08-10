@@ -6,20 +6,9 @@ import pytest
 from my_agent_llm import Message
 
 from my_agent_core.events import (
-    AgentEnd,
-    AgentStart,
-    ContextCompacted,
-    Event,
-    MessageEnd,
-    MessageStart,
-    MessageUpdate,
-    ToolExecutionEnd,
-    ToolExecutionStart,
-    ToolExecutionUpdate,
-    ToolsChanged,
-    TurnEnd,
-    TurnStart,
-    emit,
+    AgentEnd, AgentStart, ContextCompacted, Event, HookResult, Interceptable,
+    MessageEnd, MessageStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart,
+    ToolExecutionUpdate, ToolsChanged, TurnEnd, TurnStart, emit,
 )
 
 
@@ -166,3 +155,32 @@ def test_all_events_have_timestamp():
         e = make(cls)
         assert hasattr(e, "timestamp")
         assert isinstance(e.timestamp, float)
+
+
+def test_hook_result_fields():
+    """HookResult 四字段，默认值正确。"""
+    r = HookResult()
+    assert r.block is False
+    assert r.reason is None
+    assert r.updated_args is None
+    assert r.updated_result is None
+    r2 = HookResult(block=True, reason="denied", updated_args={"a": 1}, updated_result="hi")
+    assert r2.block is True
+    assert r2.reason == "denied"
+    assert r2.updated_args == {"a": 1}
+    assert r2.updated_result == "hi"
+
+
+def test_interceptable_events():
+    """ToolExecutionStart/End 继承 Interceptable，其余事件不继承。"""
+    assert isinstance(ToolExecutionStart(tool_call_id="1", tool_name="f", args={}), Interceptable)
+    assert isinstance(
+        ToolExecutionEnd(tool_call_id="1", tool_name="f", result="", is_error=False), Interceptable)
+    assert not isinstance(TurnStart(iteration=1), Interceptable)
+    assert not isinstance(AgentStart(), Interceptable)
+
+
+def test_hook_result_frozen():
+    """HookResult 是 frozen dataclass。"""
+    assert is_dataclass(HookResult)
+    assert HookResult.__dataclass_params__.frozen

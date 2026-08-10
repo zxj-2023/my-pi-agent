@@ -23,6 +23,10 @@ class Event:
         object.__setattr__(self, "timestamp", time.time())
 
 
+class Interceptable:
+    """标记：该事件可被 hook 干预（回调返回值生效）。"""
+
+
 # ── Agent 生命周期
 @dataclass(frozen=True)
 class AgentStart(Event):
@@ -79,8 +83,8 @@ class MessageEnd(Event):
 
 # ── 工具执行生命周期
 @dataclass(frozen=True)
-class ToolExecutionStart(Event):
-    """一个工具调用开始。"""
+class ToolExecutionStart(Event, Interceptable):
+    """一个工具调用开始（可被 hook 拦截/改参数）。"""
 
     tool_call_id: str
     tool_name: str
@@ -98,8 +102,8 @@ class ToolExecutionUpdate(Event):
 
 
 @dataclass(frozen=True)
-class ToolExecutionEnd(Event):
-    """一个工具调用结束（含结果文本与是否错误）。"""
+class ToolExecutionEnd(Event, Interceptable):
+    """一个工具调用结束（可被 hook 改结果）。"""
 
     tool_call_id: str
     tool_name: str
@@ -123,6 +127,19 @@ class ToolsChanged(Event):
 
     action: str
     name: str
+
+
+@dataclass(frozen=True)
+class HookResult:
+    """hook 回调的干预结果。返回 None = 纯观察，返回 HookResult = 干预。
+
+    - ToolExecutionStart 用 block / updated_args（拦截 / 改参数）
+    - ToolExecutionEnd 用 updated_result（改结果）
+    """
+    block: bool = False
+    reason: str | None = None
+    updated_args: dict | None = None
+    updated_result: str | None = None
 
 
 def emit(callback: Callable[[Event], None] | None, event: Event) -> None:
