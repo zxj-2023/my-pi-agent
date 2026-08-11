@@ -183,21 +183,21 @@ answer = agent.run(question)
 
 ### 阶段 4：context 管理
 
-- [ ] 4.1 `context.py`：`estimate_tokens`（chars/4 启发式）+
+- [x] 4.1 `context.py`：`estimate_tokens`（chars/4 启发式）+
       `truncate_result`（头尾保留截断，经 `ToolExecutionEnd` hook 挂的 recipe）
       → 验证：上下文 §7 #1、#11
-- [ ] 4.2 `context.py`：`ContextManager` —— 超 0.8·budget 触发、切点对齐
+- [x] 4.2 `context.py`：`ContextManager` —— 超 0.8·budget 触发、切点对齐
       user 边界（绝不切 tool 配对）、独立摘要调用（pi 风格结构化 prompt +
       “不要续聊”约束）、缓存复用、迭代再摘要、摘要失败降级不压缩
       → 验证：上下文 §7 #3–#9
-- [ ] 4.3 `Agent` 集成：`context_budget=` / `keep_recent_tokens=`（默认
+- [x] 4.3 `Agent` 集成：`context_budget=` / `keep_recent_tokens=`（默认
       `None` 不启用）、`transform_context=` / `compaction_summarizer=`
       可注入策略（管线：内建压缩先、用户钩子后、钩子 fail-loud）、
       压缩在 `Agent` 层做（单层形态下无 `_llm_call` 缝隙，见框架设计文档 §2.2 决策 2）、
       `reset()` 清缓存、`ContextCompacted` 事件 → 验证：上下文 §7 #2、#10 +
       可扩展性 §7 #8–#12
-- **阶段验证**：`uv run pytest -q` 全绿；真实运行：设一个小 budget
-      （如 4000）跑多轮工具对话，事件可见压缩发生，后续轮次仍能引用早期信息
+- **阶段验证**：`uv run python -m pytest -q` 全绿（context §8 #1–#16）；真实验证（需 .env）：
+  小 budget（如 4000）跑多轮工具对话 → 事件可见 ContextCompacted；继续对话仍能引用早期信息（摘要生效）
 
 ### 阶段 5：skill 机制
 

@@ -114,7 +114,7 @@ class ToolExecutionEnd(Event, Interceptable):
 # ── 预留（后续阶段）
 @dataclass(frozen=True)
 class ContextCompacted(Event):
-    """context 管理完成一次摘要压缩时发射（context 设计文档，本期只定义不发射）。"""
+    """context 管理完成一次摘要压缩时发射（context 设计文档 §4.3）。"""
 
     tokens_before: int
     tokens_after: int

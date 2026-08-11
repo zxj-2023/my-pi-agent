@@ -15,6 +15,7 @@ my-pi-agent/
 │   │   ├── agent.py       # Agent 类（单层：循环 + 工具执行 + hook 注册表）
 │   │   ├── session.py     # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
+│   │   ├── context.py     # ContextManager（四层压缩管线：落盘/裁中间/占位/摘要）
 │   │   └── main.py        # demo
 │   └── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
 │       ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
@@ -208,13 +209,31 @@ my-pi-agent/
   - workspace 隔离（pig-mono 式）：root 为绝对路径时直接用（测试兼容），相对时解析为 workspace/root
 - **验证**：`uv run python -m pytest -q` 全绿（86 个：原 63 + session/store 23）。
 
+### 阶段 4：context 管理（2026-08-11）
+
+**目标**：超 budget 上下文自动压缩——四层管线（L3 落盘 → L1 裁中间 → L2 占位 → L4 摘要）+ usage 锚定估算 + retainedTail 缓存，Agent 集成压缩策略、事件通知与会话内缓存持久化。
+
+- 规格：`docs/superpowers/specs/2026-08-01-my-agent-context-design.md`（2026-08-11 修订）
+- 计划：`docs/superpowers/plans/2026-08-11-context-management.md`
+- 提交：`4b5925f` `168168b` `e74a610` `014b0ba` `575da36`（worktree 分支 `context-management`）
+- **改了什么**：
+  - `session.py`：`SessionEntry` 加 `type` 字段；新增 `add_summary_cache` / `get_full_history_messages`；`rewind` 加护栏
+  - `context.py`（新增）：`ContextManager` 四层管线（L3 落盘 → L1 裁中间 → L2 占位 → L4 摘要）+ usage 锚定 + retainedTail 缓存（prepare / 缓存复用 / 迭代再摘要 / 摘要失败降级不压缩）
+  - `agent.py`：`context_budget=` 参数、`run()` 内 prepare、`compact()` 手动触发、`ContextCompacted` 事件发射
+  - `__init__.py` / README：导出 `ContextManager`；阶段 4 勾选
+- **过程中的关键教训**：
+  - 摘要消息必须 user 角色且 persona 保留（设计文档 §2.2，fix round 1）
+  - snip off-by-one（占位符计数）
+  - force_compact 需强制 cut（"无条件摘要"）
+- **验证**：`uv run python -m pytest -q` 全绿（108 个：原 86 + context/agent 22）；`from my_agent_core import ContextManager` 导入通过。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
 - 阶段 3：session 管理（已完成）
-- 阶段 4：context 管理
+- 阶段 4：context 管理（已完成）
 - 阶段 5：skill 机制
 - 阶段 6：动态工具
 - coding agent 层（`my_coding_agent`）——框架层完成后
