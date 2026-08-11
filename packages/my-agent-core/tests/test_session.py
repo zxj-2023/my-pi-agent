@@ -238,3 +238,15 @@ def test_rewind_then_same_agent_run_syncs_context(tmp_path):
     first = llm2.calls[0]["messages"]
     assert [m.role for m in first] == ["system", "user", "user"]  # 从回退点开始，旧分支尾不在
     assert [m.content for m in first] == ["sys", "q1", "换个问法"]
+
+
+def test_load_rejects_header_missing_id(tmp_path):
+    """header 缺必要字段（非会话文件）→ ValueError（type/version 门禁已删，改按必要字段校验）。"""
+    p = tmp_path / "not-session.jsonl"
+    p.write_text('{"foo": "bar"}\n', encoding="utf-8")
+    try:
+        Session.load(p)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")

@@ -29,9 +29,9 @@ def test_store_create_writes_header_only(tmp_path):
     lines = s.path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     header = json.loads(lines[0])
-    assert header["type"] == "session"
-    assert header["version"] == 1
     assert header["id"] == s.id
+    assert isinstance(header["created_at"], str)
+    assert "type" not in header and "version" not in header  # type/version 已删
 
 
 def test_store_open_ambiguous_prefix_raises(tmp_path):

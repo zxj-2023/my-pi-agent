@@ -39,15 +39,13 @@ class SessionStore:
                 return session
 
     def list(self) -> list[SessionMeta]:
-        """全部会话，按 created_at 倒序（新→旧）。损坏文件跳过。"""
+        """全部会话，按 created_at 倒序（新→旧）。损坏/缺字段文件跳过。"""
         metas: list[SessionMeta] = []
         for f in self.root.glob("*.jsonl"):
             try:
                 with open(f, encoding="utf-8") as fh:
                     header = json.loads(fh.readline())
                     entries = sum(1 for _ in fh)
-                if header.get("type") != "session":
-                    continue
                 metas.append(
                     SessionMeta(
                         id=header["id"], path=f,

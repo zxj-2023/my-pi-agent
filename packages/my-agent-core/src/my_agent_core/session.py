@@ -109,7 +109,7 @@ class Session:
 
     @classmethod
     def load(cls, path: Path) -> "Session":
-        """从 JSONL 文件恢复整棵树。header 缺失/非法/version 不支持 → ValueError；
+        """从 JSONL 文件恢复整棵树。header 缺失/非法/缺必要字段 → ValueError；
         非尾行 JSON 损坏 → ValueError（带行号）；尾行撕裂 → 丢弃该行（宽容兜底）。"""
         path = Path(path)
         with open(path, encoding="utf-8") as f:
@@ -120,11 +120,9 @@ class Session:
             header = json.loads(lines[0])
         except json.JSONDecodeError as exc:
             raise ValueError(f"Session file {path}: invalid header: {exc}") from exc
-        if header.get("type") != "session" or header.get("version") != 1:
-            raise ValueError(
-                f"Session file {path}: unsupported header "
-                f"(type={header.get('type')!r}, version={header.get('version')!r})"
-            )
+        # 必要字段门禁（替代 type/version 标签：缺 id/created_at 的文件不是会话）
+        if not isinstance(header.get("id"), str) or not isinstance(header.get("created_at"), str):
+            raise ValueError(f"Session file {path}: invalid header (missing id/created_at)")
         # 尾行撕裂：最后一行 JSON 损坏 → 丢弃
         tree_lines = lines[1:]
         if tree_lines and tree_lines[-1].strip():
@@ -174,8 +172,6 @@ class Session:
         """原子全量重写：临时文件 + fsync + os.replace。失败不破坏上次快照。"""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         header = {
-            "type": "session",
-            "version": 1,
             "id": self.id,
             "created_at": self.created_at,
             "cwd": self.cwd,
