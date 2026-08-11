@@ -8,13 +8,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Callable
 
 from my_agent_llm import LLM, Message
 
+from my_agent_core.context import ContextManager
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    ContextCompacted,
     Event,
     HookResult,
     MessageEnd,
@@ -33,11 +36,13 @@ class Agent:
     """单层 Agent：持有 llm / 工具注册表 / 消息，内联 ReAct 循环。"""
 
     def __init__(self, *, llm: LLM, tools: list[Tool], system_prompt: str | None = None,
-                 max_iterations: int | None = None, session: Session | None = None):
+                 max_iterations: int | None = None, session: Session | None = None,
+                 context_budget: int | None = None, keep_recent_tokens: int | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
         session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
         当前路径恢复 messages，此时 system_prompt 被忽略（文件为准，决策 5）。
+        context_budget 非 None 为 context 管理模式：每次 llm.chat 前 prepare 压缩视图。
         """
         self.llm = llm
         self.registry = ToolRegistry()
@@ -46,13 +51,67 @@ class Agent:
         self.session = session
         if session is not None:
             # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
-            self.messages = session.get_current_path_messages()
+            self.messages = session.get_full_history_messages()
         else:
             self.messages = []  # 公开可读：transcript 即全部状态
             if system_prompt is not None:
                 self.messages.append(Message(role="system", content=system_prompt))
         self.max_iterations = max_iterations
         self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
+        self._ctx: ContextManager | None = None
+        if context_budget is not None:
+            self._ctx = ContextManager(
+                budget=context_budget, llm=self.llm,
+                keep_recent_tokens=keep_recent_tokens,
+                results_dir=_results_dir(session),
+            )
+            if session is not None:
+                self._restore_cache_from_session()
+
+    def _restore_cache_from_session(self) -> None:
+        """从 session 的 type='compaction' entry 恢复缓存（取最新一条，免重算）。"""
+        if self.session is None or self._ctx is None:
+            return
+        cache_entries = [
+            e for e in self.session.tree.entries.values() if e.type == "compaction"
+        ]
+        if not cache_entries:
+            return
+        # 取最新一条（沿路径回溯最深的 = 最后一次压缩）
+        latest = max(cache_entries, key=lambda e: len(self.session.tree.get_path_to_entry(e.id)))
+        md = latest.metadata
+        self._ctx.restore_cache(
+            summary=latest.content,
+            covered_count=int(md.get("covered_count", 0)),
+            retained_tail=list(md.get("retained_tail", [])),
+        )
+
+    def _handle_compaction(self) -> None:
+        """prepare/force_compact 触发压缩后：事件 + 写回 session 缓存。"""
+        if self._ctx is None or self._ctx.pending_compaction is None:
+            return
+        info = self._ctx.pending_compaction
+        self._emit(ContextCompacted(
+            tokens_before=info.tokens_before,
+            tokens_after=info.tokens_after,
+            summarized_count=info.summarized_count,
+        ))
+        if self.session is not None:
+            self.session.add_summary_cache(
+                info.summary,
+                covered_count=info.covered_count,
+                retained_tail=info.retained_tail,
+                tokens_before=info.tokens_before,
+                summary_usage=info.summary_usage,
+                summary_model=info.summary_model,
+            )
+
+    def compact(self) -> None:
+        """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
+        if self._ctx is None:
+            return
+        self._ctx.force_compact(self.messages)
+        self._handle_compaction()
 
     def register_hook(self, event_cls, callback) -> None:
         """挂一个 hook 到事件类。同一事件可挂多个，按注册顺序触发，非 None 短路。"""
@@ -87,7 +146,15 @@ class Agent:
             iteration += 1
             self._emit(TurnStart(iteration))
             # ── Reason：把完整消息历史 + 工具说明书发给模型。
-            resp = self.llm.chat(messages=self.messages, tools=self.registry.get_schemas())
+            tools = self.registry.get_schemas()
+            if self._ctx is not None:
+                view = self._ctx.prepare(self.messages)
+                resp = self.llm.chat(messages=view, tools=tools)
+                if resp.usage:
+                    self._ctx.record_usage(resp.usage)
+                self._handle_compaction()
+            else:
+                resp = self.llm.chat(messages=self.messages, tools=tools)
             assistant = Message(
                 role="assistant",
                 content=resp.content or "",
@@ -131,10 +198,12 @@ class Agent:
         """清空 messages（保留 system prompt）。有 session 时同步清空树 + 重写文件。"""
         if self.session is not None:
             self.session.reset()
-            self.messages = self.session.get_current_path_messages()
+            self.messages = self.session.get_full_history_messages()
         else:
             system = [m for m in self.messages if m.role == "system"]
             self.messages = system if system else []
+        if self._ctx is not None:
+            self._ctx.reset()
 
     def _prepare_tool(self, tc: dict) -> tuple[str, dict, str | None, HookResult | None]:
         """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。
@@ -180,3 +249,10 @@ class Agent:
         if isinstance(hook, HookResult) and hook.updated_result is not None:
             return hook.updated_result, False
         return result.serialize(), not result.ok
+
+
+def _results_dir(session: Session | None) -> Path | None:
+    """L3 落盘目录：session 所在 workspace 的 .my_agent_core/tool-results/。"""
+    if session is None:
+        return None
+    return session.path.parent.parent / "tool-results"

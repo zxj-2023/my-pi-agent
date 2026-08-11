@@ -198,6 +198,22 @@ class ContextManager:
         self._ratio = None
         self.pending_compaction = None
 
+    def force_compact(self, messages: list[Message]) -> list[Message]:
+        """无条件执行一次摘要（手动 compact 用），不管阈值。清缓存后基于完整历史重摘要。
+
+        对话过短（正常切点逻辑找不到 cut）时仍强制：摘要全部非 system 消息，不保留尾部。
+        """
+        self._summary = None
+        self._covered_count = None
+        self._retained_tail = None
+        cut = self._find_cut(messages)
+        if cut is None:
+            start = 1 if (messages and messages[0].role == "system") else 0
+            if len(messages) <= start:
+                return list(messages)  # 空 / 仅 system → 无可摘要
+            cut = len(messages)  # 强制：全部非 system 消息进摘要，不保留尾部
+        return self._summarize_from_cut(messages, cut)
+
     # ── 内部 ──
 
     def _prepare_with_cache(self, messages: list[Message]) -> list[Message]:
@@ -215,10 +231,14 @@ class ContextManager:
 
     def _do_summarize(self, messages: list[Message]) -> list[Message]:
         """无缓存时的首次压缩（或缓存失效的后备）。定 cut → 摘要调用 → 写缓存。"""
-        tokens_before = estimate_tokens(messages, self._ratio)
         cut = self._find_cut(messages)
         if cut is None:
             return list(messages)  # 找不到 user 切点 → 不压缩
+        return self._summarize_from_cut(messages, cut)
+
+    def _summarize_from_cut(self, messages: list[Message], cut: int) -> list[Message]:
+        """按既定 cut 执行摘要：调 LLM → 写缓存 → 构造视图。降级失败返回原视图。"""
+        tokens_before = estimate_tokens(messages, self._ratio)
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
         summarized = messages[len(system_msg):cut]  # 摘要输入不含 system（persona 保持原样）
         retained = messages[cut:]

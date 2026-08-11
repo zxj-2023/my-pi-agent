@@ -70,15 +70,19 @@ def test_budget_persists_large_tool_result(tmp_path):
 
 
 class FakeLLM:
-    """替身：按脚本返回 Response，记录收到的请求（tools=[] 区分摘要请求）。"""
+    """替身：按脚本返回 Response，耗尽后返回 default；记录请求（tools=[] 区分摘要）。"""
 
-    def __init__(self, responses: list[Response]):
-        self.responses = list(responses)
+    def __init__(self, responses: list[Response] | None = None,
+                 default: Response | None = None):
+        self.responses = list(responses or [])
+        self.default = default or Response(content="ok", model="fake")
         self.calls: list[dict] = []
 
     def chat(self, *, messages, tools=None, **kwargs) -> Response:
         self.calls.append({"messages": list(messages), "tools": tools})
-        return self.responses.pop(0)
+        if self.responses:
+            return self.responses.pop(0)
+        return self.default
 
 
 def _response(content: str = "", usage: dict | None = None) -> Response:
@@ -172,3 +176,105 @@ def test_usage_ratio_anchoring():
     ctx.prepare(msgs)                 # 未超阈 → 记录 _last_view_chars
     ctx.record_usage({"prompt_tokens": 1000})
     assert ctx._ratio is not None and 0 < ctx._ratio < 2  # ratio = 1000/序列化字符数
+
+
+# ── Agent 集成（Task 4）──
+
+from my_agent_core.agent import Agent
+from my_agent_core.session import Session
+from my_agent_core.tools import tool
+
+
+@tool
+def multiply(a: int, b: int) -> int:
+    """Multiply two integers."""
+    return a * b
+
+
+def _agent(llm, *, tools=(multiply,), **kw) -> Agent:
+    return Agent(llm=llm, tools=list(tools), **kw)
+
+
+def test_context_budget_none_unchanged():
+    """未启用：context_budget=None → llm 收到的 messages 与 transcript 全等（#2）。"""
+    llm = FakeLLM([_response(content="hi")])
+    agent = _agent(llm)
+    agent.run("hello")
+    # llm 调用发生在 assistant 回复追加之前 → 收到的即调用时刻的完整 transcript
+    assert llm.calls[0]["messages"] == agent.messages[:-1]
+
+
+def test_agent_trigger_compaction_and_event(tmp_path):
+    """完整 run 触发压缩 → ContextCompacted 恰发射；session 写缓存 entry + floor + system 保留（#11、#14）。"""
+    from my_agent_core.events import ContextCompacted
+
+    llm = FakeLLM(default=_response(content="## Goal\n..."))
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    agent = _agent(llm, session=session, context_budget=400, keep_recent_tokens=100)
+    events: list[ContextCompacted] = []
+    agent.register_hook(ContextCompacted, lambda ev: (events.append(ev), None)[1])
+    for _ in range(6):  # 累积 6 条大消息 → 超阈触发摘要
+        agent.run("y" * 300)
+    assert len(events) >= 1
+    assert events[0].tokens_before > events[0].tokens_after
+    # session 缓存 entry + floor
+    cache_entries = [e for e in session.tree.entries.values() if e.type == "compaction"]
+    assert cache_entries
+    assert "retained_tail" in cache_entries[0].metadata
+    assert session.compaction_floor is not None
+
+
+def test_cache_persist_across_agents(tmp_path):
+    """压缩后新 Agent 同 session → 构造恢复免摘要；prepare 视图 system 保留 + 摘要 user（#11 + pointer）。"""
+    llm1 = FakeLLM(default=_response(content="## Goal\n..."))
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    agent1 = _agent(llm1, session=session, context_budget=400, keep_recent_tokens=100)
+    for _ in range(6):
+        agent1.run("y" * 300)
+    # “进程 2”：新 Agent 同 session
+    llm2 = FakeLLM()
+    agent2 = _agent(llm2, session=session, context_budget=400, keep_recent_tokens=100)
+    # 构造时恢复缓存（免摘要）
+    assert agent2._ctx._summary is not None
+    assert len(llm2.calls) == 0
+    # prepare 视图：原 system 保留在首 + 摘要 user 消息
+    agent2.messages.append(Message(role="user", content="继续"))
+    view = agent2._ctx.prepare(agent2.messages)
+    assert view[0].role == "system" and view[0].content == "sys"  # 原 persona
+    assert view[1].role == "user" and "[Context summary" in view[1].content  # 摘要 user
+    assert len(llm2.calls) == 0  # 免重算
+
+
+def test_rewind_guard_blocks_after_compaction(tmp_path):
+    """压缩后 rewind 到压缩点前 → ValueError（#12 agent 侧）。"""
+    llm = FakeLLM(default=_response(content="## Goal\n..."))
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    agent = _agent(llm, session=session, context_budget=400, keep_recent_tokens=100)
+    for _ in range(6):
+        agent.run("y" * 300)
+    first_user = next(e for e in session.tree.entries.values()
+                      if e.role == "user" and e.content == "y" * 300)
+    try:
+        session.rewind(first_user.id)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError (rewind before floor)")
+
+
+def test_manual_compact():
+    """手动 compact()：无条件触发一次摘要 + 写缓存 + 事件；不动 messages（#16）。"""
+    from my_agent_core.events import ContextCompacted
+
+    llm = FakeLLM(default=_response(content="## Manual summary"))
+    agent = _agent(llm, context_budget=100_000)  # 阈值很高，正常不会自动触发
+    events: list[ContextCompacted] = []
+    agent.register_hook(ContextCompacted, lambda ev: (events.append(ev), None)[1])
+    agent.run("hi")  # 1 条消息，不触发
+    assert len(llm.calls) == 1  # 只有对话请求
+    agent.compact()             # 手动强制（无条件摘要）
+    assert len(llm.calls) >= 2  # 摘要请求
+    assert len(events) == 1
+    assert agent._ctx._summary is not None
+    # run("hi") 后 transcript = [user(hi), assistant(回复)]，compact 不动 messages → 仍 2 条
+    assert len(agent.messages) == 2
