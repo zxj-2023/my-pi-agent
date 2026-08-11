@@ -11,8 +11,10 @@ my-pi-agent/
 │   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
 │   │   ├── tools.py       # Tool 类 + ToolResult + tool() 装饰器
 │   │   ├── registry.py    # ToolRegistry（注册表）
-│   │   ├── events.py      # 事件 dataclass（8 个，继承 Event 基类）
-│   │   ├── agent.py       # Agent 类（单层：循环 + 工具执行）
+│   │   ├── events.py      # 事件 dataclass（10 个，继承 Event 基类）
+│   │   ├── agent.py       # Agent 类（单层：循环 + 工具执行 + hook 注册表）
+│   │   ├── session.py     # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
+│   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
 │   │   └── main.py        # demo
 │   └── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
 │       ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
@@ -181,12 +183,37 @@ my-pi-agent/
   - **hook 异常语义分裂**：工具路径 hook 异常转错误字符串（保住「tool_calls 必配对」不变式），观察路径 hook 异常向上抛（视为使用方 bug）——设计文档 §4.2/§8 原先自相矛盾，本次消解
 - **验证**：`uv run python -m pytest -q` 全绿（63 个：17+12+14+20）；demo 真跑三题通过（multiply=703 / 时间 / 双城天气）。
 
+### 阶段 3：session 管理（2026-08-10）
+
+**目标**：会话持久化——树结构 + rewind + fork + 跨进程续聊 + 多会话仓库 + workspace 隔离（pig-mono/pi 式）。
+
+- 规格：`docs/superpowers/specs/2026-08-01-my-agent-session-design.md`（2026-08-06 修订；2026-08-10 补 fork / 删 type-version / workspace 隔离）
+- 计划：`docs/superpowers/plans/2026-08-10-session-management.md`
+- 提交：`dc6a0a8` `28625a0` `8ae1f25` `abdc90b` `04ba33e` `2684ab3` `c5527e4` `adfa02b` `a51978d` `ee8dca3`（worktree 分支 `session-management` → `session-fork` → `session-store-rename` → `session-no-version` → `session-workspace`）
+- **改了什么**：
+  - `session.py`（新增）：`SessionEntry`（pydantic，id/parent_id/timestamp/role/content/metadata）+ `SessionTree`（entries + current_id 指针；add_entry / get_current_path / get_path_to_entry / rewind）+ `Session`（add_message 逐条原子全量重写 / load / get_current_path_messages / rewind / reset）
+  - `session_store.py`（新增，原名 store.py）：`SessionStore` —— create / list（倒序）/ open（前缀匹配 + 歧义报错）/ delete / fork；id = 时间戳-hex，碰撞重试
+  - `agent.py`：`session=` 参数（有则 run() 内逐条落盘、构造/续跑时恢复上下文；无则纯内存向后兼容）；`reset()` 同步清树重写文件
+  - 文件格式：header 行（id/created_at/cwd/current_id/root_id）+ entry 行 JSONL；`type/version` 已删
+  - workspace 隔离：会话目录 = `<workspace>/.my_agent_core/sessions`（pig-mono 式），跨项目天然隔离
+  - `__init__.py`/README：导出 Session/SessionTree/SessionStore；阶段 3 勾选
+- **过程中的关键教训**：
+  - 树 + 指针：rewind = 改 `current_id` 一个变量，旧分支留档可无限切回；上下文 = 沿 parent 回溯的路径；只存 parent_id 是回溯路径的最小实现（down 遍历用 entries 全量扫描）
+  - 原子写：临时文件 + fsync + os.replace——任何时刻崩溃文件都是完整快照；每次 add_message 全量重写换崩溃安全
+  - fork 在仓库层（路径生成是 Store 的职责，与 create 一致）；pig-mono 的 fork 在 Session 层是因它的 Session 自己管路径
+  - **plan bug**：测试用 `s1.id[:12]` 前缀在同秒 create 时确定性歧义（id 前 15 字符是时间戳），改 `[:20]` 修复（reviewer 确认无更优替代）
+  - **final review 抓到 F1**：同 Agent rewind 后续跑内存 messages 不重同步 → LLM 收到含废弃分支尾的矛盾上下文；修 `run()` 开头同步到 session 当前指针（非 rewind 情形幂等）
+  - **final review 误判驳回 F2**：声称 max_iterations 耗尽时文件有孤儿 assistant(tool_calls)——核实 for 循环在 while 体内必然执行、tool 消息必然落盘，配对完整
+  - type/version 是冗余标签：防误读的硬防线是目录隔离（glob *.jsonl）+ 必要字段校验（load 要求 id/created_at 存在）
+  - workspace 隔离（pig-mono 式）：root 为绝对路径时直接用（测试兼容），相对时解析为 workspace/root
+- **验证**：`uv run python -m pytest -q` 全绿（86 个：原 63 + session/store 23）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
-- 阶段 3：session 管理
+- 阶段 3：session 管理（已完成）
 - 阶段 4：context 管理
 - 阶段 5：skill 机制
 - 阶段 6：动态工具
