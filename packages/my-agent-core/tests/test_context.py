@@ -109,7 +109,7 @@ def test_prepare_trigger_summary_non_destructive():
     view = ctx.prepare(msgs)
     assert len(llm.calls) == 1
     assert llm.calls[0]["tools"] == []                    # 摘要调用 tools 为空
-    assert view[0].role == "system" and "[Context summary" in view[0].content
+    assert view[0].role == "user" and "[Context summary" in view[0].content
     assert len(msgs) == 20                                # 原 messages 未修改
 
 

@@ -201,13 +201,14 @@ class ContextManager:
     # ── 内部 ──
 
     def _prepare_with_cache(self, messages: list[Message]) -> list[Message]:
-        """缓存分支：摘要 + retained_tail 快照 + 之后新增（_last_view_chars 由 prepare 统一设置）。"""
+        """缓存分支：原 system + 摘要 + retained_tail 快照 + 之后新增。"""
         assert self._summary is not None and self._covered_count is not None
         assert self._retained_tail is not None
+        system_msg = [messages[0]] if messages and messages[0].role == "system" else []
         tail_len = len(self._retained_tail)
         start = self._covered_count + tail_len
         newly = messages[start:] if len(messages) > start else []
-        view = [Message(role="system", content=SUMMARY_MESSAGE_PREFIX + self._summary)]
+        view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + self._summary)]
         view += [Message(**d) for d in self._retained_tail]
         view += newly
         return view
@@ -218,7 +219,8 @@ class ContextManager:
         cut = self._find_cut(messages)
         if cut is None:
             return list(messages)  # 找不到 user 切点 → 不压缩
-        summarized = messages[:cut]
+        system_msg = [messages[0]] if messages and messages[0].role == "system" else []
+        summarized = messages[len(system_msg):cut]  # 摘要输入不含 system（persona 保持原样）
         retained = messages[cut:]
         try:
             summary, usage, model = self._call_summarizer(summarized)
@@ -239,8 +241,7 @@ class ContextManager:
             summary_usage=usage,
             summary_model=model,
         )
-        view = [Message(role="system", content=SUMMARY_MESSAGE_PREFIX + summary)]
-        view += retained
+        view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + summary)] + retained
         self._last_view_chars = _chars_of(view)
         return view
 
