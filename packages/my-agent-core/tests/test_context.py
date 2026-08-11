@@ -5,7 +5,7 @@ from pathlib import Path
 from my_agent_core.context import (
     budget_tool_results, estimate_tokens, micro_compact, snip_messages,
 )
-from my_agent_llm import Message
+from my_agent_llm import Message, Response
 
 
 def _msg(role: str, content: str, **metadata) -> Message:
@@ -67,3 +67,108 @@ def test_budget_persists_large_tool_result(tmp_path):
     # 小结果不落盘
     small = [_msg("tool", "tiny", tool_call_id="c2")]
     assert budget_tool_results(small, max_chars=50, results_dir=tmp_path) == small
+
+
+class FakeLLM:
+    """替身：按脚本返回 Response，记录收到的请求（tools=[] 区分摘要请求）。"""
+
+    def __init__(self, responses: list[Response]):
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def chat(self, *, messages, tools=None, **kwargs) -> Response:
+        self.calls.append({"messages": list(messages), "tools": tools})
+        return self.responses.pop(0)
+
+
+def _response(content: str = "", usage: dict | None = None) -> Response:
+    return Response(content=content, model="fake", usage=usage)
+
+
+def _small_ctx(llm, budget=10000, **kw):
+    from my_agent_core.context import ContextManager
+
+    return ContextManager(budget=budget, llm=llm, **kw)
+
+
+def test_prepare_below_threshold_no_summary():
+    """阈值下不触发：估算 < 0.8·budget → 无摘要请求（#3）。"""
+    llm = FakeLLM([_response(content="ok")])
+    ctx = _small_ctx(llm, budget=100_000)
+    msgs = [_msg("user", "hi")]
+    view = ctx.prepare(msgs)
+    assert view == msgs
+    assert len(llm.calls) == 0  # 无摘要调用
+
+
+def test_prepare_trigger_summary_non_destructive():
+    """超阈触发：视图 = [摘要 + 尾部]；原 messages 未修改（#7）。"""
+    llm = FakeLLM([_response(content="## Goal\n...")])
+    ctx = _small_ctx(llm, budget=1000, keep_recent_tokens=100)
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]  # 大幅超阈
+    view = ctx.prepare(msgs)
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["tools"] == []                    # 摘要调用 tools 为空
+    assert view[0].role == "system" and "[Context summary" in view[0].content
+    assert len(msgs) == 20                                # 原 messages 未修改
+
+
+def test_summary_call_shape():
+    """摘要调用形态：tools=[]、system 含"不要续聊"约束、user 含结构化格式（#8）。"""
+    from my_agent_core.context import SUMMARIZATION_SYSTEM_PROMPT
+
+    llm = FakeLLM([_response(content="## Goal\n...")])
+    ctx = _small_ctx(llm, budget=1000, keep_recent_tokens=100)
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]
+    ctx.prepare(msgs)
+    assert llm.calls[0]["messages"][0].role == "system"
+    assert "Do NOT continue the conversation" in llm.calls[0]["messages"][0].content
+    assert "## Goal" in llm.calls[0]["messages"][1].content
+
+
+def test_cache_reused_no_resummary():
+    """缓存复用：prepare 后再 prepare 无新增 → 摘要调用仅 1 次（#9）。"""
+    llm = FakeLLM([_response(content="## Goal\n...")])
+    ctx = _small_ctx(llm, budget=1000, keep_recent_tokens=100)
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]
+    view1 = ctx.prepare(msgs)
+    view2 = ctx.prepare(msgs)  # 无新增
+    assert len(llm.calls) == 1
+    assert view1 == view2
+
+
+def test_iterative_resummary():
+    """迭代再摘要：压缩后继续增长再超阈 → 第二次摘要含第一次摘要内容（#10）。"""
+    llm = FakeLLM([_response(content="first summary"), _response(content="second summary")])
+    ctx = _small_ctx(llm, budget=1000, keep_recent_tokens=100)
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]
+    ctx.prepare(msgs)
+    # 大幅增长 → 触发第二次摘要
+    more = msgs + [_msg("user", "y" * 300) for _ in range(20)]
+    ctx.prepare(more)
+    assert len(llm.calls) == 2
+    summary_input = llm.calls[1]["messages"]
+    assert any("first summary" in str(m.content) for m in summary_input)  # 旧摘要进输入
+
+
+def test_summary_failure_degrades():
+    """摘要失败降级：摘要调用抛异常 → 返回原视图（#13）。"""
+
+    class BoomLLM:
+        def chat(self, *, messages, tools=None, **kwargs):
+            raise RuntimeError("api down")
+
+    ctx = _small_ctx(BoomLLM(), budget=1000, keep_recent_tokens=100)
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]
+    view = ctx.prepare(msgs)
+    assert view == msgs  # 降级返回原视图
+
+
+def test_usage_ratio_anchoring():
+    """usage 锚定：record_usage 后 ratio 建立（#15 的 context 侧）。"""
+    llm = FakeLLM([_response(content="## Goal", usage={"prompt_tokens": 1000})])
+    ctx = _small_ctx(llm, budget=100_000)
+    msgs = [_msg("user", "x" * 100) for _ in range(10)]
+    ctx.prepare(msgs)                 # 未超阈 → 记录 _last_view_chars
+    ctx.record_usage({"prompt_tokens": 1000})
+    assert ctx._ratio is not None and 0 < ctx._ratio < 2  # ratio = 1000/序列化字符数
