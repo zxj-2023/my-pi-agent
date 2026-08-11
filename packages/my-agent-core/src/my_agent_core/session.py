@@ -23,6 +23,7 @@ class SessionEntry(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex[:8])
     parent_id: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
+    type: str = "message"  # message / compaction（context 管理 §4.3）
     role: str  # system / user / assistant / tool
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +105,7 @@ class Session:
         self.created_at = datetime.now().isoformat()
         self.cwd = cwd or str(Path.cwd())
         self.tree = SessionTree()
+        self.compaction_floor: str | None = None  # 压缩时刻 current id（context 管理，header 持久化）
         if system_prompt is not None:
             self.tree.add_entry("system", system_prompt)
 
@@ -142,6 +144,7 @@ class Session:
         session.id = header["id"]
         session.created_at = header["created_at"]
         session.tree = tree
+        session.compaction_floor = header.get("compaction_floor")
         return session
 
     def add_message(
@@ -151,11 +154,6 @@ class Session:
         entry = self.tree.add_entry(role, content, parent_id, **metadata)
         self.save()
         return entry
-
-    def rewind(self, entry_id: str) -> None:
-        """移动 current 指针（旧分支保留）+ save。"""
-        self.tree.rewind(entry_id)
-        self.save()
 
     def get_current_path_messages(self) -> list[Message]:
         """当前路径 → list[Message]（Agent 上下文用）。"""
@@ -168,6 +166,62 @@ class Session:
             for e in self.tree.get_current_path()
         ]
 
+    def add_summary_cache(
+        self, summary: str, *, covered_count: int, retained_tail: list[dict],
+        tokens_before: int, summary_usage: dict | None = None,
+        summary_model: str | None = None,
+    ) -> None:
+        """写一条 type='compaction' 缓存 entry（不动 current_id）+ 更新 compaction_floor。
+
+        covered_count：被摘要覆盖的消息条数；retained_tail：压缩时保留尾部的快照。
+        """
+        metadata: dict[str, Any] = {
+            "retained_tail": retained_tail,
+            "covered_count": covered_count,
+            "tokens_before": tokens_before,
+        }
+        if summary_usage is not None:
+            metadata["summary_usage"] = summary_usage
+        if summary_model is not None:
+            metadata["summary_model"] = summary_model
+        entry = SessionEntry(
+            parent_id=self.tree.current_id, type="compaction",
+            role="system", content=summary, metadata=metadata,
+        )
+        self.tree.entries[entry.id] = entry
+        self.compaction_floor = self.tree.current_id
+        self.save()
+
+    def get_full_history_messages(self) -> list[Message]:
+        """完整对话历史（排除 type='compaction' 节点）——宿主看历史、Agent 恢复上下文用。"""
+        return [
+            Message(
+                role=e.role,
+                content=e.content,
+                metadata=(dict(e.metadata) if e.metadata else None),
+            )
+            for e in self.tree.get_current_path()
+            if e.type == "message"
+        ]
+
+    def rewind(self, entry_id: str) -> None:
+        """移动 current 指针（旧分支保留）+ save。压缩后只能回 floor（含）之后，否则 ValueError。"""
+        if self.compaction_floor is not None and not self._after_floor(entry_id):
+            raise ValueError(f"Cannot rewind to before compaction point: {entry_id}")
+        self.tree.rewind(entry_id)
+        self.save()
+
+    def _after_floor(self, entry_id: str) -> bool:
+        """entry_id 是否在 compaction_floor（含）之后长出的节点：等于 floor，或沿 parent 链能走到 floor。"""
+        if entry_id == self.compaction_floor:
+            return True
+        cur = self.tree.entries.get(entry_id)
+        while cur is not None and cur.parent_id is not None:
+            if cur.parent_id == self.compaction_floor:
+                return True
+            cur = self.tree.entries.get(cur.parent_id)
+        return False
+
     def save(self) -> None:
         """原子全量重写：临时文件 + fsync + os.replace。失败不破坏上次快照。"""
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,6 +231,7 @@ class Session:
             "cwd": self.cwd,
             "current_id": self.tree.current_id,
             "root_id": self.tree.root_id,
+            "compaction_floor": self.compaction_floor,
         }
         temp_path: Path | None = None
         try:
@@ -191,7 +246,7 @@ class Session:
                 temp_path = Path(f.name)
                 f.write(json.dumps(header, ensure_ascii=False) + "\n")
                 for e in self.tree.entries.values():
-                    f.write(e.model_dump_json() + "\n")
+                    f.write(e.model_dump_json(exclude_defaults=True) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(temp_path, self.path)
@@ -201,9 +256,11 @@ class Session:
             raise
 
     def reset(self) -> None:
-        """清空树 + 原子重写（保留 system 消息）。唯一破坏性操作。"""
+        """清空树 + 原子重写（保留 system 消息）。唯一破坏性操作。
+        缓存 entry 与 compaction_floor 一并清除（context 设计 §5）。"""
         system = [e for e in self.tree.entries.values() if e.role == "system"]
         self.tree = SessionTree()
+        self.compaction_floor = None
         for e in system[:1]:
             self.tree.add_entry(e.role, e.content, **e.metadata)
         self.save()

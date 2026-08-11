@@ -250,3 +250,82 @@ def test_load_rejects_header_missing_id(tmp_path):
         pass
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_entry_type_defaults_to_message(tmp_path):
+    """SessionEntry 默认 type='message'；save 时普通消息不写 type 字段（exclude_defaults）（context §4.3）。"""
+    import json as _json
+
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    session.add_message("user", "q1")
+    lines = session.path.read_text(encoding="utf-8").strip().splitlines()
+    entry = _json.loads(lines[-1])
+    assert "type" not in entry  # 普通消息不写默认值
+    assert session.tree.entries[entry["id"]].type == "message"
+
+
+def test_add_summary_cache_does_not_move_current(tmp_path):
+    """add_summary_cache 插入 type='compaction' entry，不动 current_id，floor 持久化（context §4.3/§5）。"""
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    session.add_message("user", "q1")
+    session.add_message("assistant", "a1")
+    current_before = session.tree.current_id
+    session.add_summary_cache(
+        "## Goal ...", covered_count=2,
+        retained_tail=[{"role": "assistant", "content": "a1"}],
+        tokens_before=95000, summary_model="fake",
+    )
+    assert session.tree.current_id == current_before  # 不动 current
+    cache_entries = [e for e in session.tree.entries.values() if e.type == "compaction"]
+    assert len(cache_entries) == 1
+    assert cache_entries[0].metadata["covered_count"] == 2
+    assert session.compaction_floor == current_before
+    # floor 持久化
+    loaded = Session.load(session.path)
+    assert loaded.compaction_floor == current_before
+
+
+def test_full_history_filters_compaction(tmp_path):
+    """get_full_history_messages 排除 type='compaction' 节点（context §4.3）。"""
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    session.add_message("user", "q1")
+    session.add_message("assistant", "a1")
+    session.add_summary_cache("## Goal", covered_count=2, retained_tail=[{"role": "assistant", "content": "a1"}], tokens_before=10)
+    msgs = session.get_full_history_messages()
+    assert [m.role for m in msgs] == ["system", "user", "assistant"]
+    assert all("[Context summary" not in m.content for m in msgs)
+
+
+def test_rewind_guard_blocks_pre_floor(tmp_path):
+    """压缩后 rewind 到 floor 之前 → ValueError；floor 之后新枝 → 允许（context §5）。"""
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    session.add_message("user", "q1")
+    a1 = session.add_message("assistant", "a1")
+    session.add_message("user", "q2")  # floor 将设在这里
+    session.add_summary_cache("## Goal", covered_count=2,
+                              retained_tail=[{"role": "user", "content": "q2"}], tokens_before=10)
+    # floor 之后的新消息
+    new_entry = session.add_message("user", "q3")
+    assert new_entry.id is not None
+    # rewind 回旧段（q1）→ ValueError
+    try:
+        session.rewind(a1.id)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError (rewind before floor)")
+    # rewind 到 floor 本身 → 允许
+    session.rewind(session.compaction_floor)
+    assert session.tree.current_id == session.compaction_floor
+
+
+def test_rewind_guard_after_reset(tmp_path):
+    """reset 清 floor → rewind 恢复自由（context §5）。"""
+    session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
+    session.add_message("user", "q1")
+    session.add_summary_cache("## Goal", covered_count=1, retained_tail=[{"role": "assistant", "content": "a1"}], tokens_before=10)
+    session.reset()
+    assert session.compaction_floor is None
+    # reset 后树只剩 system entry；rewind 到它不再受旧 floor 限制
+    sys_entry = next(e for e in session.tree.entries.values() if e.role == "system")
+    session.rewind(sys_entry.id)  # 不抛
