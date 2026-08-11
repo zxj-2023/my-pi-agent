@@ -170,7 +170,9 @@ answer = agent.run(question)
       get_current_path_messages）→ 验证：会话 §8 #1–#6
 - [x] 3.2 `session_store.py`：`SessionStore` —— create / list（倒序）/ open（唯一
       前缀匹配，歧义报错）/ delete / fork（从 entry 复制路径为新会话）；id = 时间戳
-      + 8 位随机 hex，碰撞重试 → 验证：会话 §8 #11、#13
+      + 8 位随机 hex，碰撞重试；workspace 隔离（pig-mono 式：会话目录 =
+      `<workspace>/.my_agent_core/sessions`，默认 cwd；跨项目天然隔离）
+      → 验证：会话 §8 #11、#13、#14
 - [x] 3.3 `Agent` 集成：`session=` 参数（收 Session 对象；有则逐条落盘，无则纯内存）、
       `reset()` 重写文件 → 验证：会话 §8 #7、#8、#10、#12
 - [x] 3.4 `rewind`：`Session.rewind(entry_id)` 移动指针（旧分支保留），续跑从回退点长新枝

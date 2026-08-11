@@ -21,19 +21,27 @@ class SessionMeta(BaseModel):
 
 
 class SessionStore:
-    """会话仓库：一个会话一个 <root>/<id>.jsonl 文件。"""
+    """会话仓库：一个会话一个 <workspace/root>/<id>.jsonl 文件（pig-mono 式 workspace 隔离）。"""
 
-    def __init__(self, root: str | Path = ".my_agent_core/sessions"):
-        self.root = Path(root)
+    def __init__(self, root: str | Path = ".my_agent_core/sessions",
+                 workspace: str | Path | None = None):
+        """workspace 默认 Path.cwd()。会话目录 = workspace/root（root 为绝对路径则直接用）。
 
-    def create(self, *, system_prompt: str | None = None, cwd: str | None = None) -> Session:
-        """新会话：id = 时间戳-hex（碰撞重试），写 <root>/<id>.jsonl。"""
+        每个项目在 <workspace>/.my_agent_core/sessions/ 下建自己的会话目录，
+        create/list/open/delete/fork 全部限定在该目录内，跨项目天然隔离。
+        """
+        self.workspace = Path(workspace) if workspace else Path.cwd()
+        root_path = Path(root)
+        self.root = root_path if root_path.is_absolute() else self.workspace / root_path
+
+    def create(self, *, system_prompt: str | None = None) -> Session:
+        """新会话：id = 时间戳-hex（碰撞重试），写 <workspace/root>/<id>.jsonl。Session.cwd = workspace。"""
         self.root.mkdir(parents=True, exist_ok=True)
         while True:
             sid = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
             path = self.root / f"{sid}.jsonl"
             if not path.exists():
-                session = Session(path=path, cwd=cwd, system_prompt=system_prompt)
+                session = Session(path=path, cwd=str(self.workspace), system_prompt=system_prompt)
                 session.id = sid
                 session.save()
                 return session
@@ -88,7 +96,7 @@ class SessionStore:
     def fork(self, id_or_prefix: str, entry_id: str) -> Session:
         """从某会话 entry 分叉：复制根→entry 路径为新会话（新 id/路径，独立演化）。"""
         src = self.open(id_or_prefix)
-        new = self.create(cwd=src.cwd)
+        new = self.create()
         for entry in src.tree.get_path_to_entry(entry_id):
             new.add_message(entry.role, entry.content, **entry.metadata)
         return new

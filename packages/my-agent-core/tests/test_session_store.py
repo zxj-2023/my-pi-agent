@@ -99,3 +99,27 @@ def test_store_fork_missing_entry_raises(tmp_path):
     session = store.create()
     with pytest.raises(ValueError):
         store.fork(session.id, "nope")
+
+
+def test_store_workspace_isolation(tmp_path):
+    """两个 workspace 各自 create → list 互不可见；文件在 <workspace>/.my_agent_core/sessions/ 下（#14）。"""
+    store_a = SessionStore(workspace=tmp_path / "proj-a")
+    store_b = SessionStore(workspace=tmp_path / "proj-b")
+    sa = store_a.create()
+    sb = store_b.create()
+    assert [m.id for m in store_a.list()] == [sa.id]
+    assert [m.id for m in store_b.list()] == [sb.id]  # 互不可见
+    # 各自目录独立
+    assert (tmp_path / "proj-a" / ".my_agent_core" / "sessions" / f"{sa.id}.jsonl").exists()
+    assert (tmp_path / "proj-b" / ".my_agent_core" / "sessions" / f"{sb.id}.jsonl").exists()
+    # Session.cwd = workspace
+    assert sa.cwd == str(tmp_path / "proj-a")
+    assert sb.cwd == str(tmp_path / "proj-b")
+
+
+def test_store_absolute_root_ignores_workspace(tmp_path):
+    """root 为绝对路径时直接用（不做 workspace/root 拼接）——现有测试兼容。"""
+    store = SessionStore(root=tmp_path, workspace=tmp_path / "elsewhere")
+    s = store.create()
+    assert s.path.parent == tmp_path
+    assert (tmp_path / f"{s.id}.jsonl").exists()
