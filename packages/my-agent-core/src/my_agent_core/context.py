@@ -177,7 +177,7 @@ class ContextManager:
         if self._summary is not None:
             view = self._prepare_with_cache(messages)
             self._last_view_chars = _chars_of(view)
-            if estimate_tokens(view) <= int(self.budget * 0.8):
+            if estimate_tokens(view, self._ratio) <= int(self.budget * 0.8):
                 return view
             # 缓存视图仍超阈 → 迭代再摘要（_call_summarizer 附旧摘要）
             return self._do_summarize(messages)
@@ -186,7 +186,7 @@ class ContextManager:
         view = snip_messages(view)
         view = micro_compact(view)
         self._last_view_chars = _chars_of(view)
-        if estimate_tokens(view) <= int(self.budget * 0.8):
+        if estimate_tokens(view, self._ratio) <= int(self.budget * 0.8):
             return view
         return self._do_summarize(messages)
 

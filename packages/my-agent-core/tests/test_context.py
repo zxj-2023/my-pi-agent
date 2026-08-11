@@ -278,3 +278,19 @@ def test_manual_compact():
     assert agent._ctx._summary is not None
     # run("hi") 后 transcript = [user(hi), assistant(回复)]，compact 不动 messages → 仍 2 条
     assert len(agent.messages) == 2
+
+
+def test_usage_ratio_feeds_trigger_threshold():
+    """usage 锚定接入触发：ratio 建立后，阈值估算用比例（final review F1）。"""
+    msgs = [_msg("user", "x" * 300) for _ in range(6)]  # 序列化 ~2106 字符
+    # 无锚场景：ratio=None → chars/4（2106/4=526 < 800 阈值，不触发）
+    llm_none = FakeLLM([_response(content="ok")])
+    ctx_none = _small_ctx(llm_none, budget=1000, keep_recent_tokens=100)
+    ctx_none.prepare(msgs)
+    assert len(llm_none.calls) == 0  # chars/4 估算不触发
+    # 有锚场景：ratio=0.5 → 2106*0.5≈1053 > 800 → 触发（锚让估算上升）
+    llm_anchor = FakeLLM([_response(content="## Goal\n...")])
+    ctx_anchor = _small_ctx(llm_anchor, budget=1000, keep_recent_tokens=100)
+    ctx_anchor._ratio = 0.5  # 直接设锚（模拟 record_usage 已建立）
+    ctx_anchor.prepare(msgs)
+    assert len(llm_anchor.calls) == 1  # 锚使估算超阈 → 触发
