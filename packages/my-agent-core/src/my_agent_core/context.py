@@ -299,5 +299,37 @@ class ContextManager:
         return resp.content, resp.usage, resp.model
 
 
+class ContextSessionBridge:
+    """ContextManager ↔ Session 持久化桥：缓存 entry 的读写、L3 落盘目录。
+
+    ContextManager 保持纯视图逻辑（不 import session）；本类负责 context 缓存
+    与 session 树的相互转换。Agent 只调本类方法，不碰桥内部。
+    """
+
+    def __init__(self, session: "Session"):
+        self.session = session
+
+    def results_dir(self) -> Path | None:
+        """L3 落盘目录：session 所在 workspace 的 .my_agent_core/tool-results/。"""
+        return self.session.path.parent.parent / "tool-results"
+
+    def restore_cache(self, ctx: ContextManager) -> None:
+        """session 最新缓存 entry → ctx（免重算）。无缓存则不动。"""
+        cache = self.session.get_latest_compaction_cache()
+        if cache:
+            ctx.restore_cache(**cache)
+
+    def write_compaction(self, ctx: ContextManager) -> None:
+        """ctx.pending_compaction → session 缓存 entry + floor。无压缩则不动。"""
+        info = ctx.pending_compaction
+        if info is None:
+            return
+        self.session.add_summary_cache(
+            info.summary, covered_count=info.covered_count,
+            retained_tail=info.retained_tail, tokens_before=info.tokens_before,
+            summary_usage=info.summary_usage, summary_model=info.summary_model,
+        )
+
+
 def _chars_of(messages: list[Message]) -> int:
     return len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))

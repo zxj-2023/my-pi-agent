@@ -294,3 +294,31 @@ def test_usage_ratio_feeds_trigger_threshold():
     ctx_anchor._ratio = 0.5  # 直接设锚（模拟 record_usage 已建立）
     ctx_anchor.prepare(msgs)
     assert len(llm_anchor.calls) == 1  # 锚使估算超阈 → 触发
+
+
+def test_bridge_restore_and_write(tmp_path):
+    """ContextSessionBridge 独立测试：write 写回 session、restore 从 session 恢复（桥类重构）。"""
+    from my_agent_core.context import ContextManager, ContextSessionBridge
+
+    # store 式路径：<ws>/.my_agent_core/sessions/<id>.jsonl
+    session = Session(path=tmp_path / ".my_agent_core" / "sessions" / "s.jsonl", system_prompt="sys")
+    bridge = ContextSessionBridge(session)
+    # L3 落盘目录：parent.parent = <ws>/.my_agent_core
+    assert bridge.results_dir() == tmp_path / ".my_agent_core" / "tool-results"
+    # write：压缩 → 写回 session
+    llm = FakeLLM([_response(content="## G")])
+    ctx = ContextManager(budget=1000, llm=llm, keep_recent_tokens=100,
+                         results_dir=bridge.results_dir())
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]
+    ctx.prepare(msgs)  # 触发压缩 → pending_compaction
+    bridge.write_compaction(ctx)
+    assert session.compaction_floor is not None
+    cache_entries = [e for e in session.tree.entries.values() if e.type == "compaction"]
+    assert len(cache_entries) == 1
+    # restore：新 ctx 从 session 恢复（免重算）
+    ctx2 = ContextManager(budget=1000, llm=FakeLLM(), keep_recent_tokens=100,
+                          results_dir=bridge.results_dir())
+    bridge.restore_cache(ctx2)
+    assert ctx2._summary is not None
+    assert ctx2._covered_count == ctx._covered_count
+    assert ctx2._retained_tail == ctx._retained_tail

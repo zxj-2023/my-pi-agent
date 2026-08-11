@@ -8,12 +8,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Callable
 
 from my_agent_llm import LLM, Message
 
-from my_agent_core.context import ContextManager
+from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
@@ -59,52 +58,30 @@ class Agent:
         self.max_iterations = max_iterations
         self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
         self._ctx: ContextManager | None = None
+        self._ctx_bridge: ContextSessionBridge | None = None
         if context_budget is not None:
+            self._ctx_bridge = ContextSessionBridge(session) if session is not None else None
             self._ctx = ContextManager(
                 budget=context_budget, llm=self.llm,
                 keep_recent_tokens=keep_recent_tokens,
-                results_dir=_results_dir(session),
+                results_dir=self._ctx_bridge.results_dir() if self._ctx_bridge else None,
             )
-            if session is not None:
-                self._restore_cache_from_session()
-
-    def _restore_cache_from_session(self) -> None:
-        """从 session 的 type='compaction' entry 恢复缓存（取最新一条，免重算）。"""
-        if self.session is None or self._ctx is None:
-            return
-        cache_entries = [
-            e for e in self.session.tree.entries.values() if e.type == "compaction"
-        ]
-        if not cache_entries:
-            return
-        # 取最新一条（沿路径回溯最深的 = 最后一次压缩）
-        latest = max(cache_entries, key=lambda e: len(self.session.tree.get_path_to_entry(e.id)))
-        md = latest.metadata
-        self._ctx.restore_cache(
-            summary=latest.content,
-            covered_count=int(md.get("covered_count", 0)),
-            retained_tail=list(md.get("retained_tail", [])),
-        )
+            if self._ctx_bridge is not None:
+                self._ctx_bridge.restore_cache(self._ctx)
 
     def _handle_compaction(self) -> None:
-        """prepare/force_compact 触发压缩后：事件 + 写回 session 缓存。"""
-        if self._ctx is None or self._ctx.pending_compaction is None:
+        """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
+        if self._ctx is None:
             return
+        if self._ctx_bridge is not None:
+            self._ctx_bridge.write_compaction(self._ctx)
         info = self._ctx.pending_compaction
-        self._emit(ContextCompacted(
-            tokens_before=info.tokens_before,
-            tokens_after=info.tokens_after,
-            summarized_count=info.summarized_count,
-        ))
-        if self.session is not None:
-            self.session.add_summary_cache(
-                info.summary,
-                covered_count=info.covered_count,
-                retained_tail=info.retained_tail,
+        if info is not None:
+            self._emit(ContextCompacted(
                 tokens_before=info.tokens_before,
-                summary_usage=info.summary_usage,
-                summary_model=info.summary_model,
-            )
+                tokens_after=info.tokens_after,
+                summarized_count=info.summarized_count,
+            ))
 
     def compact(self) -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
@@ -249,10 +226,3 @@ class Agent:
         if isinstance(hook, HookResult) and hook.updated_result is not None:
             return hook.updated_result, False
         return result.serialize(), not result.ok
-
-
-def _results_dir(session: Session | None) -> Path | None:
-    """L3 落盘目录：session 所在 workspace 的 .my_agent_core/tool-results/。"""
-    if session is None:
-        return None
-    return session.path.parent.parent / "tool-results"

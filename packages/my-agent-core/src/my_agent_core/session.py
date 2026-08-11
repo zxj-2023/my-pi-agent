@@ -204,6 +204,22 @@ class Session:
             if e.type == "message"
         ]
 
+    def get_latest_compaction_cache(self) -> dict | None:
+        """最新一条 type='compaction' 缓存 entry → {summary, covered_count, retained_tail}；无则 None。
+
+        供 ContextSessionBridge.restore_cache 用（取沿路径回溯最深的 = 最后一次压缩）。
+        """
+        cache_entries = [e for e in self.tree.entries.values() if e.type == "compaction"]
+        if not cache_entries:
+            return None
+        latest = max(cache_entries, key=lambda e: len(self.tree.get_path_to_entry(e.id)))
+        md = latest.metadata
+        return {
+            "summary": latest.content,
+            "covered_count": int(md.get("covered_count", 0)),
+            "retained_tail": list(md.get("retained_tail", [])),
+        }
+
     def rewind(self, entry_id: str) -> None:
         """移动 current 指针（旧分支保留）+ save。压缩后只能回 floor（含）之后，否则 ValueError。"""
         if self.compaction_floor is not None and not self._after_floor(entry_id):
