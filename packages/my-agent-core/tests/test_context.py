@@ -163,6 +163,26 @@ def test_cache_reused_no_resummary():
     assert view1 == view2
 
 
+def test_cache_branch_applies_free_layers_to_newly(tmp_path):
+    """缓存分支对新增段也跑免费层（L3 落盘 + L2 占位）——压缩后免费层不失效。"""
+    llm = FakeLLM([_response(content="## Goal\n...")])
+    ctx = _small_ctx(llm, budget=2000, keep_recent_tokens=100, results_dir=tmp_path)
+    msgs = [_msg("user", "x" * 300) for _ in range(22)]
+    ctx.prepare(msgs)  # 触发压缩 → 有缓存
+    # 压缩后新增：6 条旧 tool（L2 占位）+ 1 条超大 tool（L3 落盘 → 视图变 preview → 不超阈）
+    old_tools = [_msg("tool", "y" * 500, tool_call_id=f"c{i}") for i in range(6)]
+    big_tool = _msg("tool", "z" * 30000, tool_call_id="big")
+    more = msgs + old_tools + [big_tool]
+    view = ctx.prepare(more)
+    # 走缓存分支（未触发重摘要）：L3 落盘后视图变 preview
+    assert len(llm.calls) == 1
+    # L3：大结果落盘 + 视图预览
+    assert any("<persisted-output>" in m.content for m in view)
+    assert (tmp_path / "big.txt").exists()
+    # L2：旧 tool 占位（非最近 5 条）
+    assert any("[Earlier tool result compacted]" in m.content for m in view)
+
+
 def test_iterative_resummary():
     """迭代再摘要：压缩后继续增长再超阈 → 第二次摘要含第一次摘要内容（#10）。"""
     llm = FakeLLM([_response(content="first summary"), _response(content="second summary")])

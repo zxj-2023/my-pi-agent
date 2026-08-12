@@ -230,16 +230,25 @@ class ContextManager:
     # ── 内部 ──
 
     def _prepare_with_cache(self, messages: list[Message]) -> list[Message]:
-        """缓存分支：原 system + 摘要 + retained_tail 快照 + 之后新增。"""
+        """缓存分支：原 system + 摘要 + retained_tail 快照 + 之后新增（新增段也跑免费层）。
+
+        压缩后继续对话产生的新消息同样可能超限——对新增段跑 L3/L2（CC 顺序：budget 先
+        落盘、micro 再占位），整个视图跑 L1（对话继续增长后快照也需进一步压缩）。
+        """
         assert self._summary is not None and self._covered_count is not None
         assert self._retained_tail is not None
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
         tail_len = len(self._retained_tail)
         start = self._covered_count + tail_len
         newly = messages[start:] if len(messages) > start else []
+        # 新增段免费层：大结果落盘 + 旧结果占位（避免压缩后免费层失效）
+        newly = budget_tool_results(newly, results_dir=self.results_dir)
+        newly = micro_compact(newly)
         view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + self._summary)]
         view += [Message(**d) for d in self._retained_tail]
         view += newly
+        # L1：整个视图消息数超限 → 裁中间
+        view = snip_messages(view)
         return view
 
     def _do_summarize(self, messages: list[Message]) -> list[Message]:
