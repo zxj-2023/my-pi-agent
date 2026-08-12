@@ -41,7 +41,18 @@ uv run python -m pytest -q     # 离线测试（不需要 API key）
 ```
 my-pi-agent/
 ├── packages/
-│   └── my-agent-core/   # 框架层独立 uv 项目（src 布局：src/my_agent_core/，含自身 README 与 tests）
-├── PROGRESS.md          # 项目进度记录
-└── README.md            # 本文件（仓库级说明）
+│   └── my-agent-core/              # 框架层独立 uv 项目（含自身 README）
+│       ├── pyproject.toml          # src 布局 + hatchling 构建
+│       ├── src/my_agent_core/      # Python 包
+│       │   ├── tools.py            # Tool 类 + tool() 装饰器 + ToolResult
+│       │   ├── registry.py         # ToolRegistry（注册表）
+│       │   ├── events.py           # 10 个事件 dataclass + HookResult
+│       │   ├── agent.py            # Agent 类（单层：循环 + 工具执行 + hook 注册表）
+│       │   ├── session.py          # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
+│       │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
+│       │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
+│       │   └── main.py             # demo 入口
+│       └── tests/                  # 离线测试（7 个文件，详见包内 README）
+├── PROGRESS.md                     # 项目进度记录
+└── README.md                       # 本文件（仓库级说明）
 ```
