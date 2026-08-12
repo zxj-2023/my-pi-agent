@@ -111,19 +111,28 @@ SUMMARY_MESSAGE_PREFIX = "[Context summary — earlier conversation compacted]\n
 
 
 class CompactionInfo:
-    """一次压缩的信息（Agent 消费：事件 + 写回 session）。"""
+    """一次压缩的信息（Agent 消费：事件 + 写回 session）。
+
+    由 ContextManager.prepare 触发压缩时挂在 pending_compaction 上（副作用通道，
+    与 prepare 返回的视图分离）；Agent._handle_compaction 消费后下一轮 prepare 清空。
+    字段分三组：事件组（→ ContextCompacted 事件）、缓存组（→ session 缓存 entry）、
+    审计组（→ 缓存 entry metadata，记录摘要调用成本）。
+    """
 
     def __init__(self, *, tokens_before: int, tokens_after: int, summarized_count: int,
                  summary: str, covered_count: int, retained_tail: list[dict],
                  summary_usage: dict | None, summary_model: str | None):
-        self.tokens_before = tokens_before
-        self.tokens_after = tokens_after
-        self.summarized_count = summarized_count
-        self.summary = summary
-        self.covered_count = covered_count
-        self.retained_tail = retained_tail
-        self.summary_usage = summary_usage
-        self.summary_model = summary_model
+        # ── 事件组：ContextCompacted(tokens_before, tokens_after, summarized_count) ──
+        self.tokens_before = tokens_before        # 压缩前估算 token（审计）
+        self.tokens_after = tokens_after          # 压缩后保留尾部 token（审计）
+        self.summarized_count = summarized_count  # 被摘要覆盖的消息条数（审计）
+        # ── 缓存组：add_summary_cache(summary, covered_count, retained_tail, ...) ──
+        self.summary = summary                    # 摘要文本（缓存 entry 的 content）
+        self.covered_count = covered_count        # 覆盖的消息条数（定位"之后新增"用）
+        self.retained_tail = retained_tail        # 保留尾部的快照（list[dict]）
+        # ── 审计组：缓存 entry metadata（摘要 LLM 调用的成本与模型）──
+        self.summary_usage = summary_usage        # 摘要调用的 usage（prompt/completion tokens）
+        self.summary_model = summary_model        # 摘要用的模型名
 
 
 def _serialize_messages(messages: list[Message]) -> str:
