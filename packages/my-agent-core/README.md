@@ -4,14 +4,14 @@
 
 项目方向：pig-mono 式两层结构——本包 = **框架层**（对应 `pig-agent-core`，独立 uv 项目，src 布局下 Python 包名为 `my_agent_core`）；
 未来用它搭独立的 **coding agent 层**（对应 `pig-coding-agent`）。
-详见文末「TODO：v1 实现路线」与设计文档（`docs/superpowers/specs/`）。
+详见文末「TODO：v1 实现路线」。
 
 > **项目进度记录**：每个实现阶段做了什么（目标 / 规格 / 计划 / 提交 / 改了什么 /
 > 过程中的关键教训 / 验证方式）记录在仓库根 `PROGRESS.md`——复盘看它就够。
 
 ## 简介
 
-约 200 行 Python，一个完整的 ReAct（Reason + Act）循环：模型决定是否调用工具，
+一个完整的 ReAct（Reason + Act）循环：模型决定是否调用工具，
 本项目负责执行工具、把观察结果写回消息历史，循环持续——直到模型认为可以直接
 回答为止。工具 schema 生成与参数校验委托 `pydantic`，其余协议细节
 （`tool_calls` 解析、调度、错误容错）全部手写，透明可审查。
@@ -22,9 +22,11 @@
 - ReAct 循环：Reason → Act → Observe → 重复，经典退出条件（`tool_calls` 为空即结束）
 - 工具容错：工具异常、非法参数、不存在的工具名全部转成描述性消息回给模型，
   让模型有机会自我纠正
-- 客户端依赖注入：生产传 `openai.OpenAI(...)`，测试传假客户端，全循环可离线测试
-- 没有 Message 类：消息状态就是 OpenAI wire format 的普通 dict 列表——
-  协议格式本身就是状态
+- 模型边界独立包：消息用 `my_agent_llm.Message`（role/content/metadata），
+  统一 LLM 门面屏蔽 provider 差异（openai / deepseek / anthropic）
+- 客户端依赖注入：生产传 `my_agent_llm.LLM(...)`，测试传假 LLM，全循环可离线测试
+- 会话持久化 + 上下文管理：树结构 session（原子落盘 + rewind + fork）、
+  四层压缩管线（免费层 + LLM 摘要 + retainedTail 缓存）
 
 ## 怎么跑
 
@@ -58,14 +60,20 @@ my-agent-core/           # 独立 uv 项目（本包根）
 │   └── my_agent_core/   # Python 包（import 名仍是下划线 my_agent_core）
 │       ├── tools.py     # Tool 类 + tool() 装饰器 + ToolResult（schema 生成 + 校验执行）
 │       ├── registry.py  # ToolRegistry：工具注册表（查表 + 批量 schema + 执行）
-│       ├── agent.py     # Agent 类（单层：状态 + 循环 + 工具执行）+ hook 注册表
 │       ├── events.py    # 10 个事件 dataclass + HookResult（hook 生命周期通知/干预）
+│       ├── agent.py     # Agent 类（单层：状态 + 循环 + 工具执行 + hook 注册表）
+│       ├── session.py   # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
+│       ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
+│       ├── context.py   # ContextManager（四层压缩管线）+ ContextSessionBridge
 │       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 └── tests/
     ├── test_tools.py    # Tool/ToolResult/tool() 离线测试
     ├── test_registry.py # ToolRegistry 离线测试
     ├── test_events.py   # events.py 事件 dataclass 测试
-    └── test_agent.py    # Agent 循环离线测试（FakeLLM 驱动）
+    ├── test_agent.py    # Agent 循环离线测试（FakeLLM 驱动）
+    ├── test_session.py  # 树 + 持久化 + 缓存 entry + rewind 护栏测试
+    ├── test_session_store.py  # SessionStore 仓库测试（workspace 隔离）
+    └── test_context.py  # ContextManager 四层管线测试（FakeLLM 驱动）
 ```
 
 ## 工作原理
@@ -128,16 +136,13 @@ answer = agent.run(question)
 
 ## TODO：v1 实现路线
 
-五份设计文档（**框架层**，对应 pig-mono 的 `pig-agent-core`）的整体实现，
-按依赖排序；**coding agent 层**（对应 `pig-coding-agent`，用本框架搭成的
-独立包）在这七阶段之后另行设计与实现。pig-mono（`D:/code/python/pig-mono`）
+框架层（对应 pig-mono 的 `pig-agent-core`）的整体实现，按依赖排序；
+**coding agent 层**（对应 `pig-coding-agent`，用本框架搭成的
+独立包）在这些阶段之后另行设计与实现。pig-mono（`D:/code/python/pig-mono`）
 是 pi 的 Python 移植版，为直接参考。
 
 **原则**：阶段 2（单层 Agent）是主要演进——`agent.py` 重写为 `Agent` 类，新增
-`events.py`；阶段 3 起逐层叠加。每步带验证方式；测试编号引自设计文档
-（`docs/superpowers/specs/` 下：框架 = `...-framework-design.md`、
-会话 = `...-session-design.md`、上下文 = `...-context-design.md`、
-技能 = `...-skills-design.md`、可扩展性 = `...-extensibility-design.md`）。
+`events.py`；阶段 3 起逐层叠加。每步带验证方式（测试编号为本地记录）。
 
 ### 阶段 2：单层 `Agent` 类 + 事件（框架 v1 完成）
 
@@ -145,7 +150,6 @@ answer = agent.run(question)
 > **pig-mono 式单层 `Agent` 类**（状态 + 循环 + 工具执行全在一个类），并适配
 > my-agent-llm（消息 `list[Message]`、Agent 直接持有 `LLM`）。`llm.py` / `loop.py`
 > 不再存在；循环测试全部转为「构造 `Agent(llm=FakeLLM(...))` → run」驱动。
-> 详见框架设计文档 §2 / §7。
 
 - [x] 2.1 `events.py`：`Event` 基类 + 10 个事件 dataclass（对齐 pi 生命周期模型：
       Agent/Turn/Message/Tool 四组成对，`MessageUpdate`/`ToolExecutionUpdate` 为异步流式预留）
@@ -166,7 +170,7 @@ answer = agent.run(question)
 
 > **2026-08-06 修订**：原「纯消息序列 + turn 边界批量写」已改为 **pig-mono 式树结构
 > （entry 带 id/parent_id + current 指针）+ 逐条原子落盘 + rewind（移动指针）**。
-> 用户有 rewind 计划，v1 就用树。详见 session 设计文档。
+> 用户有 rewind 计划，v1 就用树。
 
 - [x] 3.1 `session.py`：`SessionTree`（entry 带 id/parent_id/current_id，add_entry /
       get_current_path / rewind）+ `Session`（add_message / save 原子全量重写 / load /
@@ -186,20 +190,19 @@ answer = agent.run(question)
 
 ### 阶段 4：context 管理
 
-- [x] 4.1 `context.py`：`estimate_tokens`（chars/4 启发式）+
-      `truncate_result`（头尾保留截断，经 `ToolExecutionEnd` hook 挂的 recipe）
-      → 验证：上下文 §7 #1、#11
-- [x] 4.2 `context.py`：`ContextManager` —— 超 0.8·budget 触发、切点对齐
-      user 边界（绝不切 tool 配对）、独立摘要调用（pi 风格结构化 prompt +
-      “不要续聊”约束）、缓存复用、迭代再摘要、摘要失败降级不压缩
-      → 验证：上下文 §7 #3–#9
-- [x] 4.3 `Agent` 集成：`context_budget=` / `keep_recent_tokens=`（默认
-      `None` 不启用）、`transform_context=` / `compaction_summarizer=`
-      可注入策略（管线：内建压缩先、用户钩子后、钩子 fail-loud）、
-      压缩在 `Agent` 层做（单层形态下无 `_llm_call` 缝隙，见框架设计文档 §2.2 决策 2）、
-      `reset()` 清缓存、`ContextCompacted` 事件 → 验证：上下文 §7 #2、#10 +
-      可扩展性 §7 #8–#12
-- **阶段验证**：`uv run python -m pytest -q` 全绿（context §8 #1–#16）；真实验证（需 .env）：
+- [x] 4.1 `context.py`：`estimate_tokens`（chars/4 + usage 锚定）+ 三层免费压缩
+      （L3 大结果落盘 / L1 裁中间 / L2 旧结果占位，cheap-first，0 API）
+      → 验证：上下文 #1、#4–#6
+- [x] 4.2 `ContextManager`：四层管线（免费层每轮例行 + 超 0.8·budget 触发 L4 摘要）、
+      切点对齐 user 边界（不拆 tool 配对）、摘要复用 `self.llm`（tools=[]，
+      防注入 + 先分析再总结 `<analysis>`/`<summary>` 剥离）、缓存复用（retainedTail
+      快照）、迭代再摘要、摘要失败降级不压缩 → 验证：上下文 #3、#7–#10、#13、#15
+- [x] 4.3 `Agent` 集成：`context_budget=` / `keep_recent_tokens=`（`None` 不启用）、
+      run() 循环内 prepare + usage 锚定、`compact()` 手动压缩、缓存写回 session
+      （`type="compaction"` entry + `compaction_floor` rewind 护栏 +
+      `get_full_history_messages` 过滤）、`ContextCompacted` 事件
+      → 验证：上下文 #2、#11、#12、#14、#16
+- **阶段验证**：`uv run python -m pytest -q` 全绿（113 个）；真实验证（需 .env）：
   小 budget（如 4000）跑多轮工具对话 → 事件可见 ContextCompacted；继续对话仍能引用早期信息（摘要生效）
 
 ### 阶段 5：skill 机制
@@ -238,8 +241,6 @@ answer = agent.run(question)
 
 按序演进，每项对标 pi 的对应物：
 
-- [ ] rewind：回退到 turn 边界（追加 rewind 标记行，append-only 不破；
-      Claude Code `/rewind` 的极简版，用户指定的下一优先级）
 - [ ] **coding agent 层**（新主线，独立包 `my_coding_agent`，基于 my_agent_core
       框架，对应 `pig-coding-agent`；待专门设计）：CLI 入口、coding 系统
       提示、权限门控（落点 `ToolExecutionStart` hook）、内置工具组装（read / write /
@@ -252,22 +253,21 @@ answer = agent.run(question)
       system prompt）。**拼好后传给框架 `Agent(system_prompt=...)`**——
       框架层零改动（`system_prompt=` 参数就是为此准备的）。理由：
       AGENTS.md 是 coding agent 的约定（宿主配置行为），不是通用框架概念
-- [ ] async 化：只改 `llm_call` 缝隙两侧（对应 pi 的全异步形态）
+- [ ] async 化：只改 `llm.chat` 调用侧（对应 pi 的全异步形态）
 - [ ] 流式输出：`message_update` 类增量事件（对应 pi 的 `message_start/update/end`）
 - [ ] 推理内容回传：去程保留 `reasoning_content`（多轮连续性，DeepSeek 式）
 - [ ] 工具结果结构化：`str` → `content`（喂模型）+ `details`（给 UI）
       （对应 pi 的 `AgentToolResult`）
-- [ ] context 进阶：usage 锚定估算、压缩状态持久化为 session entry、
-      优雅停止钩子、split-turn 二次摘要（对应 pi `estimate.ts` / `compaction/`）
-- [ ] session 进阶：逐条事件落盘、typed entries + reduce、树与分支、
-      搜索索引（对应 pi `harness/session/` 完整版）
+- [ ] context 进阶：优雅停止钩子、split-turn 二次摘要、reactive 应急
+      （对应 pi `compaction/` 完整版；usage 锚定、压缩状态持久化已实现）
+- [ ] session 进阶：逐条事件落盘、typed entries + reduce、搜索索引
+      （对应 pi `harness/session/` 完整版；树与分支已实现）
 - [ ] skill 进阶：附带文件（正文路径引用）、user/project 分层作用域 +
       ignore 文件、动态刷新、REPL `/skill` 命令（对应 pi 完整 skill 机制）
 - [ ] 可靠性：LLM 调用重试/指数退避（只对 429/5xx/连接错误，包在 `LLM` 门面
       或 Agent 层；对应 pi 的 `RetryPolicy`）
-- [ ] usage 保留与成本统计：assistant wire dict 挂 `_usage`（发送前剥离）、
-      `Agent.total_usage` 累加；是「context 进阶 · usage 锚定估算」与
-      会话级统计的前置
+- [ ] usage 保留与成本统计：assistant 消息记录 `usage`、`Agent.total_usage` 累加；
+      是会话级统计的前置（usage 锚定估算已实现）
 - [ ] `my_agent_core.testing`：FakeLLM 公开化，框架使用者可离线测自己的 agent
       （对应 pi 的 faux provider 测试套件）
 - [ ] 动态工具进阶：全量/激活子集、注册表持久化（session typed entries）、
@@ -275,5 +275,4 @@ answer = agent.run(question)
 - [ ] 可选内置工具（`my_agent_core.tools.builtin`，如 `read_file`）——
       skill 附带文件特性的前置
 - [ ] 结构化输出：`run()` 的 JSON schema 强制变体
-- [ ] 打包正式化：独立 pyproject、可安装（目前靠仓库根 pythonpath）
 - [ ] 交互式多轮 REPL（应用层 demo，`Agent` 已为其铺路）
