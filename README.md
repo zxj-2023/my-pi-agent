@@ -5,16 +5,10 @@
 
 风格：**简洁、规范**——只做当前需求的最小实现，接口边界干净、职责单一、测试先行。
 
-功能实现参考三者的架构思路，并做出整合优化：
-
-| 参考 | 借鉴的架构思路 |
-|---|---|
-| **pi**（[earendil-works/pi](https://github.com/earendil-works/pi)） | 生命周期事件模型（Agent/Turn/Message/Tool 四组）、树结构会话 + rewind、摘要式压缩 |
-| **pig-mono**（[kangkona/pig-mono](https://github.com/kangkona/pig-mono)） | 两层结构（`pig-agent-core` / `pig-coding-agent`）、单层 `Agent` 类、逐条原子落盘、workspace 隔离 |
-| **learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)） | 四层压缩管线（cheap-first）、hook 注册表、会话管理（树 + 缓存 entry） |
-
-整合优化：如「非破坏视图压缩」（树永远完整，压缩只是发送前视图）+「retainedTail 缓存
-+ rewind 护栏」（重启免重算、缓存永不失效）+「usage 锚定估算」（零新依赖的精度提升）。
+功能实现整合参考 **pi**（[earendil-works/pi](https://github.com/earendil-works/pi)）、
+**pig-mono**（[kangkona/pig-mono](https://github.com/kangkona/pig-mono)）、
+**learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)）
+三者的架构思路（具体借鉴明细见本地记录，不上传）。
 
 ## 已实现
 
