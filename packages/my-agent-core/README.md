@@ -234,9 +234,6 @@ answer = agent.run(question)
       → 验证：可扩展性 §7 #7
 - **阶段验证**：`uv run pytest -q` 全绿
 
-> 每个阶段需要任务级实现计划（测试先行、review 检查点）时，用
-> writing-plans 按阶段生成。
-
 ## 未来路线图
 
 按序演进，每项对标 pi 的对应物：

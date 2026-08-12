@@ -22,7 +22,6 @@ my-pi-agent/
 │       ├── config.py      # Config
 │       ├── models.py      # Message / Response / StreamChunk
 │       └── providers/     # openai / deepseek / anthropic
-└── docs/superpowers/      # 本地设计文档 + 计划（不进 git）
 ```
 
 ---
@@ -33,7 +32,6 @@ my-pi-agent/
 
 **目标**：手写 `TYPE_MAP`（只支持 int/float/str/bool 四种标量）→ pydantic 动态建模。
 
-- 规格：`docs/superpowers/specs/2026-08-03-pydantic-tool-schema-design.md`
 - 提交：`f14f330` `19f40ba` `6666f0c` `964236e` `8638a33`
 - **改了什么**：
   - 删除 `TYPE_MAP`；`@tool` 改用 `pydantic.create_model` 从函数签名动态建模
@@ -56,7 +54,6 @@ my-pi-agent/
 
 **目标**：`dataclass Tool + 自由函数` → `Tool 类 + ToolResult + ToolRegistry`（对齐 pig-mono 旧版形态）。
 
-- 规格：`docs/superpowers/specs/2026-08-03-tool-class-design.md`
 - 提交：`926d88c` `d7b8c57` `3c26139` `57ad571`
 - **改了什么**：
   - `Tool` 改为类：`to_openai_schema()` / `execute()` / `__call__`，支持 `name`/`description`/`params_model` 覆盖
@@ -84,14 +81,13 @@ my-pi-agent/
   - 包移入 `packages/my-agent-core/`，src 布局 + hatchling 构建
   - pyproject name 改为 `my-agent-core`
   - **过程中解决的坑**：加 `[build-system]` 后 `dependencies` 一度被 Edit 错放进 `[tool.hatch.build.targets.wheel]` 段导致依赖装不上（修正归位）
-  - `.gitignore` 加入 `CLAUDE.md` 与 `docs/superpowers/`（本地私有文档，不上传远程 GitHub）
+  - `.gitignore` 加入 `CLAUDE.md`（本地私有文档，不上传远程 GitHub）
 - **验证**：29 个测试全绿，demo 运行链通（429 配额限制除外）。
 
 ### 阶段 6：模型边界层 `my-agent-llm`（2026-08-03）
 
 **目标**：独立「模型边界层」包——统一 `LLM` 类屏蔽 provider 差异，三 provider（openai/deepseek/anthropic）。
 
-- 规格：`docs/superpowers/specs/2026-08-03-my-agent-llm-design.md`
 - 提交：`2e8d53c` `d41b272` `2b1d4ef` `5b5ae4b` `dfe3ef0` `822517a` `3ca1356`
 - **改了什么**：
   - `LLM` 门面：`chat`/`stream`/`achat`/`achat_stream` + 按 provider 路由 + kwargs 透传（只透传不碰 SDK）
@@ -123,7 +119,6 @@ my-pi-agent/
 
 **目标**：`run_agent` 从裸 `openai.OpenAI` 改为用统一 `LLM` 类 + `Message`。
 
-- 规格：`docs/superpowers/specs/2026-08-03-agent-llm-integration-design.md`
 - 提交：`6035bdc` `f9138cd` `本次提交`
 - **改了什么**：
   - `run_agent` 签名 `client+model` → `llm` 对象；messages 从 wire dict → `list[Message]`
@@ -137,8 +132,6 @@ my-pi-agent/
 
 **目标**：`run_agent` 函数 → pig-mono 式单层 `Agent` 类（状态 + 循环 + 工具执行），适配 my-agent-llm。
 
-- 规格：`docs/superpowers/specs/2026-08-01-my-agent-framework-design.md`（2026-08-06 修订版）
-- 计划：`docs/superpowers/plans/2026-08-06-single-agent-class.md`
 - 提交：`30bbf51` `58bacf9` `ee13328` `229096d` `ef94c74` `e1b9629`（worktree 分支 `worktree-phase2-single-agent`）
 - **改了什么**：
   - `agent.py`：`run_agent` → `Agent` 类（`run`/`reset`/`_prepare_tool`/`_execute_tool`）；`loop.py`/`llm.py` 不存在（单层）
@@ -158,7 +151,6 @@ my-pi-agent/
 
 **目标**：事件集 8→10，对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组成对）。
 
-- 计划：`docs/superpowers/plans/2026-08-06-event-lifecycle-refactor.md`
 - 提交：`4f1ead8` `9fa879b`（worktree 分支 `worktree-event-lifecycle`）
 - **改了什么**：
   - `events.py`：删 `AssistantMessageAdded`；加 `TurnEnd`/`MessageStart`/`MessageUpdate`/`MessageEnd`/`ToolExecutionUpdate`；`ToolCallStart`/`ToolCallEnd` 改名 `ToolExecutionStart`/`ToolExecutionEnd`；`AgentEnd` 加 `messages`（4 字段，messages 在前）
@@ -171,7 +163,6 @@ my-pi-agent/
 
 **目标**：扩展机制从「事件观察（on_event）+ 中间件干预（before_tool/after_tool/ToolBlocked）」统一为「hook 注册表」（仿 CC）。
 
-- 计划：`docs/superpowers/plans/2026-08-06-hook-unification.md`
 - 提交：`adbb49c` `5a7cb37` `21b9c50` `e3ba480`（worktree 分支 `worktree-hook-unification`）
 - **改了什么**：
   - `events.py`：加 `HookResult`（block/reason/updated_args/updated_result）+ `Interceptable` 标记；`ToolExecutionStart/End` 继承 `Interceptable`（可被 hook 干预）
@@ -188,8 +179,6 @@ my-pi-agent/
 
 **目标**：会话持久化——树结构 + rewind + fork + 跨进程续聊 + 多会话仓库 + workspace 隔离（pig-mono/pi 式）。
 
-- 规格：`docs/superpowers/specs/2026-08-01-my-agent-session-design.md`（2026-08-06 修订；2026-08-10 补 fork / 删 type-version / workspace 隔离）
-- 计划：`docs/superpowers/plans/2026-08-10-session-management.md`
 - 提交：`dc6a0a8` `28625a0` `8ae1f25` `abdc90b` `04ba33e` `2684ab3` `c5527e4` `adfa02b` `a51978d` `ee8dca3`（worktree 分支 `session-management` → `session-fork` → `session-store-rename` → `session-no-version` → `session-workspace`）
 - **改了什么**：
   - `session.py`（新增）：`SessionEntry`（pydantic，id/parent_id/timestamp/role/content/metadata）+ `SessionTree`（entries + current_id 指针；add_entry / get_current_path / get_path_to_entry / rewind）+ `Session`（add_message 逐条原子全量重写 / load / get_current_path_messages / rewind / reset）
@@ -213,8 +202,6 @@ my-pi-agent/
 
 **目标**：超 budget 上下文自动压缩——四层管线（L3 落盘 → L1 裁中间 → L2 占位 → L4 摘要）+ usage 锚定估算 + retainedTail 缓存，Agent 集成压缩策略、事件通知与会话内缓存持久化。
 
-- 规格：`docs/superpowers/specs/2026-08-01-my-agent-context-design.md`（2026-08-11 修订）
-- 计划：`docs/superpowers/plans/2026-08-11-context-management.md`
 - 提交：`4b5925f` `168168b` `e74a610` `014b0ba` `575da36`（worktree 分支 `context-management`）
 - **改了什么**：
   - `session.py`：`SessionEntry` 加 `type` 字段；新增 `add_summary_cache` / `get_full_history_messages`；`rewind` 加护栏
