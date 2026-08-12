@@ -6,6 +6,9 @@
 未来用它搭独立的 **coding agent 层**（对应 `pig-coding-agent`）。
 详见文末「TODO：v1 实现路线」与设计文档（`docs/superpowers/specs/`）。
 
+> **项目进度记录**：每个实现阶段做了什么（目标 / 规格 / 计划 / 提交 / 改了什么 /
+> 过程中的关键教训 / 验证方式）记录在仓库根 `PROGRESS.md`——复盘看它就够。
+
 ## 简介
 
 约 200 行 Python，一个完整的 ReAct（Reason + Act）循环：模型决定是否调用工具，
