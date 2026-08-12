@@ -8,11 +8,11 @@
 功能实现整合参考 **pi**（[earendil-works/pi](https://github.com/earendil-works/pi)）、
 **pig-mono**（[kangkona/pig-mono](https://github.com/kangkona/pig-mono)）、
 **learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)）
-三者的架构思路（具体借鉴明细见本地记录，不上传）。
+三者的架构思路。
 
 ## 已实现
 
-### 模型边界层 `my-agent-llm`
+### 模型边界层 `my-agent-llm`（[学习笔记](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/)）
 
 - 统一 `LLM` 门面：`chat` / `stream` / `achat` / `achat_stream`，屏蔽 provider 差异
 - 三 provider：`openai`（基准翻译）/ `deepseek`（继承 + reasoning 提取）/ `anthropic`（block 翻译 + web_search）
@@ -21,19 +21,19 @@
 
 ### 框架层 `my-agent-core`
 
-- **工具层**：`@tool` 装饰器（pydantic 动态建模，支持全集类型与默认值）、
+- **[工具层](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/)**：`@tool` 装饰器（pydantic 动态建模，支持全集类型与默认值）、
   `ToolRegistry`（注册 / 查表 / 批量 schema / 执行）、`ToolResult`（永不抛）
-- **事件 + hook**：10 个事件 dataclass（Agent/Turn/Message/Tool 四组生命周期）+
+- **[事件 + hook](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/)**：10 个事件 dataclass（Agent/Turn/Message/Tool 四组生命周期）+
   hook 注册表（`register_hook`，同一事件多回调、非 None 短路、可拦截 / 改参数 / 改结果）
-- **Agent**：单层类（状态 + 循环 + 工具执行全在一个类），`run()` 内联 ReAct 循环、
+- **[Agent](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/)**：单层类（状态 + 循环 + 工具执行全在一个类），`run()` 内联 ReAct 循环、
   `reset()`、`max_iterations`；`session=` 持久化、`context_budget=` 上下文管理、
   `compact()` 手动压缩
-- **会话持久化（session）**：树结构（entry 带 id/parent_id + current 指针）
+- **[会话持久化（session）](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/)**：树结构（entry 带 id/parent_id + current 指针）
   - `SessionTree` / `Session` / `SessionStore` 三层职责分离
   - 逐条原子落盘（临时文件 + fsync + os.replace）——崩溃永远完整快照
   - `rewind`（移动指针，旧分支保留）+ `fork`（从 entry 复制路径为新会话）
   - workspace 隔离（`<workspace>/.my_agent_core/sessions`，跨项目天然不可见）
-- **上下文管理（context）**：`ContextManager` 四层压缩管线（cheap-first）
+- **[上下文管理（context）](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/)**：`ContextManager` 四层压缩管线（cheap-first）
   - L3 大结果落盘 → L1 裁中间 → L2 旧结果占位（0 API，每轮例行）→ L4 LLM 摘要（超阈才 1 API）
   - usage 锚定估算（chars/4 兜底 + `Response.usage` 实测校准）
   - retainedTail 缓存（摘要 + 尾部快照持久化为 `type="compaction"` entry，重启免重算）
@@ -64,14 +64,15 @@ uv run python -m pytest -q     # 离线测试（不需要 API key）
 
 环境变量：
 
-| 变量 | 必需 | 说明 |
-|---|---|---|
-| `OPENAI_API_KEY` | 是 | OpenAI API key |
-| `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4.1-mini` |
-| `OPENAI_BASE_URL` | 否 | 自定义 OpenAI 兼容端点 |
+| 变量                | 必需 | 说明                         |
+| ------------------- | ---- | ---------------------------- |
+| `OPENAI_API_KEY`  | 是   | OpenAI API key               |
+| `OPENAI_MODEL`    | 否   | 模型名，默认`gpt-4.1-mini` |
+| `OPENAI_BASE_URL` | 否   | 自定义 OpenAI 兼容端点       |
 
 ## 文档
 
+- **学习笔记**：配套博客系列（与实现同步更新）——[架构设计](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/)（pi 架构剖析）及上文中各模块附带的笔记链接
 - **实现路线**：见 `packages/my-agent-core/README.md`「TODO：v1 实现路线」（每步带验证）
 - **项目进度**：见仓库根 `PROGRESS.md`（每个实现阶段的目标 / 规格 / 提交 / 改了什么 /
   关键教训 / 验证方式）
