@@ -241,12 +241,14 @@ answer = agent.run(question)
       框架，对应 `pig-coding-agent`；待专门设计）：CLI 入口、coding 系统
       提示、权限门控（落点 `ToolExecutionStart` hook）、内置工具组装（read / write /
       edit / bash 归属框架层还是本层待定）
-- [ ] **Prompt 管理**（coding agent 层需求，对应 pig-mono `prompts.py` +
-      `context.py`）：`PromptManager`（从 `~/.agents/prompts/`、`.pi/prompts/`、
-      项目目录发现 `.md` 模板，`{{variable}}` 渲染）+ 上下文文件注入
-      （AGENTS.md / SYSTEM.md / APPEND_SYSTEM.md 从目录层级发现并拼入
-      system prompt）。框架层 `system_prompt=` 参数已够用，此机制留给
-      宿主层"项目用 `.md` 配置 Agent 行为"的场景
+- [ ] **Prompt 管理**（**做在 `my_coding_agent` 层**，对应 pig-mono `prompts.py` +
+      `context.py`）：`my_coding_agent/prompts.py`（PromptManager：从
+      `~/.agents/prompts/`、`.pi/prompts/`、项目目录发现 `.md` 模板，
+      `{{variable}}` 渲染）+ `my_coding_agent/context.py`（上下文文件注入：
+      AGENTS.md / SYSTEM.md / APPEND_SYSTEM.md 从目录层级发现并拼入
+      system prompt）。**拼好后传给框架 `Agent(system_prompt=...)`**——
+      框架层零改动（`system_prompt=` 参数就是为此准备的）。理由：
+      AGENTS.md 是 coding agent 的约定（宿主配置行为），不是通用框架概念
 - [ ] async 化：只改 `llm_call` 缝隙两侧（对应 pi 的全异步形态）
 - [ ] 流式输出：`message_update` 类增量事件（对应 pi 的 `message_start/update/end`）
 - [ ] 推理内容回传：去程保留 `reasoning_content`（多轮连续性，DeepSeek 式）
