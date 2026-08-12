@@ -6,10 +6,11 @@
 
 | 包 | 对应参考 | 状态 |
 |---|---|---|
+| `packages/my-agent-llm` —— 模型边界层（统一 `LLM` 门面屏蔽 provider 差异，消息模型 `Message`/`Response`） | `pig-llm` | 已实现（openai / deepseek / anthropic 三 provider + 流式聚合） |
 | `packages/my-agent-core` —— 框架层（src 布局，ReAct 循环、工具机制、事件、会话持久化、上下文管理） | `pig-agent-core` | 已实现核心（单层 `Agent` + session + context）；剩余 skills、动态工具 |
 | `my_coding_agent/` —— coding agent 层（CLI 入口、内置工具、权限门控等） | `pig-coding-agent` | 未开始 |
 
-两层都不奔生产，透明度与可理解性优先；框架层只依赖 `openai` SDK 与标准库，
+均为学习项目，不奔生产，透明度与可理解性优先；只依赖 `openai` SDK 与标准库，
 不依赖任何 agent 框架。
 
 ## 快速开始
@@ -41,6 +42,14 @@ uv run python -m pytest -q     # 离线测试（不需要 API key）
 ```
 my-pi-agent/
 ├── packages/
+│   ├── my-agent-llm/               # 模型边界层独立 uv 项目（含自身 README）
+│   │   ├── pyproject.toml          # src 布局 + hatchling 构建
+│   │   ├── src/my_agent_llm/       # Python 包
+│   │   │   ├── client.py           # LLM 门面（chat/stream/achat/achat_stream）
+│   │   │   ├── config.py           # Config（pydantic frozen）
+│   │   │   ├── models.py           # Message / Response / StreamChunk
+│   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
+│   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   └── my-agent-core/              # 框架层独立 uv 项目（含自身 README）
 │       ├── pyproject.toml          # src 布局 + hatchling 构建
 │       ├── src/my_agent_core/      # Python 包
