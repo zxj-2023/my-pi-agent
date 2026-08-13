@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from my_agent_llm import Message, Response
+from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
 from my_agent_core.skills import Skill, format_skill_invocation, format_skills_for_prompt, load_skills, parse_frontmatter

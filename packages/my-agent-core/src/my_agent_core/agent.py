@@ -56,7 +56,7 @@ class Agent:
         for t in tools:
             self.registry.register(t)
         self.session = session
-        self.skills = load_skills(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
+        self.skills: list[Skill] = load_skills(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
         self._skills_by_name = {s.name: s for s in self.skills}
         if session is not None:
             # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
