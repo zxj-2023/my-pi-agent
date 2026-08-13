@@ -35,3 +35,42 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     if not isinstance(fields, dict):
         return {}, text
     return {str(k): str(v) for k, v in fields.items()}, body
+
+
+def load_skills(dirs: list[str | Path] | None) -> list[Skill]:
+    """发现 + 解析，容错静默。只扫每个来源目录的一层子目录，认 <name>/SKILL.md；
+    name = 目录名（不读 frontmatter name）。缺 description → 跳过该 skill。
+    隐藏目录（. 开头）跳过。目录不存在 → 静默跳过。
+    dirs 为 None → 探测 <cwd>/.agents/skills（不存在 → 空，静默）；
+    dirs 为 [] → 显式禁用，直接返回空（区别于 None 的默认探测）。"""
+    if dirs is None:
+        dirs = [Path.cwd() / ".agents" / "skills"]
+    skills: list[Skill] = []
+    for root in dirs:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            continue
+        for child in sorted(root_path.iterdir()):
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            skill_file = child / "SKILL.md"
+            if not skill_file.is_file():
+                continue
+            skill = _load_one(skill_file)
+            if skill is not None:
+                skills.append(skill)
+    return skills
+
+
+def _load_one(path: Path) -> Skill | None:
+    """读单个 SKILL.md → Skill；任何失败/缺 description → None（静默）。"""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    meta, body = parse_frontmatter(text)
+    description = meta.get("description")
+    if not description:
+        return None
+    return Skill(name=path.parent.name, description=description,
+                 content=body, file_path=path)
