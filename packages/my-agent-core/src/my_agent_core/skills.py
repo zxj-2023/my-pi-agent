@@ -74,3 +74,25 @@ def _load_one(path: Path) -> Skill | None:
         return None
     return Skill(name=path.parent.name, description=description,
                  content=body, file_path=path)
+
+
+def format_skills_for_prompt(skills: list[Skill]) -> str:
+    """全部 skills → XML 清单块；空 → 空串。仅告知存在与 description
+    （模型无自助取正文通道，取正文靠宿主 invoke_skill）。"""
+    if not skills:
+        return ""
+    parts = ["<available_skills>"]
+    for s in skills:
+        parts.append("  <skill>")
+        parts.append(f"    <name>{s.name}</name>")
+        parts.append(f"    <description>{s.description}</description>")
+        parts.append("  </skill>")
+    parts.append("</available_skills>")
+    return "\n".join(parts)
+
+
+def format_skill_invocation(skill: Skill, instructions: str = "") -> str:
+    """'<skill name="…" location="…">\\n{content}\\n</skill>' + 可选附言（\\n\\n 衔接，同 pi）。"""
+    block = (f'<skill name="{skill.name}" location="{skill.file_path}">\n'
+             f"{skill.content}\n</skill>")
+    return f"{block}\n\n{instructions}" if instructions else block

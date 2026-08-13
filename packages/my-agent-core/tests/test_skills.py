@@ -1,7 +1,7 @@
 """skill 机制离线测试（skills.py 数据模型 + frontmatter 解析，不碰真网络）。"""
 from pathlib import Path
 
-from my_agent_core.skills import Skill, load_skills, parse_frontmatter
+from my_agent_core.skills import Skill, format_skill_invocation, format_skills_for_prompt, load_skills, parse_frontmatter
 
 
 def test_parse_frontmatter_basic():
@@ -89,3 +89,37 @@ def test_load_skills_missing_skips(tmp_path):
     (d / "SKILL.md").write_text("---\nname: cr\n---\nbody", encoding="utf-8")  # 只有 name 没 description
     assert load_skills([tmp_path]) == []
     assert load_skills([tmp_path / "nope"]) == []
+
+
+def test_format_skills_for_prompt_structure(tmp_path):
+    """XML 清单：结构逐行正确；空列表 → 空串（#5）。"""
+    skills = [Skill(name="code-review", description="review code",
+                    content="checklist", file_path=tmp_path / "code-review" / "SKILL.md"),
+              Skill(name="pdf", description="process pdf",
+                    content="steps", file_path=tmp_path / "pdf" / "SKILL.md")]
+    out = format_skills_for_prompt(skills)
+    assert out.splitlines() == [
+        "<available_skills>",
+        "  <skill>",
+        "    <name>code-review</name>",
+        "    <description>review code</description>",
+        "  </skill>",
+        "  <skill>",
+        "    <name>pdf</name>",
+        "    <description>process pdf</description>",
+        "  </skill>",
+        "</available_skills>",
+    ]
+    assert format_skills_for_prompt([]) == ""
+
+
+def test_format_skill_invocation(tmp_path):
+    """<skill name location> 包装 + 可选附言（\\n\\n 衔接）；无附言时纯 block（#6）。"""
+    skill = Skill(name="code-review", description="d",
+                  content="checklist", file_path=tmp_path / "code-review" / "SKILL.md")
+    out = format_skill_invocation(skill, "重点看并发")
+    assert out == ('<skill name="code-review" location="' + str(tmp_path / "code-review" / "SKILL.md") +
+                   '">\nchecklist\n</skill>\n\n重点看并发')
+    assert format_skill_invocation(skill) == ('<skill name="code-review" location="' +
+                                              str(tmp_path / "code-review" / "SKILL.md") +
+                                              '">\nchecklist\n</skill>')
