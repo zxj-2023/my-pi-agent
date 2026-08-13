@@ -30,31 +30,45 @@ from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.tools import Tool
 
+from pathlib import Path
+
+from my_agent_core.skills import Skill, format_skill_invocation, format_skills_for_prompt, load_skills
+
 
 class Agent:
     """单层 Agent：持有 llm / 工具注册表 / 消息，内联 ReAct 循环。"""
 
     def __init__(self, *, llm: LLM, tools: list[Tool], system_prompt: str | None = None,
                  max_iterations: int | None = None, session: Session | None = None,
-                 context_budget: int | None = None, keep_recent_tokens: int | None = None):
+                 context_budget: int | None = None, keep_recent_tokens: int | None = None,
+                 skill_dirs: list[str | Path] | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
         session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
         当前路径恢复 messages，此时 system_prompt 被忽略（文件为准，决策 5）。
         context_budget 非 None 为 context 管理模式：每次 llm.chat 前 prepare 压缩视图。
+        skill_dirs 为 skill 机制来源：None → 探测 <cwd>/.agents/skills（不存在则空）；
+        [] → 显式禁用；非空 list → 只扫这些目录。load_skills 尾部追加清单块进 system，
+        self.skills 公开可读；正文由宿主 invoke_skill 显式注入（模型侧无 read 工具）。
         """
         self.llm = llm
         self.registry = ToolRegistry()
         for t in tools:
             self.registry.register(t)
         self.session = session
+        self.skills = load_skills(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
+        self._skills_by_name = {s.name: s for s in self.skills}
         if session is not None:
             # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
             self.messages = session.get_full_history_messages()
         else:
             self.messages = []  # 公开可读：transcript 即全部状态
-            if system_prompt is not None:
-                self.messages.append(Message(role="system", content=system_prompt))
+            system = system_prompt or ""
+            block = format_skills_for_prompt(self.skills)
+            if block:
+                system = f"{system}\n\n{block}" if system else block
+            if system:
+                self.messages.append(Message(role="system", content=system))
         self.max_iterations = max_iterations
         self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
         self._ctx: ContextManager | None = None
@@ -170,6 +184,15 @@ class Agent:
             messages=list(self.messages), final_text=None,
             iterations=iteration, stop_reason="max_iterations"))
         return None
+
+    def invoke_skill(self, name: str, instructions: str = "") -> str | None:
+        """显式调用：按名查 skills，format_skill_invocation 包装 →
+        self.run(包装文本) 跑一轮。未知名字 → ValueError（列可用名字）。"""
+        skill = self._skills_by_name.get(name)
+        if skill is None:
+            available = ", ".join(sorted(self._skills_by_name)) or "(none)"
+            raise ValueError(f"Unknown skill '{name}'. Available: {available}")
+        return self.run(format_skill_invocation(skill, instructions))
 
     def reset(self) -> None:
         """清空 messages（保留 system prompt）。有 session 时同步清空树 + 重写文件。"""
