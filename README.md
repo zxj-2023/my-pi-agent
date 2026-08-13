@@ -1,7 +1,8 @@
 # my-pi-agent
 
-**当前最好的 Python 语言 agent 框架学习项目**——从零手写一个最小但完整的 agent 框架，
-不依赖任何 agent 框架（只依赖 `openai` SDK、`pydantic` 与标准库），每一行代码都可审查。
+**当前最好的 Python 语言 agent 框架学习项目**——从零手写一个最小但完整的 agent 框架。
+只依赖通用库（`openai` SDK、`pydantic`、`pyyaml` 等）与标准库，**不引入任何 agent
+框架**（langchain / langgraph 等），每一行代码都可审查。
 
 ## 为什么从零实现
 
@@ -65,8 +66,12 @@
 
 - **skills 机制**：SKILL.md 发现 + 清单拼 system + `read_skill` 工具
 - **动态工具**：运行中 `register_tool` / `unregister_tool` + `ToolsChanged` 事件
+- **memory**：记忆模型 + `MemoryStore`（跨 session 持久化）+ `remember`/`recall` 内置工具
+- **task 系统**：`TaskStore` + `todo_write` 工具（plan 模式的交互层在 coding agent 层做）
+- **MCP 与 plugin**：MCP server 加载器（工具动态注册进 `ToolRegistry`）+
+  插件机制（tools / skills / hooks 扩展）
 - **coding agent 层**（`my_coding_agent`）：CLI 入口、内置工具、权限门控、
-  Prompt 管理（AGENTS.md 注入）
+  Prompt 管理（AGENTS.md 注入）、plan 模式
 - **进阶**：async 化 / 流式输出 / 推理内容回传 / 结构化输出 / 交互式 REPL /
   优雅停止钩子 / reactive 应急压缩 / 成本统计 / 手动 compact 工具
 

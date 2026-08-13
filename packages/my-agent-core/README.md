@@ -1,6 +1,6 @@
 # my-agent-core
 
-从零实现的最简 ReAct agent。只依赖 `openai` SDK、`pydantic` 与标准库，不依赖任何 agent 框架。
+从零实现的最简 ReAct agent。只依赖通用库（`openai` SDK、`pydantic`、`pyyaml` 等）与标准库，不引入任何 agent 框架（langchain / langgraph 等）。
 
 项目方向：pig-mono 式两层结构——本包 = **框架层**（对应 `pig-agent-core`，独立 uv 项目，src 布局下 Python 包名为 `my_agent_core`）；
 未来用它搭独立的 **coding agent 层**（对应 `pig-coding-agent`）。
@@ -234,6 +234,43 @@ answer = agent.run(question)
       → 验证：可扩展性 §7 #7
 - **阶段验证**：`uv run pytest -q` 全绿
 
+### 阶段 7：memory 记忆系统
+
+- [ ] 7.1 `memory.py`：记忆模型 + `MemoryStore`（按命名空间持久化到 workspace，跨 session 存活）
+      → 验证：离线测试
+- [ ] 7.2 内置工具暴露：`remember(key, content)` / `recall(query)`（模型自主读写记忆）
+      → 验证：离线测试（FakeLLM 驱动）
+- [ ] 7.3 `Agent` 集成：`memory=` 参数（有则注入记忆上下文 + 记忆工具）
+      → 验证：离线测试
+- **阶段验证**：`uv run pytest -q` 全绿；真实 demo：session A 写入记忆
+  → 新 session B `recall` 到并据此作答（对标 pi `packages/pi/src/tool/memory/`）
+
+### 阶段 8：task 系统（todo + plan 核心）
+
+- [ ] 8.1 `tasks.py`：`Task` 模型 + `TaskStore`（任务列表 / 状态机 todo→doing→done，
+      随 session 持久化；plan 产出 = 任务列表）→ 验证：离线测试
+      （对标 pi `packages/pi/src/task/`）
+- [ ] 8.2 内置工具：`todo_write`（增删改查 + 勾选 completed，对标 Claude Code TodoWrite）
+      → 验证：离线测试（FakeLLM 驱动）
+- [ ] 8.3 `Agent` 集成：任务上下文注入 + 每轮自动更新进度
+      → 验证：离线测试
+- **阶段验证**：`uv run pytest -q` 全绿；真实 demo：模型自主拆解任务并勾选进度
+  （**plan 模式**——进入 plan / 只读调研 / 用户批准 / 执行——是交互范式，
+  做在 coding agent 层，见未来路线图）
+
+### 阶段 9：MCP 与 plugin
+
+- [ ] 9.1 `mcp.py`：MCP client 加载器（stdio/client 传输，把远端 MCP server 的工具
+      翻译成本地 schema → 动态注册进 `ToolRegistry`）→ 验证：假 MCP server 离线测试
+      （对标 pi `packages/pi/src/tool/mcp/`）
+- [ ] 9.2 `plugin.py`：插件机制（约定目录 + manifest，加载插件带出的 tools /
+      skills / hooks 扩展；借鉴 Claude Code 插件机制）
+      → 验证：离线测试
+- [ ] 9.3 `Agent` 集成：`mcp_servers=` / `plugins=` 参数（挂到动态工具注册表）
+      → 验证：离线测试
+- **阶段验证**：`uv run pytest -q` 全绿；真实 MCP server（如 filesystem）demo：
+  模型经 MCP 工具读写本地文件
+
 ## 未来路线图
 
 按序演进，每项对标 pi 的对应物：
@@ -241,7 +278,8 @@ answer = agent.run(question)
 - [ ] **coding agent 层**（新主线，独立包 `my_coding_agent`，基于 my_agent_core
       框架，对应 `pig-coding-agent`；待专门设计）：CLI 入口、coding 系统
       提示、权限门控（落点 `ToolExecutionStart` hook）、内置工具组装（read / write /
-      edit / bash 归属框架层还是本层待定）
+      edit / bash 归属框架层还是本层待定）、**plan 模式**（进入 plan → 只读调研 →
+      产出计划 → 用户批准 → 执行；基于阶段 8 的 TaskStore，交互层在本包）
 - [ ] **Prompt 管理**（**做在 `my_coding_agent` 层**，对应 pig-mono `prompts.py` +
       `context.py`）：`my_coding_agent/prompts.py`（PromptManager：从
       `~/.agents/prompts/`、`.pi/prompts/`、项目目录发现 `.md` 模板，
@@ -268,7 +306,8 @@ answer = agent.run(question)
 - [ ] `my_agent_core.testing`：FakeLLM 公开化，框架使用者可离线测自己的 agent
       （对应 pi 的 faux provider 测试套件）
 - [ ] 动态工具进阶：全量/激活子集、注册表持久化（session typed entries）、
-      `addedToolNames` 式延迟加载、MCP 协议加载器（对应 pi harness 完整机制）
+      `addedToolNames` 式延迟加载（对应 pi harness 完整机制；
+      MCP 协议加载器已并入阶段 9）
 - [ ] 可选内置工具（`my_agent_core.tools.builtin`，如 `read_file`）——
       skill 附带文件特性的前置
 - [ ] 结构化输出：`run()` 的 JSON schema 强制变体

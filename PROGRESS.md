@@ -223,4 +223,7 @@ my-pi-agent/
 - 阶段 4：context 管理（已完成）
 - 阶段 5：skill 机制
 - 阶段 6：动态工具
-- coding agent 层（`my_coding_agent`）——框架层完成后
+- 阶段 7：memory 记忆系统
+- 阶段 8：task 系统（todo + plan 核心，框架层）
+- 阶段 9：MCP 与 plugin
+- coding agent 层（`my_coding_agent`）——框架层完成后（含 plan 模式交互层）
