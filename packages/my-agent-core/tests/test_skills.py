@@ -212,3 +212,15 @@ def test_invoke_skill(tmp_path):
     # 未知名字 → ValueError（列可用名字）
     with pytest.raises(ValueError, match="code-review"):
         agent.invoke_skill("nope")
+
+
+def test_load_skills_with_bom(tmp_path):
+    """SKILL.md 带 UTF-8 BOM → 正常加载（utf-8-sig 兼容）。"""
+    d = tmp_path / "code-review"
+    d.mkdir()
+    p = d / "SKILL.md"
+    p.write_bytes("﻿---\ndescription: review code\n---\n\nbody".encode("utf-8"))
+    skills = load_skills([tmp_path])
+    assert len(skills) == 1
+    assert skills[0].name == "code-review"
+    assert skills[0].description == "review code"

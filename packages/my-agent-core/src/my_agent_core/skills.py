@@ -65,7 +65,7 @@ def load_skills(dirs: list[str | Path] | None) -> list[Skill]:
 def _load_one(path: Path) -> Skill | None:
     """读单个 SKILL.md → Skill；任何失败/缺 description → None（静默）。"""
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except OSError:
         return None
     meta, body = parse_frontmatter(text)
