@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Iterator
 import openai
 
 from ..config import Config
-from ..models import Message, Response, StreamChunk
+from ..models import Message, Response, StreamChunk, ToolCall, ToolCallFunction
 from ._base import Provider
 
 
@@ -37,11 +37,10 @@ class _ToolCallAccumulator:
         if not self._by_index:
             return None
         return [
-            {
-                "id": slot["id"],
-                "type": "function",
-                "function": {"name": slot["name"], "arguments": slot["arguments"]},
-            }
+            ToolCall(
+                id=slot["id"],
+                function=ToolCallFunction(name=slot["name"], arguments=slot["arguments"]),
+            ).model_dump()
             for _, slot in sorted(self._by_index.items())
         ]
 
@@ -96,14 +95,10 @@ class OpenAIProvider(Provider):
         if not getattr(message, "tool_calls", None):
             return None
         return [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                },
-            }
+            ToolCall(
+                id=tc.id,
+                function=ToolCallFunction(name=tc.function.name, arguments=tc.function.arguments),
+            ).model_dump()
             for tc in message.tool_calls
         ]
 
@@ -161,6 +156,7 @@ class OpenAIProvider(Provider):
         )
         accumulator = _ToolCallAccumulator()
         usage = None
+        final_finish_reason: str | None = None
         for chunk in stream:
             chunk_usage = self._extract_usage(chunk)
             if chunk_usage:
@@ -168,13 +164,16 @@ class OpenAIProvider(Provider):
             if not chunk.choices:
                 continue  # usage-only 末块（choices 为空）——usage 已捕获，流式结束
             choice = chunk.choices[0]
+            if choice.finish_reason:
+                final_finish_reason = choice.finish_reason
             delta = choice.delta
             accumulator.add(delta)
             if getattr(delta, "content", None):
                 yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
         tool_calls = accumulator.finish()
         if tool_calls or usage:
-            yield StreamChunk(content="", tool_calls=tool_calls, usage=usage)
+            yield StreamChunk(content="", tool_calls=tool_calls, usage=usage,
+                              finish_reason=final_finish_reason)
 
     async def achat(
         self,
@@ -222,6 +221,7 @@ class OpenAIProvider(Provider):
         )
         accumulator = _ToolCallAccumulator()
         usage = None
+        final_finish_reason: str | None = None
         async for chunk in stream:
             chunk_usage = self._extract_usage(chunk)
             if chunk_usage:
@@ -229,10 +229,13 @@ class OpenAIProvider(Provider):
             if not chunk.choices:
                 continue  # usage-only 末块（choices 为空）——usage 已捕获，流式结束
             choice = chunk.choices[0]
+            if choice.finish_reason:
+                final_finish_reason = choice.finish_reason
             delta = choice.delta
             accumulator.add(delta)
             if getattr(delta, "content", None):
                 yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
         tool_calls = accumulator.finish()
         if tool_calls or usage:
-            yield StreamChunk(content="", tool_calls=tool_calls, usage=usage)
+            yield StreamChunk(content="", tool_calls=tool_calls, usage=usage,
+                              finish_reason=final_finish_reason)

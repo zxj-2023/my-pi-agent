@@ -73,3 +73,4 @@ def test_stream_aggregates_tool_calls_and_reasoning():
     }]
     assert last.metadata == {"reasoning_content": "thinking"}
     assert last.usage == {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+    assert last.finish_reason == "tool_calls"  # 末块透传循环内捕获的 finish_reason

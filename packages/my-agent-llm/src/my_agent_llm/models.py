@@ -12,6 +12,25 @@ class Message(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class ToolCallFunction(BaseModel):
+    """tool_call 的 function 子对象（arguments 是 JSON 字符串，wire 形状）。"""
+
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """统一 OpenAI 形状 tool_call：三处构造共用一处模型（防形状漂移）。
+
+    出方向：openai/deepseek 的流式聚合与提取、anthropic 的 block 翻译都经此构造，
+    model_dump() 产出 {'id', 'type': 'function', 'function': {name, arguments}}。
+    """
+
+    id: str
+    type: Literal["function"] = "function"
+    function: ToolCallFunction
+
+
 class Response(BaseModel):
     """统一响应：文本 + 工具调用 + usage + reasoning。"""
 

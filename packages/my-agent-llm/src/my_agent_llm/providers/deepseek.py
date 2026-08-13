@@ -55,6 +55,7 @@ class DeepSeekProvider(OpenAIProvider):
         reasoning_parts: list[str] = []
         accumulator = _ToolCallAccumulator()
         usage = None
+        final_finish_reason: str | None = None
         for chunk in self.client.chat.completions.create(
             model=model,
             messages=self._convert_messages(messages),
@@ -68,6 +69,8 @@ class DeepSeekProvider(OpenAIProvider):
             if not chunk.choices:
                 continue  # usage-only 末块（choices 为空）——usage 已捕获，流式结束
             choice = chunk.choices[0]
+            if choice.finish_reason:
+                final_finish_reason = choice.finish_reason
             delta = choice.delta
             accumulator.add(delta)
             if getattr(delta, "reasoning_content", None):
@@ -82,6 +85,7 @@ class DeepSeekProvider(OpenAIProvider):
                 content="",
                 tool_calls=tool_calls,
                 usage=usage,
+                finish_reason=final_finish_reason,
                 metadata={"reasoning_content": reasoning} if reasoning else None,
             )
 
@@ -124,6 +128,7 @@ class DeepSeekProvider(OpenAIProvider):
         reasoning_parts: list[str] = []
         accumulator = _ToolCallAccumulator()
         usage = None
+        final_finish_reason: str | None = None
         stream = await self.async_client.chat.completions.create(
             model=model,
             messages=self._convert_messages(messages),
@@ -138,6 +143,8 @@ class DeepSeekProvider(OpenAIProvider):
             if not chunk.choices:
                 continue  # usage-only 末块（choices 为空）——usage 已捕获，流式结束
             choice = chunk.choices[0]
+            if choice.finish_reason:
+                final_finish_reason = choice.finish_reason
             delta = choice.delta
             accumulator.add(delta)
             if getattr(delta, "reasoning_content", None):
@@ -151,5 +158,6 @@ class DeepSeekProvider(OpenAIProvider):
                 content="",
                 tool_calls=tool_calls,
                 usage=usage,
+                finish_reason=final_finish_reason,
                 metadata={"reasoning_content": reasoning} if reasoning else None,
             )

@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Iterator
 import anthropic
 
 from ..config import Config
-from ..models import Message, Response, StreamChunk
+from ..models import Message, Response, StreamChunk, ToolCall, ToolCallFunction
 from ._base import Provider
 
 
@@ -112,11 +112,12 @@ class AnthropicProvider(Provider):
         for block in blocks:
             if getattr(block, "type", None) == "tool_use":
                 out.append(
-                    {
-                        "id": block.id,
-                        "type": "function",
-                        "function": {"name": block.name, "arguments": json.dumps(block.input)},
-                    }
+                    ToolCall(
+                        id=block.id,
+                        function=ToolCallFunction(
+                            name=block.name, arguments=json.dumps(block.input),
+                        ),
+                    ).model_dump()
                 )
         return out or None
 

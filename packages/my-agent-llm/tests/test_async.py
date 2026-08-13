@@ -178,6 +178,7 @@ def test_openai_achat_stream_aggregates_tool_calls():
         "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'},
     }]
     assert out[0].usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    assert out[0].finish_reason == "tool_calls"  # 末块透传循环内捕获的 finish_reason
 
 
 def test_openai_achat_missing_async_client():
