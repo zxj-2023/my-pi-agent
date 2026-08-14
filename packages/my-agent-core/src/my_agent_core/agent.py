@@ -32,7 +32,7 @@ from my_agent_core.tools import Tool
 
 from pathlib import Path
 
-from my_agent_core.skills import Skill, format_skill_invocation, format_skills_for_prompt, load_skills
+from my_agent_core.skills import Skill, SkillManager
 
 
 class Agent:
@@ -48,23 +48,24 @@ class Agent:
         当前路径恢复 messages，此时 system_prompt 被忽略（文件为准，决策 5）。
         context_budget 非 None 为 context 管理模式：每次 llm.chat 前 prepare 压缩视图。
         skill_dirs 为 skill 机制来源：None → 探测 <cwd>/.agents/skills（不存在则空）；
-        [] → 显式禁用；非空 list → 只扫这些目录。load_skills 尾部追加清单块进 system，
-        self.skills 公开可读；正文由宿主 invoke_skill 显式注入（模型侧无 read 工具）。
+        [] → 显式禁用；非空 list → 只扫这些目录。构造 skill_manager 追加清单块进
+        system；self.skill_manager 公开可读，self.skills = manager.list()（兼容代理）。
+        正文由宿主 invoke_skill 显式注入（模型侧无 read 工具）。
         """
         self.llm = llm
         self.registry = ToolRegistry()
         for t in tools:
             self.registry.register(t)
         self.session = session
-        self.skills: list[Skill] = load_skills(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
-        self._skills_by_name = {s.name: s for s in self.skills}
+        self.skill_manager = SkillManager(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
+        self.skills: list[Skill] = self.skill_manager.list()   # 兼容代理
         if session is not None:
             # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
             self.messages = session.get_full_history_messages()
         else:
             self.messages = []  # 公开可读：transcript 即全部状态
             system = system_prompt or ""
-            block = format_skills_for_prompt(self.skills)
+            block = self.skill_manager.format_prompt()
             if block:
                 system = f"{system}\n\n{block}" if system else block
             if system:
@@ -186,13 +187,9 @@ class Agent:
         return None
 
     def invoke_skill(self, name: str, instructions: str = "") -> str | None:
-        """显式调用：按名查 skills，format_skill_invocation 包装 →
-        self.run(包装文本) 跑一轮。未知名字 → ValueError（列可用名字）。"""
-        skill = self._skills_by_name.get(name)
-        if skill is None:
-            available = ", ".join(sorted(self._skills_by_name)) or "(none)"
-            raise ValueError(f"Unknown skill '{name}'. Available: {available}")
-        return self.run(format_skill_invocation(skill, instructions))
+        """显式调用：skill_manager.format_invocation 包装（未知名 ValueError）→
+        self.run(包装文本) 跑一轮。"""
+        return self.run(self.skill_manager.format_invocation(name, instructions))
 
     def reset(self) -> None:
         """清空 messages（保留 system prompt）。有 session 时同步清空树 + 重写文件。"""

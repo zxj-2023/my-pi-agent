@@ -6,7 +6,7 @@ import pytest
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
-from my_agent_core.skills import Skill, format_skill_invocation, format_skills_for_prompt, load_skills, parse_frontmatter
+from my_agent_core.skills import Skill, SkillManager, parse_frontmatter
 from my_agent_core.tools import tool
 
 
@@ -78,7 +78,7 @@ def _write_skill(root: Path, name: str, description: str = "desc", content: str 
 def test_load_skills_basic(tmp_path):
     """只认 <dir>/SKILL.md；name=目录名；description 来自 frontmatter（#2 #3）。"""
     _write_skill(tmp_path, "code-review", description="review code", content="checklist")
-    skills = load_skills([tmp_path])
+    skills = SkillManager([tmp_path]).list()
     assert len(skills) == 1
     assert skills[0].name == "code-review"
     assert skills[0].description == "review code"
@@ -91,7 +91,7 @@ def test_load_skills_ignores_non_skill_files(tmp_path):
     (tmp_path / "SKILL.md").write_text("x")                 # 根级 SKILL.md
     (tmp_path / "no-skill").mkdir()                          # 无 SKILL.md 的目录
     (tmp_path / "notes.py").write_text("x")                 # 其他文件
-    assert load_skills([tmp_path]) == []
+    assert SkillManager([tmp_path]).list() == []
 
 
 def test_load_skills_no_recursion(tmp_path):
@@ -99,14 +99,14 @@ def test_load_skills_no_recursion(tmp_path):
     sub = tmp_path / "parent" / "child"
     sub.mkdir(parents=True)
     (sub / "SKILL.md").write_text("x")
-    assert load_skills([tmp_path]) == []
+    assert SkillManager([tmp_path]).list() == []
 
 
 def test_load_skills_skips_hidden_dirs(tmp_path):
     """隐藏目录（. 开头）跳过（#2）。"""
     _write_skill(tmp_path, ".hidden")
     _write_skill(tmp_path, "visible")
-    skills = load_skills([tmp_path])
+    skills = SkillManager([tmp_path]).list()
     assert [s.name for s in skills] == ["visible"]
 
 
@@ -115,8 +115,15 @@ def test_load_skills_missing_skips(tmp_path):
     d = tmp_path / "code-review"
     d.mkdir()
     (d / "SKILL.md").write_text("---\nname: cr\n---\nbody", encoding="utf-8")  # 只有 name 没 description
-    assert load_skills([tmp_path]) == []
-    assert load_skills([tmp_path / "nope"]) == []
+    assert SkillManager([tmp_path]).list() == []
+    assert SkillManager([tmp_path / "nope"]).list() == []
+
+
+def _manager_with(skills: list[Skill]) -> SkillManager:
+    """helper：构造显式禁用（[]）的 manager，直接注入 skills dict（Repository 单测）。"""
+    mgr = SkillManager([])
+    mgr.skills = {s.name: s for s in skills}
+    return mgr
 
 
 def test_format_skills_for_prompt_structure(tmp_path):
@@ -125,7 +132,7 @@ def test_format_skills_for_prompt_structure(tmp_path):
                     content="checklist", file_path=tmp_path / "code-review" / "SKILL.md"),
               Skill(name="pdf", description="process pdf",
                     content="steps", file_path=tmp_path / "pdf" / "SKILL.md")]
-    out = format_skills_for_prompt(skills)
+    out = _manager_with(skills).format_prompt()
     assert out.splitlines() == [
         "<available_skills>",
         "  <skill>",
@@ -138,19 +145,20 @@ def test_format_skills_for_prompt_structure(tmp_path):
         "  </skill>",
         "</available_skills>",
     ]
-    assert format_skills_for_prompt([]) == ""
+    assert SkillManager([]).format_prompt() == ""
 
 
 def test_format_skill_invocation(tmp_path):
     """<skill name location> 包装 + 可选附言（\\n\\n 衔接）；无附言时纯 block（#6）。"""
     skill = Skill(name="code-review", description="d",
                   content="checklist", file_path=tmp_path / "code-review" / "SKILL.md")
-    out = format_skill_invocation(skill, "重点看并发")
+    mgr = _manager_with([skill])
+    out = mgr.format_invocation("code-review", "重点看并发")
     assert out == ('<skill name="code-review" location="' + str(tmp_path / "code-review" / "SKILL.md") +
                    '">\nchecklist\n</skill>\n\n重点看并发')
-    assert format_skill_invocation(skill) == ('<skill name="code-review" location="' +
-                                              str(tmp_path / "code-review" / "SKILL.md") +
-                                              '">\nchecklist\n</skill>')
+    assert mgr.format_invocation("code-review") == ('<skill name="code-review" location="' +
+                                                    str(tmp_path / "code-review" / "SKILL.md") +
+                                                    '">\nchecklist\n</skill>')
 
 
 def test_agent_assembles_with_skills(tmp_path, monkeypatch):
@@ -220,7 +228,7 @@ def test_load_skills_with_bom(tmp_path):
     d.mkdir()
     p = d / "SKILL.md"
     p.write_bytes("﻿---\ndescription: review code\n---\n\nbody".encode("utf-8"))
-    skills = load_skills([tmp_path])
+    skills = SkillManager([tmp_path]).list()
     assert len(skills) == 1
     assert skills[0].name == "code-review"
     assert skills[0].description == "review code"
