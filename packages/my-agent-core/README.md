@@ -277,8 +277,9 @@ answer = agent.run(question)
 
 - [ ] **coding agent 层**（新主线，独立包 `my_coding_agent`，基于 my_agent_core
       框架，对应 `pig-coding-agent`；待专门设计）：CLI 入口、coding 系统
-      提示、权限门控（落点 `ToolExecutionStart` hook）、内置工具组装（read / write /
-      edit / bash 归属框架层还是本层待定）、**plan 模式**（进入 plan → 只读调研 →
+      提示、权限门控（落点 `ToolExecutionStart` hook）、**内置工具组装（read /
+      write / edit / bash 四个文件工具——归属本层，2026-08-13 决策；不含
+      read_skill，框架层不预置文件工具）**、**plan 模式**（进入 plan → 只读调研 →
       产出计划 → 用户批准 → 执行；基于阶段 8 的 TaskStore，交互层在本包）
 - [ ] **Prompt 管理**（**做在 `my_coding_agent` 层**，对应 pig-mono `prompts.py` +
       `context.py`）：`my_coding_agent/prompts.py`（PromptManager：从
@@ -309,6 +310,8 @@ answer = agent.run(question)
       `addedToolNames` 式延迟加载（对应 pi harness 完整机制；
       MCP 协议加载器已并入阶段 9）
 - [ ] 可选内置工具（`my_agent_core.tools.builtin`，如 `read_file`）——
-      skill 附带文件特性的前置
+      skill 附带文件特性的前置（注：2026-08-13 决策后通用文件工具 read/edit/
+      write/bash 归属 coding agent 层；此 builtin 仅保留「框架层自带最小
+      read_file 供 skill 附带文件」的备选项，优先级低于 coding agent 层工具）
 - [ ] 结构化输出：`run()` 的 JSON schema 强制变体
 - [ ] 交互式多轮 REPL（应用层 demo，`Agent` 已为其铺路）
