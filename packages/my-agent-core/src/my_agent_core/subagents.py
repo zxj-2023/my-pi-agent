@@ -26,7 +26,7 @@ class Subagent:
     content: str
     file_path: Path
     model: str | None = None              # 缺省 inherit = 继承父模型
-    effort: str | None = None            # 推理力度（缺省继承父）
+    effort: str | None = None            # v1 解析但不消费（SDK 无统一 effort 参数，端到端映射留 LLM 层演进）
     max_turns: int | None = None         # maxTurns（缺省继承父 max_iterations）
     tools: tuple[str, ...] | None = None       # 白名单；None=继承父全部
     disallowed_tools: tuple[str, ...] = ()     # 黑名单
@@ -186,9 +186,9 @@ def make_task_tool(manager: SubagentManager, parent: Agent) -> Tool:
                 tools=_filter_tools(parent, sub),
                 system_prompt=_system_for(sub, parent),
                 model=sub.model,
-                effort=sub.effort,
                 max_iterations=sub.max_turns if sub.max_turns is not None else parent.max_iterations,
                 skill_dirs=[],   # skill 清单已由 _system_for 拼入，禁用再探测
+                subagent_dirs=[],  # 禁用子代理再探测，防 task 重入（防递归）
             )
             return child.run(prompt) or "(no summary)"
         except Exception as exc:  # 子代理异常 → 描述性字符串，不破父循环

@@ -186,10 +186,28 @@ def test_subagent_no_task_tool_even_whitelisted(tmp_path):
     assert sub_tool_names == ["multiply"]
 
 
-def test_subagent_model_effort_maxturns_override(tmp_path):
-    """子代理收到 model/effort/maxTurns 覆盖（#9）。"""
+def test_child_does_not_reprobe_subagent_dirs(tmp_path, monkeypatch):
+    """防递归：cwd 有 .agents/agents 时，子代理仍不重新装配 task（subagent_dirs=[] 禁用再探测）。"""
+    d = tmp_path / ".agents" / "agents"
+    d.mkdir(parents=True)
+    _write_agent(d, "code-reviewer", description="review code", content="body")
+    monkeypatch.chdir(tmp_path)
+    manager = SubagentManager()  # 探测 cwd/.agents/agents → 找到 code-reviewer
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("go", "code-reviewer")]),
+        _response(content="sub done"),
+        _response(content="parent done"),
+    ])
+    agent = _parent(manager, llm)
+    agent.run("delegate")
+    sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
+    assert "task" not in sub_tool_names
+
+
+def test_subagent_model_override(tmp_path):
+    """子代理收到 model 覆盖（#9）。"""
     _write_agent(tmp_path, "big", description="d", content="body",
-                 extra="model: sonnet\neffort: high\nmaxTurns: 5\n")
+                 extra="model: sonnet\nmaxTurns: 5\n")
     manager = SubagentManager([tmp_path])
     llm = FakeLLM([
         _response(tool_calls=[{"id": "1", "type": "function",
@@ -201,7 +219,6 @@ def test_subagent_model_effort_maxturns_override(tmp_path):
     agent = _parent(manager, llm)
     agent.run("delegate")
     assert llm.calls[1]["model"] == "sonnet"
-    assert llm.calls[1]["effort"] == "high"
 
 
 def test_unknown_agent_type_returns_error_string(tmp_path):

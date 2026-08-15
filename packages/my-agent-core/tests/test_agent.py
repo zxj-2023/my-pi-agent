@@ -294,19 +294,9 @@ def test_malformed_arguments_does_not_crash():
         assert tool_msgs[0].metadata["tool_call_id"] == "1"
 
 
-def test_model_and_effort_passthrough():
-    """Agent(model=, effort=) 透传给 llm.chat（子代理换模型/推理力度的前置）。"""
+def test_model_passthrough():
+    """Agent(model=) 透传给 llm.chat（子代理换模型的前置）。"""
     llm = FakeLLM([_response(content="hi")])
-    agent = Agent(llm=llm, tools=[multiply], model="sonnet", effort="high")
+    agent = Agent(llm=llm, tools=[multiply], model="sonnet")
     agent.run("hello")
     assert llm.calls[0]["model"] == "sonnet"
-    assert llm.calls[0]["effort"] == "high"
-
-
-def test_model_none_omits_effort():
-    """未指定 model/effort 时：model 传 None、effort 不进入 kwargs（零干扰）。"""
-    llm = FakeLLM([_response(content="hi")])
-    agent = Agent(llm=llm, tools=[multiply])
-    agent.run("hello")
-    assert llm.calls[0]["model"] is None
-    assert "effort" not in llm.calls[0]

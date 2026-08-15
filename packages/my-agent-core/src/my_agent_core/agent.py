@@ -43,7 +43,7 @@ class Agent:
                  max_iterations: int | None = None, session: Session | None = None,
                  context_budget: int | None = None, keep_recent_tokens: int | None = None,
                  skill_dirs: list[str | Path] | None = None,
-                 model: str | None = None, effort: str | None = None,
+                 model: str | None = None,
                  subagent_dirs: list[str | Path] | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
@@ -81,7 +81,6 @@ class Agent:
                 self.messages.append(Message(role="system", content=system))
         self.max_iterations = max_iterations
         self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
-        self.effort = effort        # 缺省 None：不传 effort（provider 默认）
         self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
         self._ctx: ContextManager | None = None
         self._ctx_bridge: ContextSessionBridge | None = None
@@ -100,9 +99,8 @@ class Agent:
             self.registry.register(make_task_tool(self.subagent_manager, self))
 
     def _llm_chat(self, messages, tools):
-        """封装 llm.chat：透传 model/effort（effort 仅非 None 时传，零干扰）。"""
-        kw = {} if self.effort is None else {"effort": self.effort}
-        return self.llm.chat(messages=messages, tools=tools, model=self.model, **kw)
+        """封装 llm.chat：透传 model（SDK 通用参数）。"""
+        return self.llm.chat(messages=messages, tools=tools, model=self.model)
 
     def _handle_compaction(self) -> None:
         """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
