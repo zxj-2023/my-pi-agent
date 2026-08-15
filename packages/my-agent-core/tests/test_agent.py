@@ -24,7 +24,7 @@ class FakeLLM:
         self.calls: list[dict] = []
 
     def chat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": list(messages), "tools": tools})
+        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
         return self.responses.pop(0)
 
 
@@ -292,3 +292,21 @@ def test_malformed_arguments_does_not_crash():
         tool_msgs = [m for m in second_call if m.role == "tool"]
         assert "Invalid JSON arguments" in tool_msgs[0].content
         assert tool_msgs[0].metadata["tool_call_id"] == "1"
+
+
+def test_model_and_effort_passthrough():
+    """Agent(model=, effort=) 透传给 llm.chat（子代理换模型/推理力度的前置）。"""
+    llm = FakeLLM([_response(content="hi")])
+    agent = Agent(llm=llm, tools=[multiply], model="sonnet", effort="high")
+    agent.run("hello")
+    assert llm.calls[0]["model"] == "sonnet"
+    assert llm.calls[0]["effort"] == "high"
+
+
+def test_model_none_omits_effort():
+    """未指定 model/effort 时：model 传 None、effort 不进入 kwargs（零干扰）。"""
+    llm = FakeLLM([_response(content="hi")])
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.run("hello")
+    assert llm.calls[0]["model"] is None
+    assert "effort" not in llm.calls[0]
