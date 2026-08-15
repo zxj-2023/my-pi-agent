@@ -22,6 +22,10 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
+    def list(self) -> list[Tool]:
+        """当前全部工具（发现顺序）。"""
+        return list(self._tools.values())
+
     def get_schemas(self) -> list[dict[str, Any]]:
         """生成全部工具的 OpenAI tools 参数。"""
         return [t.to_openai_schema() for t in self._tools.values()]

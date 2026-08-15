@@ -99,17 +99,19 @@ class SkillManager:
     def __contains__(self, name: str) -> bool:
         return name in self.skills
 
-    def format_prompt(self) -> str:
-        """全部 skills → XML 清单块；空 → 空串。仅告知存在与 description
-        （模型无自助取正文通道，取正文靠宿主 invoke_skill）。"""
-        if not self.skills:
-            return ""
+    def format_prompt(self, names: list[str] | None = None) -> str:
+        """全部（或指定名字子集）skills → XML 清单块；空 → 空串（进 system）。
+        names 给定只格式化这些名字（供 subagent skills 字段取子集）；未知名忽略。"""
+        skills = (self.skills[n] for n in names if n in self.skills) if names is not None \
+            else self.skills.values()
         parts = ["<available_skills>"]
-        for s in self.skills.values():
+        for s in skills:
             parts.append("  <skill>")
             parts.append(f"    <name>{s.name}</name>")
             parts.append(f"    <description>{s.description}</description>")
             parts.append("  </skill>")
+        if len(parts) == 1:
+            return ""
         parts.append("</available_skills>")
         return "\n".join(parts)
 

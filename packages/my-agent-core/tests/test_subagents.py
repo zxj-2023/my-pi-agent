@@ -3,11 +3,16 @@ from pathlib import Path
 
 import pytest
 
+from my_agent_llm import Response
+
+from my_agent_core.agent import Agent
 from my_agent_core.subagents import (
     DEFAULT_SUBAGENT,
     Subagent,
     SubagentManager,
+    make_task_tool,
 )
+from my_agent_core.tools import tool
 
 
 def _write_agent(root: Path, name: str, description: str = "desc",
@@ -83,3 +88,149 @@ def test_default_is_module_constant_not_indexed(tmp_path):
     assert manager.format_prompt() == ""
     assert DEFAULT_SUBAGENT.name == "default"
     assert DEFAULT_SUBAGENT.content.startswith("You are a subagent.")
+
+
+class FakeLLM:
+    """替身：按脚本返回 Response，记录 messages/tools/kwargs。"""
+
+    def __init__(self, responses: list[Response]):
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+
+    def chat(self, *, messages, tools=None, **kwargs) -> Response:
+        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
+        return self.responses.pop(0)
+
+
+def _response(content: str = "", tool_calls=None) -> Response:
+    return Response(content=content, model="fake", tool_calls=tool_calls)
+
+
+@tool
+def multiply(a: int, b: int) -> int:
+    """Multiply two integers."""
+    return a * b
+
+
+@tool
+def get_time() -> str:
+    """Get the current time."""
+    return "12:00"
+
+
+def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
+    import json
+    return {"id": "1", "type": "function",
+            "function": {"name": "task",
+                         "arguments": json.dumps({"prompt": prompt, "agent_type": agent_type})}}
+
+
+def _parent(manager, llm, tools=(multiply, get_time)):
+    """构造父 Agent 并手动装配 task 工具（Task 4 前暂不自动装配）。"""
+    agent = Agent(llm=llm, tools=list(tools))
+    agent.registry.register(make_task_tool(manager, agent))
+    return agent
+
+
+def test_task_delegates_and_isolates(tmp_path):
+    """委派：父调 task → 子 Fresh context 跑 → 父收子最终文本（#6 #7）。"""
+    _write_agent(tmp_path, "code-reviewer", description="review code",
+                 content="You are a reviewer.")
+    manager = SubagentManager([tmp_path])
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("review this", "code-reviewer")]),
+        _response(content="found 3 issues"),   # 子代理最终文本
+        _response(content="done"),             # 父最终
+    ])
+    agent = _parent(manager, llm)
+    answer = agent.run("delegate")
+    assert answer == "done"
+    # 子代理 fresh context：call[1] = system(子正文) + user(prompt)，无父历史
+    sub_msgs = llm.calls[1]["messages"]
+    assert sub_msgs[0].role == "system"
+    assert "You are a reviewer." in sub_msgs[0].content
+    assert sub_msgs[-1].role == "user"
+    assert sub_msgs[-1].content == "review this"
+    assert not any(m.content == "delegate" for m in sub_msgs)
+
+
+def test_subagent_tool_filtering(tmp_path):
+    """tools 白名单/黑名单过滤 + task 永不出现（#8）。"""
+    _write_agent(tmp_path, "limited", description="d", content="body",
+                 extra="tools: multiply\ndisallowedTools: get_time\n")
+    manager = SubagentManager([tmp_path])
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("go", "limited")]),
+        _response(content="sub done"),
+        _response(content="parent done"),
+    ])
+    agent = _parent(manager, llm)
+    agent.run("delegate")
+    sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
+    assert sub_tool_names == ["multiply"]      # 只剩白名单（get_time 被黑名单 + 白名单共同剔除）
+
+
+def test_subagent_no_task_tool_even_whitelisted(tmp_path):
+    """白名单显式含 task 也被剔除（防递归）。"""
+    _write_agent(tmp_path, "recursive", description="d", content="body",
+                 extra="tools: multiply, task\n")
+    manager = SubagentManager([tmp_path])
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("go", "recursive")]),
+        _response(content="sub done"),
+        _response(content="parent done"),
+    ])
+    agent = _parent(manager, llm)
+    agent.run("delegate")
+    sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
+    assert sub_tool_names == ["multiply"]
+
+
+def test_subagent_model_effort_maxturns_override(tmp_path):
+    """子代理收到 model/effort/maxTurns 覆盖（#9）。"""
+    _write_agent(tmp_path, "big", description="d", content="body",
+                 extra="model: sonnet\neffort: high\nmaxTurns: 5\n")
+    manager = SubagentManager([tmp_path])
+    llm = FakeLLM([
+        _response(tool_calls=[{"id": "1", "type": "function",
+                               "function": {"name": "task",
+                                            "arguments": '{"prompt": "go", "agent_type": "big"}'}}]),
+        _response(content="sub done"),
+        _response(content="parent done"),
+    ])
+    agent = _parent(manager, llm)
+    agent.run("delegate")
+    assert llm.calls[1]["model"] == "sonnet"
+    assert llm.calls[1]["effort"] == "high"
+
+
+def test_unknown_agent_type_returns_error_string(tmp_path):
+    """未知名 agent_type → 错误字符串（列可用名）；父循环继续（#10）。"""
+    manager = SubagentManager([tmp_path])
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("go", "nope")]),
+        _response(content="parent done"),
+    ])
+    agent = _parent(manager, llm)
+    answer = agent.run("delegate")
+    assert answer == "parent done"
+    tool_msg = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
+    assert "nope" in tool_msg[0].content
+    assert "Unknown subagent" in tool_msg[0].content
+
+
+def test_default_agent_type_fallback(tmp_path):
+    """缺省 agent_type → DEFAULT_SUBAGENT（极简 system、继承父工具、无 task）（#11）。"""
+    manager = SubagentManager([tmp_path])
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("go", "default")]),
+        _response(content="sub done"),
+        _response(content="parent done"),
+    ])
+    agent = _parent(manager, llm)
+    agent.run("delegate")
+    sub_msgs = llm.calls[1]["messages"]
+    assert sub_msgs[0].content.startswith("You are a subagent.")
+    sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
+    assert set(sub_tool_names) == {"multiply", "get_time"}   # 继承父全部（除 task）
+    assert "task" not in sub_tool_names
