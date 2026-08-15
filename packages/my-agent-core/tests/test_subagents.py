@@ -234,3 +234,55 @@ def test_default_agent_type_fallback(tmp_path):
     sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
     assert set(sub_tool_names) == {"multiply", "get_time"}   # 继承父全部（除 task）
     assert "task" not in sub_tool_names
+
+
+def test_agent_assembles_subagent_dirs(tmp_path):
+    """subagent_dirs → system 含 agent 清单、tools 含 task、原工具保留（#12）。"""
+    _write_agent(tmp_path, "code-reviewer", description="review code", content="checklist")
+    llm = FakeLLM([_response(content="ok")])
+    agent = Agent(llm=llm, tools=[multiply], subagent_dirs=[tmp_path])
+    agent.run("hi")
+    first = llm.calls[0]["messages"][0]
+    assert first.role == "system"
+    assert "<available_agents>" in first.content
+    assert "<name>code-reviewer</name>" in first.content
+    tool_names = [t["function"]["name"] for t in llm.calls[0]["tools"]]
+    assert "task" in tool_names
+    assert "multiply" in tool_names
+
+
+def test_agent_subagent_dirs_none_probes_default(tmp_path, monkeypatch):
+    """subagent_dirs=None 且 <cwd>/.agents/agents 存在 → 自动加载（#12）。"""
+    d = tmp_path / ".agents" / "agents"
+    d.mkdir(parents=True)
+    _write_agent(d, "probe", description="p", content="c")
+    monkeypatch.chdir(tmp_path)
+    llm = FakeLLM([_response(content="ok")])
+    agent = Agent(llm=llm, tools=[multiply])
+    agent.run("hi")
+    assert [s.name for s in agent.subagent_manager.list()] == ["probe"]
+
+
+def test_agent_subagent_dirs_empty_disables(tmp_path, monkeypatch):
+    """subagent_dirs=[] 显式禁用 → 无 task、无 agent 清单（区别于 None 探测）。"""
+    monkeypatch.chdir(tmp_path)
+    llm = FakeLLM([_response(content="ok")])
+    agent = Agent(llm=llm, tools=[multiply], subagent_dirs=[])
+    agent.run("hi")
+    tool_names = [t["function"]["name"] for t in llm.calls[0]["tools"]]
+    assert "task" not in tool_names
+    assert "<available_agents>" not in llm.calls[0]["messages"][0].content
+
+
+def test_agent_task_name_conflict_raises(tmp_path):
+    """用户自带 name=task 的工具 → ValueError（列冲突）。"""
+    _write_agent(tmp_path, "code-reviewer", description="review code", content="checklist")
+
+    @tool(name="task")
+    def my_task(prompt: str) -> str:
+        """Custom task tool."""
+        return prompt
+
+    llm = FakeLLM([_response(content="ok")])
+    with pytest.raises(ValueError, match="task"):
+        Agent(llm=llm, tools=[multiply, my_task], subagent_dirs=[tmp_path])

@@ -33,6 +33,7 @@ from my_agent_core.tools import Tool
 from pathlib import Path
 
 from my_agent_core.skills import Skill, SkillManager
+from my_agent_core.subagents import SubagentManager, make_task_tool
 
 
 class Agent:
@@ -42,7 +43,8 @@ class Agent:
                  max_iterations: int | None = None, session: Session | None = None,
                  context_budget: int | None = None, keep_recent_tokens: int | None = None,
                  skill_dirs: list[str | Path] | None = None,
-                 model: str | None = None, effort: str | None = None):
+                 model: str | None = None, effort: str | None = None,
+                 subagent_dirs: list[str | Path] | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
         session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
@@ -52,6 +54,8 @@ class Agent:
         [] → 显式禁用；非空 list → 只扫这些目录。构造 skill_manager 追加清单块进
         system；self.skill_manager 公开可读，self.skills = manager.list()（兼容代理）。
         正文由宿主 invoke_skill 显式注入（模型侧无 read 工具）。
+        subagent_dirs 三态同 skill_dirs：None → 探测 <cwd>/.agents/agents；[] → 禁用；
+        非空 → 只扫这些目录。有 agent 时清单追加进 system，且自动装配 task 工具。
         """
         self.llm = llm
         self.registry = ToolRegistry()
@@ -60,6 +64,7 @@ class Agent:
         self.session = session
         self.skill_manager = SkillManager(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
         self.skills: list[Skill] = self.skill_manager.list()   # 兼容代理
+        self.subagent_manager = SubagentManager(subagent_dirs)   # 三态同 skill_dirs
         if session is not None:
             # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
             self.messages = session.get_full_history_messages()
@@ -69,6 +74,9 @@ class Agent:
             block = self.skill_manager.format_prompt()
             if block:
                 system = f"{system}\n\n{block}" if system else block
+            ablock = self.subagent_manager.format_prompt()
+            if ablock:
+                system = f"{system}\n\n{ablock}" if system else ablock
             if system:
                 self.messages.append(Message(role="system", content=system))
         self.max_iterations = max_iterations
@@ -86,6 +94,10 @@ class Agent:
             )
             if self._ctx_bridge is not None:
                 self._ctx_bridge.restore_cache(self._ctx)
+        if self.subagent_manager:
+            if self.registry.get("task") is not None:
+                raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
+            self.registry.register(make_task_tool(self.subagent_manager, self))
 
     def _llm_chat(self, messages, tools):
         """封装 llm.chat：透传 model/effort（effort 仅非 None 时传，零干扰）。"""
