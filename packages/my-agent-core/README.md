@@ -258,17 +258,25 @@ answer = agent.run(question)
   （**plan 模式**——进入 plan / 只读调研 / 用户批准 / 执行——是交互范式，
   做在 coding agent 层，见未来路线图）
 
-### 阶段 9：MCP 与 plugin
+### 阶段 9：extension 机制（MCP 由此实现；subagent 与 plugin 另列）
 
-- [ ] 9.1 `mcp.py`：MCP client 加载器（stdio/client 传输，把远端 MCP server 的工具
-      翻译成本地 schema → 动态注册进 `ToolRegistry`）→ 验证：假 MCP server 离线测试
-      （对标 pi `packages/pi/src/tool/mcp/`）
-- [ ] 9.2 `plugin.py`：插件机制（约定目录 + manifest，加载插件带出的 tools /
-      skills / hooks 扩展；借鉴 Claude Code 插件机制）
-      → 验证：离线测试
-- [ ] 9.3 `Agent` 集成：`mcp_servers=` / `plugins=` 参数（挂到动态工具注册表）
-      → 验证：离线测试
-- **阶段验证**：`uv run pytest -q` 全绿；真实 MCP server（如 filesystem）demo：
+> **2026-08-14 修订**：MCP 不再独立实现——以 **extension** 形态落地（对标 pi
+> `extensions` 文档与 pig-mono `extensions.py`）：MCP client 连接器本身就是一个
+> extension，`ExtensionAPI.register_tool` 即翻译器的注册口。plugin（Claude Code 式
+> 分发）还缺 **subagent 机制**（它带出的 agents 依赖 subagent）前置，拆出本阶段，
+> 待 subagent 完成后另排（见未来路线图）。
+
+- [ ] 9.1 `extension.py`：extension 机制（pi extensions 的 Python 版）——
+      `ExtensionAPI`（register_tool / @tool / command / on 事件）+ `ExtensionManager`
+      （约定 `def extension(api): ...` + importlib 按文件加载 + 目录发现，失败跳过；
+      `cleanup` 清状态）→ 验证：离线测试（对标 pig-mono `extensions.py`）
+- [ ] 9.2 `mcp.py`：MCP client 以 **extension 形态**实现——stdio 连接器扩展：
+      `extension(api)` 里 initialize → tools/list → 翻译成本地 `Tool` →
+      `api.register_tool`（tools/call 在工具函数体内转发）
+      → 验证：假 MCP server 离线测试
+- [ ] 9.3 `Agent` 集成：`extensions=` 参数（加载扩展目录；扩展注册的 tools 进注册表）
+      → 验证：离线测试（MCP 经扩展加载）
+- **阶段验证**：`uv run pytest -q` 全绿；真实 filesystem MCP server demo：
   模型经 MCP 工具读写本地文件
 
 ## 未来路线图
@@ -308,7 +316,18 @@ answer = agent.run(question)
       （对应 pi 的 faux provider 测试套件）
 - [ ] 动态工具进阶：全量/激活子集、注册表持久化（session typed entries）、
       `addedToolNames` 式延迟加载（对应 pi harness 完整机制；
-      MCP 协议加载器已并入阶段 9）
+      MCP 连接器已并入阶段 9 extension）
+- [ ] **extension：pi extensions 完整版**（**重要**，对应 pi `/docs/extensions`；
+      pig-mono `extensions.py` 为其精简移植）：事件全集（tool_call 拦截/篡改、input、
+      before_agent_start、compaction/tree 自定义、provider 内省）+ 命令自动补全 +
+      `registerProvider` + `appendEntry` + `.pi/extensions` 自动发现 + `/reload`
+      热载 + 分发（npm/git 式包）
+- [ ] **subagent 机制**：独立 Agent 实例的委派运行——agent-as-tool 配方
+      （extensibility §3.4）正式化：子代理创建 / 运行 / 结果回收 / 错误处理
+      （对标 pi、learn-claude-code 的 subagent；**plugin 的 agents 前置**）
+- [ ] **plugin 分发**（Claude Code 式；前置：subagent 机制 + skills + extension）：
+      目录 + manifest（plugin.json），声明带出 skills / agents / MCP servers /
+      hooks，宿主展开加载
 - [ ] 可选内置工具（`my_agent_core.tools.builtin`，如 `read_file`）——
       skill 附带文件特性的前置（注：2026-08-13 决策后通用文件工具 read/edit/
       write/bash 归属 coding agent 层；此 builtin 仅保留「框架层自带最小
