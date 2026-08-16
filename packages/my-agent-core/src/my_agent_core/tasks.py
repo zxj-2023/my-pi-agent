@@ -106,7 +106,10 @@ class TaskManager:
             skill_dirs=[],      # skill 清单已由 _system_for 拼入
             subagent_dirs=[],   # 防递归：禁用子代理再探测
         )
-        return child.run(prompt) or "(no summary)"
+        try:
+            return child.run(prompt) or "(no summary)"
+        except Exception as exc:
+            raise RuntimeError(f"Subagent '{subagent_type}' failed: {exc}") from exc
 
 
 def make_task_tool(manager: SubagentManager, parent: "Agent") -> "Tool":

@@ -67,6 +67,21 @@ def test_start_task_unknown_agent_type(tmp_path):
     assert "nope" in task.error
 
 
+class RaisingLLM:
+    def chat(self, *, messages, tools=None, **kwargs):
+        raise RuntimeError("boom")
+
+
+def test_start_task_subagent_exception(tmp_path):
+    """子代理抛异常 → ERROR + error 保留 'Subagent ... failed: ' 前缀。"""
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
+    manager = SubagentManager([tmp_path])
+    parent = Agent(llm=RaisingLLM(), tools=[multiply])
+    task = TaskManager(manager, parent).start_task("go", "code-reviewer")
+    assert task.status is TaskStatus.ERROR
+    assert "Subagent 'code-reviewer' failed: boom" in task.error
+
+
 def test_make_task_tool_bridge(tmp_path):
     """工具桥：task 工具成功返回 result（#4）。"""
     _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
