@@ -1,4 +1,7 @@
 """Agent 单层循环离线测试（假 LLM 替身，不碰真网络）。"""
+import tempfile
+from pathlib import Path
+
 from my_agent_llm import Message, Response
 
 from my_agent_core.agent import Agent
@@ -13,6 +16,7 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
+from my_agent_core.session import Session
 from my_agent_core.tools import tool
 
 
@@ -44,8 +48,10 @@ def _response(content: str = "", tool_calls=None) -> Response:
     return Response(content=content, model="fake", tool_calls=tool_calls)
 
 
-def _agent(llm, *, tools=(multiply,), **kwargs) -> Agent:
-    return Agent(llm=llm, tools=list(tools), **kwargs)
+def _agent(llm, *, tools=(multiply,), session=None, **kwargs) -> Agent:
+    if session is None:
+        session = Session(path=Path(tempfile.mkdtemp()) / "s.jsonl")
+    return Agent(llm=llm, tools=list(tools), session=session, **kwargs)
 
 
 def test_direct_answer():
@@ -180,7 +186,7 @@ def test_hook_blocks_tool():
         return a * b
 
     probe_tool = tool(probe)
-    agent = Agent(llm=llm, tools=[probe_tool], hooks=[(ToolExecutionStart, guard)])
+    agent = _agent(llm, tools=[probe_tool], hooks=[(ToolExecutionStart, guard)])
     answer = agent.run("compute")
     assert answer == "blocked ok"
     assert called == []  # 工具未执行
@@ -198,7 +204,7 @@ def test_hook_rewrites_args():
             return HookResult(updated_args={"a": event.args["a"] * 10, "b": event.args["b"]})
         return None
 
-    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionStart, rewrite)])
+    agent = _agent(llm, hooks=[(ToolExecutionStart, rewrite)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
@@ -214,7 +220,7 @@ def test_hook_rewrites_result():
             return HookResult(updated_result=f"[{event.result}]")
         return None
 
-    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionEnd, rewrite)])
+    agent = _agent(llm, hooks=[(ToolExecutionEnd, rewrite)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "[6]"
@@ -228,7 +234,7 @@ def test_hook_exception_becomes_error():
     def boom(event):
         raise ValueError("boom")
 
-    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionStart, boom)])
+    agent = _agent(llm, hooks=[(ToolExecutionStart, boom)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error" in tool_msgs[0].content
@@ -242,7 +248,7 @@ def test_tool_execution_end_hook_exception_becomes_error():
     def boom(event):
         raise ValueError("end boom")
 
-    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionEnd, boom)])
+    agent = _agent(llm, hooks=[(ToolExecutionEnd, boom)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error" in tool_msgs[0].content  # 工具执行了，但结果被 End hook 异常替换
@@ -265,7 +271,7 @@ def test_multiple_hooks_same_event():
     def third(event):
         order.append("third")  # 不应被调用
 
-    agent = Agent(llm=llm, tools=[multiply], hooks=[
+    agent = _agent(llm, hooks=[
         (ToolExecutionStart, first),
         (ToolExecutionStart, second),
         (ToolExecutionStart, third),
@@ -293,6 +299,6 @@ def test_malformed_arguments_does_not_crash():
 def test_model_passthrough():
     """Agent(model=) 透传给 llm.chat（子代理换模型的前置）。"""
     llm = FakeLLM([_response(content="hi")])
-    agent = Agent(llm=llm, tools=[multiply], model="sonnet")
+    agent = _agent(llm, model="sonnet")
     agent.run("hello")
     assert llm.calls[0]["model"] == "sonnet"

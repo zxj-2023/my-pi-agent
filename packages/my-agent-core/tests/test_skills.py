@@ -1,4 +1,5 @@
 """skill 机制离线测试（skills.py 数据模型 + frontmatter 解析，不碰真网络）。"""
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
+from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager, parse_frontmatter
 from my_agent_core.tools import tool
 
@@ -165,7 +167,9 @@ def test_agent_assembles_with_skills(tmp_path, monkeypatch):
     """skill_dirs → system 含清单块、agent.skills 正确、tools 不变（#7）。"""
     _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply], skill_dirs=[tmp_path])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+                  skill_dirs=[tmp_path])
     assert [s.name for s in agent.skills] == ["code-review"]
     agent.run("hi")  # 触发 llm.chat 才能看到 tools/messages
     first = llm.calls[0]["messages"][0]
@@ -181,7 +185,9 @@ def test_agent_skill_dirs_none_no_default_dir(tmp_path, monkeypatch):
     无清单块、tools 不变；既有行为保持（#7 回归）。"""
     monkeypatch.chdir(tmp_path)  # 干净的 cwd，无 .agents/skills → 探测结果空
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply], system_prompt="sys")
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+                  system_prompt="sys")
     assert agent.skills == []
     agent.run("hi")
     assert llm.calls[0]["messages"][0].content == "sys"
@@ -193,7 +199,8 @@ def test_agent_skill_dirs_none_probes_default(tmp_path, monkeypatch):
     _write_skill(tmp_path / ".agents" / "skills", "probe", description="p", content="c")
     monkeypatch.chdir(tmp_path)
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     assert [s.name for s in agent.skills] == ["probe"]
 
 
@@ -201,7 +208,9 @@ def test_agent_skill_dirs_empty_list_no_probe(tmp_path, monkeypatch):
     """skill_dirs=[] 显式空 → 不探测、无 skill（区别于 None 的默认探测）。"""
     monkeypatch.chdir(tmp_path)
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply], skill_dirs=[])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+                  skill_dirs=[])
     assert agent.skills == []
 
 
@@ -209,7 +218,9 @@ def test_invoke_skill(tmp_path):
     """invoke_skill：追加 user 消息 = <skill>包装 + 附言；未知名字 → ValueError（#8）。"""
     _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     llm = FakeLLM([_response(content="done")])
-    agent = Agent(llm=llm, tools=[multiply], skill_dirs=[tmp_path])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+                  skill_dirs=[tmp_path])
     answer = agent.invoke_skill("code-review", "重点看并发")
     assert answer == "done"
     last_msg = llm.calls[0]["messages"][-1]

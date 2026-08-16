@@ -1,7 +1,11 @@
 """subagent 委派任务生命周期测试（Task/TaskStatus/TaskManager/工具桥）。"""
+import tempfile
+from pathlib import Path
+
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
+from my_agent_core.session import Session
 from my_agent_core.subagents import SubagentManager
 from my_agent_core.tasks import Task, TaskManager, TaskStatus
 from my_agent_core.tools import tool
@@ -51,7 +55,8 @@ def test_start_task_success(tmp_path):
     """start_task 成功 → COMPLETED + result 正确 + id 非空（#1）。"""
     _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
-    parent = Agent(llm=FakeLLM([_response(content="found issues")]), tools=[multiply])
+    parent = Agent(llm=FakeLLM([_response(content="found issues")]), tools=[multiply],
+                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     task = TaskManager(manager, parent).start_task("review this", "code-reviewer")
     assert task.status is TaskStatus.COMPLETED
     assert task.result == "found issues"
@@ -61,7 +66,8 @@ def test_start_task_success(tmp_path):
 def test_start_task_unknown_agent_type(tmp_path):
     """未知名 agent_type → ERROR + error 含名单（#2）。"""
     manager = SubagentManager([tmp_path])
-    parent = Agent(llm=FakeLLM([]), tools=[multiply])
+    parent = Agent(llm=FakeLLM([]), tools=[multiply],
+                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     task = TaskManager(manager, parent).start_task("go", "nope")
     assert task.status is TaskStatus.ERROR
     assert "Unknown subagent" in task.error
@@ -77,7 +83,8 @@ def test_start_task_subagent_exception(tmp_path):
     """子代理抛异常 → ERROR + error 保留 'Subagent ... failed: ' 前缀。"""
     _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
-    parent = Agent(llm=RaisingLLM(), tools=[multiply])
+    parent = Agent(llm=RaisingLLM(), tools=[multiply],
+                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     task = TaskManager(manager, parent).start_task("go", "code-reviewer")
     assert task.status is TaskStatus.ERROR
     assert "Subagent 'code-reviewer' failed: boom" in task.error
@@ -87,7 +94,8 @@ def test_make_task_tool_bridge(tmp_path):
     """工具桥：task 工具成功返回 result（#4）。"""
     _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
-    parent = Agent(llm=FakeLLM([_response(content="found issues")]), tools=[multiply])
+    parent = Agent(llm=FakeLLM([_response(content="found issues")]), tools=[multiply],
+                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     task_tool = make_task_tool(manager, parent)
     result = task_tool.execute({"prompt": "review", "agent_type": "code-reviewer"})
     assert result.ok is True

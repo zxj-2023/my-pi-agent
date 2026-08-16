@@ -43,17 +43,16 @@ class Agent:
 
     # ── 构造与装配 ──────────────────────────────────────────
 
-    def __init__(self, *, llm: LLM, tools: list[Tool], system_prompt: str | None = None,
-                 max_iterations: int | None = None, session: Session | None = None,
+    def __init__(self, *, llm: LLM, tools: list[Tool], session: Session,
+                 system_prompt: str | None = None, max_iterations: int | None = None,
                  context_budget: int | None = None, keep_recent_tokens: int | None = None,
-                 skill_dirs: list[str | Path] | None = None,
-                 model: str | None = None,
+                 skill_dirs: list[str | Path] | None = None, model: str | None = None,
                  subagent_dirs: list[str | Path] | None = None,
                  hooks: list[tuple[type[Event], Callable]] | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
-        session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
-        当前路径恢复 messages，此时 system_prompt 被忽略（文件为准，决策 5）。
+        session 必填：run() 内每条消息落盘；构造时从 session 当前路径恢复纯对话，
+        并用 system_prompt + skill 清单 + subagent 清单拼 system（消息首条）。
         context_budget 为 context 预算：None → 用 ContextManager 默认（100k）；显式传 → 覆盖。
         context 默认启用（每次 llm.chat 前 prepare 压缩视图）。
         skill_dirs 为 skill 机制来源：None → 探测 <cwd>/.agents/skills（不存在则空）；
@@ -67,6 +66,7 @@ class Agent:
         self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
         self.max_iterations = max_iterations
         self.session = session
+        self._system_prompt = system_prompt     # 保存，reset 重拼用
         self.hooks = HookRegistry()
         self.registry = ToolRegistry()
         self.skill_manager = SkillManager(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
@@ -74,7 +74,7 @@ class Agent:
         self.subagent_manager = SubagentManager(subagent_dirs)   # 三态同 skill_dirs
 
         self._register_tools(tools)   # ① 工具注册统一（用户 + 内置 task）
-        self.messages = self._init_messages(session, system_prompt)   # ② 取初始 messages
+        self.messages = self._init_messages(session, system_prompt)   # ② 拼 system + 恢复
         self._init_context(session, context_budget, keep_recent_tokens)   # ③ context 装配
         self._register_hooks(hooks)   # ④ hooks 批量注册
 
@@ -87,32 +87,29 @@ class Agent:
                 raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
             self.registry.register(make_task_tool(self.subagent_manager, self))
 
-    def _init_messages(self, session: Session | None, system_prompt: str | None) -> list[Message]:
-        """取初始 messages：session 非 None → 恢复（system 以文件为准）；
-        否则拼 system_prompt + skill 清单 + subagent 清单（\\n\\n 衔接，空段跳过）。"""
-        if session is not None:
-            return session.get_full_history_messages()
+    def _init_messages(self, session: Session, system_prompt: str | None) -> list[Message]:
+        """拼 system（Agent 配置）+ 恢复 session 纯对话，合成初始 messages。"""
         parts = [p for p in (
             system_prompt or "",
             self.skill_manager.format_prompt(),
             self.subagent_manager.format_prompt(),
         ) if p]
-        if not parts:
-            return []
-        return [Message(role="system", content="\n\n".join(parts))]
+        messages = session.get_full_history_messages()   # 纯对话（不含 system）
+        if parts:
+            messages.insert(0, Message(role="system", content="\n\n".join(parts)))
+        return messages
 
-    def _init_context(self, session: Session | None, context_budget: int | None,
+    def _init_context(self, session: Session, context_budget: int | None,
                       keep_recent_tokens: int | None) -> None:
         """装配 context 管理（默认启用）：context_budget None → 用 ContextManager 默认 budget。"""
-        self._ctx_bridge = ContextSessionBridge(session) if session is not None else None
+        self._ctx_bridge = ContextSessionBridge(session)
         self._ctx = ContextManager(
             llm=self.llm,
             keep_recent_tokens=keep_recent_tokens,
-            results_dir=self._ctx_bridge.results_dir() if self._ctx_bridge else None,
+            results_dir=self._ctx_bridge.results_dir(),
             **({} if context_budget is None else {"budget": context_budget}),
         )
-        if self._ctx_bridge is not None:
-            self._ctx_bridge.restore_cache(self._ctx)
+        self._ctx_bridge.restore_cache(self._ctx)
 
     def _register_hooks(self, hooks) -> None:
         """构造时批量注册 hooks（对称 _register_tools）。"""
@@ -123,13 +120,13 @@ class Agent:
 
     def run(self, user_input: str) -> str | None:
         """追加 user 消息 → 内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
-        if self.session is not None:
-            # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准
-            self.messages = self.session.get_current_path_messages()
+        # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
+        # session 只存纯对话，故先保留 _init_messages 拼出的 system 首条。
+        system = [m for m in self.messages if m.role == "system"]
+        self.messages = system + self.session.get_current_path_messages()
         user_msg = Message(role="user", content=user_input)
         self.messages.append(user_msg)
-        if self.session is not None:
-            self.session.add_message("user", user_input)
+        self.session.add_message("user", user_input)
         self._emit(AgentStart())
         self._emit(MessageStart(user_msg))
         self._emit(MessageEnd(user_msg))
@@ -150,9 +147,8 @@ class Agent:
                 metadata={"tool_calls": resp.tool_calls} if resp.tool_calls else None,
             )
             self.messages.append(assistant)
-            if self.session is not None:
-                self.session.add_message("assistant", assistant.content,
-                                         **(assistant.metadata or {}))
+            self.session.add_message("assistant", assistant.content,
+                                     **(assistant.metadata or {}))
             self._emit(MessageStart(assistant))
             self._emit(MessageEnd(assistant))
             # ── 经典退出条件：模型不再发起工具调用 → 结束。
@@ -170,8 +166,7 @@ class Agent:
                 tool_msg = Message(
                     role="tool", content=observation, metadata={"tool_call_id": tc["id"]})
                 self.messages.append(tool_msg)
-                if self.session is not None:
-                    self.session.add_message("tool", observation, tool_call_id=tc["id"])
+                self.session.add_message("tool", observation, tool_call_id=tc["id"])
                 self._emit(MessageStart(tool_msg))
                 self._emit(MessageEnd(tool_msg))
                 tool_results.append(tool_msg)
@@ -187,13 +182,9 @@ class Agent:
         return self.run(self.skill_manager.format_invocation(name, instructions))
 
     def reset(self) -> None:
-        """清空 messages（保留 system prompt）。有 session 时同步清空树 + 重写文件。"""
-        if self.session is not None:
-            self.session.reset()
-            self.messages = self.session.get_full_history_messages()
-        else:
-            system = [m for m in self.messages if m.role == "system"]
-            self.messages = system if system else []
+        """清空对话（保留 system）。session 树清空 + 重拼 system。"""
+        self.session.reset()
+        self.messages = self._init_messages(self.session, self._system_prompt)
         self._ctx.reset()
 
     def compact(self) -> None:
@@ -254,8 +245,7 @@ class Agent:
 
     def _handle_compaction(self) -> None:
         """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
-        if self._ctx_bridge is not None:
-            self._ctx_bridge.write_compaction(self._ctx)
+        self._ctx_bridge.write_compaction(self._ctx)
         info = self._ctx.pending_compaction
         if info is not None:
             self._emit(ContextCompacted(

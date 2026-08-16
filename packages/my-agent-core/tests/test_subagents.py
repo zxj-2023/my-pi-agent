@@ -1,4 +1,5 @@
 """subagent 机制离线测试（数据模型 + 发现 + 清单，不碰真网络）。"""
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
+from my_agent_core.session import Session
 from my_agent_core.subagents import DEFAULT_SUBAGENT, Subagent, SubagentManager
 from my_agent_core.tools import tool
 from my_agent_core.tools.builtin import make_task_tool
@@ -123,7 +125,8 @@ def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
 
 def _parent(manager, llm, tools=(multiply, get_time)):
     """构造父 Agent 并手动装配 task 工具（Task 4 前暂不自动装配）。"""
-    agent = Agent(llm=llm, tools=list(tools))
+    agent = Agent(llm=llm, tools=list(tools),
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     agent.registry.register(make_task_tool(manager, agent))
     return agent
 
@@ -253,7 +256,9 @@ def test_agent_assembles_subagent_dirs(tmp_path):
     """subagent_dirs → system 含 agent 清单、tools 含 task、原工具保留（#12）。"""
     _write_agent(tmp_path, "code-reviewer", description="review code", content="checklist")
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply], subagent_dirs=[tmp_path])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+                  subagent_dirs=[tmp_path])
     agent.run("hi")
     first = llm.calls[0]["messages"][0]
     assert first.role == "system"
@@ -271,7 +276,8 @@ def test_agent_subagent_dirs_none_probes_default(tmp_path, monkeypatch):
     _write_agent(d, "probe", description="p", content="c")
     monkeypatch.chdir(tmp_path)
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"))
     agent.run("hi")
     assert [s.name for s in agent.subagent_manager.list()] == ["probe"]
 
@@ -280,7 +286,9 @@ def test_agent_subagent_dirs_empty_disables(tmp_path, monkeypatch):
     """subagent_dirs=[] 显式禁用 → 无 task、无 agent 清单（区别于 None 探测）。"""
     monkeypatch.chdir(tmp_path)
     llm = FakeLLM([_response(content="ok")])
-    agent = Agent(llm=llm, tools=[multiply], subagent_dirs=[])
+    agent = Agent(llm=llm, tools=[multiply],
+                  session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+                  subagent_dirs=[])
     agent.run("hi")
     tool_names = [t["function"]["name"] for t in llm.calls[0]["tools"]]
     assert "task" not in tool_names
@@ -298,4 +306,6 @@ def test_agent_task_name_conflict_raises(tmp_path):
 
     llm = FakeLLM([_response(content="ok")])
     with pytest.raises(ValueError, match="task"):
-        Agent(llm=llm, tools=[multiply, my_task], subagent_dirs=[tmp_path])
+        Agent(llm=llm, tools=[multiply, my_task],
+              session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+              subagent_dirs=[tmp_path])

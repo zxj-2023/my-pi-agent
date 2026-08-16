@@ -4,10 +4,13 @@
 tools/builtin.py（工具桥，真实逻辑在 TaskManager）。"""
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from my_agent_core.session import Session
 from my_agent_core.subagents import DEFAULT_SUBAGENT, Subagent, SubagentManager
 
 if TYPE_CHECKING:
@@ -99,6 +102,7 @@ class TaskManager:
         child = Agent(
             llm=self._parent.llm,
             tools=_filter_tools(self._parent, sub),
+            session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),   # 子代理 fresh context
             system_prompt=_system_for(sub, self._parent),
             model=sub.model,
             max_iterations=sub.max_turns if sub.max_turns is not None else self._parent.max_iterations,

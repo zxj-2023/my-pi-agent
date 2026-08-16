@@ -12,6 +12,7 @@ from my_agent_llm import Config, LLM
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import AgentEnd, HookResult, ToolExecutionEnd, ToolExecutionStart, TurnStart
+from my_agent_core.session_store import SessionStore
 from my_agent_core.tools import tool
 
 QUESTIONS = [
@@ -77,10 +78,12 @@ def build_llm() -> LLM:
 def main() -> None:
     load_dotenv()
     llm = build_llm()
+    store = SessionStore()  # 默认 workspace=cwd
     for question in QUESTIONS:
         print(f"\n=== 问题: {question} ===")
+        session = store.create()
         agent = Agent(
-            llm=llm, tools=TOOLS, system_prompt=DEMO_SYSTEM_PROMPT,
+            llm=llm, tools=TOOLS, session=session, system_prompt=DEMO_SYSTEM_PROMPT,
             hooks=[
                 (TurnStart, print_events),
                 (ToolExecutionStart, print_events),

@@ -1,8 +1,7 @@
 """Context 管理测试：估算 + 三层免费压缩（context 设计文档 §8 #1、#4–#6）。"""
 import json
+import tempfile
 from pathlib import Path
-
-import pytest
 
 from my_agent_core.context import (
     budget_tool_results, estimate_tokens, micro_compact, snip_messages,
@@ -235,8 +234,10 @@ def multiply(a: int, b: int) -> int:
     return a * b
 
 
-def _agent(llm, *, tools=(multiply,), **kw) -> Agent:
-    return Agent(llm=llm, tools=list(tools), **kw)
+def _agent(llm, *, tools=(multiply,), session=None, **kw) -> Agent:
+    if session is None:
+        session = Session(path=Path(tempfile.mkdtemp()) / "s.jsonl")
+    return Agent(llm=llm, tools=list(tools), session=session, **kw)
 
 
 def test_context_budget_none_unchanged():
@@ -270,15 +271,16 @@ def test_agent_trigger_compaction_and_event(tmp_path):
 
 def test_cache_persist_across_agents(tmp_path):
     """压缩后新 Agent 同 session → 构造恢复免摘要；prepare 视图 system 保留 + 摘要 user（#11 + pointer）。"""
-    pytest.skip("Task 2 处理 Agent 拼 system")
     llm1 = FakeLLM(default=_response(content="## Goal\n..."))
     session = Session(path=tmp_path / "s.jsonl")
-    agent1 = _agent(llm1, session=session, context_budget=400, keep_recent_tokens=100)
+    agent1 = _agent(llm1, session=session, system_prompt="sys",
+                    context_budget=400, keep_recent_tokens=100)
     for _ in range(6):
         agent1.run("y" * 300)
     # “进程 2”：新 Agent 同 session
     llm2 = FakeLLM()
-    agent2 = _agent(llm2, session=session, context_budget=400, keep_recent_tokens=100)
+    agent2 = _agent(llm2, session=session, system_prompt="sys",
+                    context_budget=400, keep_recent_tokens=100)
     # 构造时恢复缓存（免摘要）
     assert agent2._ctx._summary is not None
     assert len(llm2.calls) == 0

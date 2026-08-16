@@ -2,8 +2,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from my_agent_core.agent import Agent
 from my_agent_core.session import Session, SessionTree
 from my_agent_core.tools import tool
@@ -211,28 +209,26 @@ def test_persistent_agent_reset(tmp_path):
     assert agent.messages == []
 
 
-def test_resume_ignores_new_system_prompt(tmp_path):
-    """带 system 的文件 + 构造时另传 system → transcript 只有一条 system（#12）。"""
-    pytest.skip("Task 2 处理 Agent 拼 system")
+def test_resume_uses_new_system_prompt(tmp_path):
+    """session 不含 system：恢复后 Agent 用传入的 system_prompt 拼 system。"""
     llm1 = FakeLLM([_response(content="hi")])
     session = Session(path=tmp_path / "s.jsonl")
-    Agent(llm=llm1, tools=[multiply], session=session).run("q1")
+    Agent(llm=llm1, tools=[multiply], session=session, system_prompt="旧system").run("q1")
     restored = Session.load(session.path)
     llm2 = FakeLLM([_response(content="ok")])
-    agent2 = Agent(llm=llm2, tools=[multiply], session=restored, system_prompt="新system")  # 被忽略
+    agent2 = Agent(llm=llm2, tools=[multiply], session=restored, system_prompt="新system")
     agent2.run("q2")
     first = llm2.calls[0]["messages"]
     sys_msgs = [m for m in first if m.role == "system"]
     assert len(sys_msgs) == 1
-    assert sys_msgs[0].content == "文件里的system"
+    assert sys_msgs[0].content == "新system"      # 不再是「文件里的 system」，而是新传入的
 
 
 def test_rewind_then_same_agent_run_syncs_context(tmp_path):
     """同一 Agent：session.rewind 后 run → LLM 收到的 messages 从回退点开始（不含旧分支尾）。"""
-    pytest.skip("Task 2 处理 Agent 拼 system")
     llm1 = FakeLLM([_response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
-    agent = Agent(llm=llm1, tools=[multiply], session=session)
+    agent = Agent(llm=llm1, tools=[multiply], session=session, system_prompt="sys")
     agent.run("q1")
     q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
     session.rewind(q1_entry.id)
