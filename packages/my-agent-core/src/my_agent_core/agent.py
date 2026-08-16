@@ -40,6 +40,8 @@ from my_agent_core.tools.builtin import make_task_tool
 class Agent:
     """单层 Agent：持有 llm / 工具注册表 / 消息，内联 ReAct 循环。"""
 
+    # ── 构造与装配 ──────────────────────────────────────────
+
     def __init__(self, *, llm: LLM, tools: list[Tool], system_prompt: str | None = None,
                  max_iterations: int | None = None, session: Session | None = None,
                  context_budget: int | None = None, keep_recent_tokens: int | None = None,
@@ -100,46 +102,7 @@ class Agent:
         if self._ctx_bridge is not None:
             self._ctx_bridge.restore_cache(self._ctx)
 
-    def _llm_chat(self, messages, tools):
-        """封装 llm.chat：透传 model（SDK 通用参数）。"""
-        return self.llm.chat(messages=messages, tools=tools, model=self.model)
-
-    def _handle_compaction(self) -> None:
-        """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
-        if self._ctx is None:
-            return
-        if self._ctx_bridge is not None:
-            self._ctx_bridge.write_compaction(self._ctx)
-        info = self._ctx.pending_compaction
-        if info is not None:
-            self._emit(ContextCompacted(
-                tokens_before=info.tokens_before,
-                tokens_after=info.tokens_after,
-                summarized_count=info.summarized_count,
-            ))
-
-    def compact(self) -> None:
-        """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
-        if self._ctx is None:
-            return
-        self._ctx.force_compact(self.messages)
-        self._handle_compaction()
-
-    def register_hook(self, event_cls, callback) -> None:
-        """挂一个 hook 到事件类。同一事件可挂多个，按注册顺序触发，非 None 短路。"""
-        self._hooks.setdefault(event_cls, []).append(callback)
-
-    def unregister_hook(self, event_cls, callback) -> None:
-        """移除 hook。"""
-        self._hooks.get(event_cls, []).remove(callback)
-
-    def _emit(self, event: Event) -> HookResult | None:
-        """触发事件的所有 hook，返回第一个非 None 结果（短路）。纯观察事件无条件返回 None。"""
-        for cb in self._hooks.get(type(event), []):
-            result = cb(event)
-            if result is not None:
-                return result
-        return None
+    # ── 公共 API ────────────────────────────────────────────
 
     def run(self, user_input: str) -> str | None:
         """追加 user 消息 → 内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
@@ -222,6 +185,27 @@ class Agent:
         if self._ctx is not None:
             self._ctx.reset()
 
+    def compact(self) -> None:
+        """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
+        if self._ctx is None:
+            return
+        self._ctx.force_compact(self.messages)
+        self._handle_compaction()
+
+    def register_hook(self, event_cls, callback) -> None:
+        """挂一个 hook 到事件类。同一事件可挂多个，按注册顺序触发，非 None 短路。"""
+        self._hooks.setdefault(event_cls, []).append(callback)
+
+    def unregister_hook(self, event_cls, callback) -> None:
+        """移除 hook。"""
+        self._hooks.get(event_cls, []).remove(callback)
+
+    # ── 内部实现（run 循环辅助）──────────────────────────────
+
+    def _llm_chat(self, messages, tools):
+        """封装 llm.chat：透传 model（SDK 通用参数）。"""
+        return self.llm.chat(messages=messages, tools=tools, model=self.model)
+
     def _prepare_tool(self, tc: dict) -> tuple[str, dict, str | None, HookResult | None]:
         """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。
 
@@ -266,3 +250,25 @@ class Agent:
         if isinstance(hook, HookResult) and hook.updated_result is not None:
             return hook.updated_result, False
         return result.serialize(), not result.ok
+
+    def _handle_compaction(self) -> None:
+        """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
+        if self._ctx is None:
+            return
+        if self._ctx_bridge is not None:
+            self._ctx_bridge.write_compaction(self._ctx)
+        info = self._ctx.pending_compaction
+        if info is not None:
+            self._emit(ContextCompacted(
+                tokens_before=info.tokens_before,
+                tokens_after=info.tokens_after,
+                summarized_count=info.summarized_count,
+            ))
+
+    def _emit(self, event: Event) -> HookResult | None:
+        """触发事件的所有 hook，返回第一个非 None 结果（短路）。纯观察事件无条件返回 None。"""
+        for cb in self._hooks.get(type(event), []):
+            result = cb(event)
+            if result is not None:
+                return result
+        return None
