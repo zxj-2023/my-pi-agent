@@ -366,3 +366,25 @@ class ContextSessionBridge:
 
 def _chars_of(messages: list[Message]) -> int:
     return len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))
+
+
+def build_context(
+    session,
+    *,
+    llm,
+    context_budget: int | None,
+    keep_recent_tokens: int | None,
+) -> tuple[ContextManager | None, ContextSessionBridge | None]:
+    """装配 context 管理：context_budget 非 None → ContextManager + bridge（+恢复缓存）；
+    否则 (None, None)（不启用）。"""
+    if context_budget is None:
+        return None, None
+    bridge = ContextSessionBridge(session) if session is not None else None
+    ctx = ContextManager(
+        budget=context_budget, llm=llm,
+        keep_recent_tokens=keep_recent_tokens,
+        results_dir=bridge.results_dir() if bridge else None,
+    )
+    if bridge is not None:
+        bridge.restore_cache(ctx)
+    return ctx, bridge

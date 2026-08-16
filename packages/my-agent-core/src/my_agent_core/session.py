@@ -10,11 +10,15 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 from uuid import uuid4
 
 from my_agent_llm import Message
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from my_agent_core.skills import SkillManager
+    from my_agent_core.subagents import SubagentManager
 
 
 class SessionEntry(BaseModel):
@@ -280,3 +284,24 @@ class Session:
         for e in system[:1]:
             self.tree.add_entry(e.role, e.content, **e.metadata)
         self.save()
+
+
+def build_initial_messages(
+    session: Session | None,
+    *,
+    system_prompt: str | None,
+    skill_manager: "SkillManager",
+    subagent_manager: "SubagentManager",
+) -> list[Message]:
+    """统一的「取初始 messages」入口：session 非 None → 恢复（system 以文件为准）；
+    否则拼 system_prompt + skill 清单 + subagent 清单（\\n\\n 衔接，空段跳过）。"""
+    if session is not None:
+        return session.get_full_history_messages()
+    parts = [p for p in (
+        system_prompt or "",
+        skill_manager.format_prompt(),
+        subagent_manager.format_prompt(),
+    ) if p]
+    if not parts:
+        return []
+    return [Message(role="system", content="\n\n".join(parts))]

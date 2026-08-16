@@ -12,7 +12,7 @@ from typing import Callable
 
 from my_agent_llm import LLM, Message
 
-from my_agent_core.context import ContextManager, ContextSessionBridge
+from my_agent_core.context import build_context
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
@@ -27,7 +27,7 @@ from my_agent_core.events import (
     TurnStart,
 )
 from my_agent_core.registry import ToolRegistry
-from my_agent_core.session import Session
+from my_agent_core.session import Session, build_initial_messages
 from my_agent_core.tools import Tool
 
 from pathlib import Path
@@ -59,41 +59,29 @@ class Agent:
         非空 → 只扫这些目录。有 agent 时清单追加进 system，且自动装配 task 工具。
         """
         self.llm = llm
-        self.registry = ToolRegistry()
-        for t in tools:
-            self.registry.register(t)
+        self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
+        self.max_iterations = max_iterations
         self.session = session
+        self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
+        self.registry = ToolRegistry()
         self.skill_manager = SkillManager(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
         self.skills: list[Skill] = self.skill_manager.list()   # 兼容代理
         self.subagent_manager = SubagentManager(subagent_dirs)   # 三态同 skill_dirs
-        if session is not None:
-            # 恢复模式：transcript 自包含，system_prompt 以文件里的为准
-            self.messages = session.get_full_history_messages()
-        else:
-            self.messages = []  # 公开可读：transcript 即全部状态
-            system = system_prompt or ""
-            block = self.skill_manager.format_prompt()
-            if block:
-                system = f"{system}\n\n{block}" if system else block
-            ablock = self.subagent_manager.format_prompt()
-            if ablock:
-                system = f"{system}\n\n{ablock}" if system else ablock
-            if system:
-                self.messages.append(Message(role="system", content=system))
-        self.max_iterations = max_iterations
-        self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
-        self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
-        self._ctx: ContextManager | None = None
-        self._ctx_bridge: ContextSessionBridge | None = None
-        if context_budget is not None:
-            self._ctx_bridge = ContextSessionBridge(session) if session is not None else None
-            self._ctx = ContextManager(
-                budget=context_budget, llm=self.llm,
-                keep_recent_tokens=keep_recent_tokens,
-                results_dir=self._ctx_bridge.results_dir() if self._ctx_bridge else None,
-            )
-            if self._ctx_bridge is not None:
-                self._ctx_bridge.restore_cache(self._ctx)
+
+        self._register_tools(tools)   # ① 工具注册统一（用户 + 内置 task）
+        self.messages = build_initial_messages(   # ② 取初始 messages（session 恢复 or 拼 system）
+            session, system_prompt=system_prompt,
+            skill_manager=self.skill_manager, subagent_manager=self.subagent_manager,
+        )
+        self._ctx, self._ctx_bridge = build_context(   # ③ context 装配（context.py 工厂）
+            session, llm=self.llm, context_budget=context_budget,
+            keep_recent_tokens=keep_recent_tokens,
+        )
+
+    def _register_tools(self, tools: list[Tool]) -> None:
+        """注册用户工具 + 内置 task 工具（撞名 ValueError）。"""
+        for t in tools:
+            self.registry.register(t)
         if self.subagent_manager:
             if self.registry.get("task") is not None:
                 raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
