@@ -9,13 +9,19 @@
 my-pi-agent/
 ├── packages/
 │   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
-│   │   ├── tools.py       # Tool 类 + ToolResult + tool() 装饰器
+│   │   ├── agent.py       # Agent（单层循环 + hook 注册表 + extension 装配）
 │   │   ├── registry.py    # ToolRegistry（注册表）
-│   │   ├── events.py      # 事件 dataclass（10 个，继承 Event 基类）
-│   │   ├── agent.py       # Agent 类（单层：循环 + 工具执行 + hook 注册表）
+│   │   ├── events.py      # 事件 dataclass + HookResult + HookRegistry
+│   │   ├── tools/         # 工具包（原 tools.py 升级）
+│   │   │   ├── __init__.py  # Tool / ToolResult / tool() 装饰器
+│   │   │   └── builtin/     # task.py（委派工具）+ files.py（read/edit/write/bash）
 │   │   ├── session.py     # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
-│   │   ├── context.py     # ContextManager（四层压缩管线：落盘/裁中间/占位/摘要）
+│   │   ├── context.py     # ContextManager + ContextSessionBridge（四层压缩管线）
+│   │   ├── skills.py      # Skill + SkillManager（Repository：发现/清单/调用）
+│   │   ├── subagents.py   # Subagent + SubagentManager（agents/*.md 发现）
+│   │   ├── tasks.py       # Task + TaskStatus + TaskManager（委派生命周期）
+│   │   ├── extensions.py  # ExtensionAPI + ExtensionManager（on/tool/command）
 │   │   └── main.py        # demo
 │   └── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
 │       ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
@@ -214,6 +220,90 @@ my-pi-agent/
   - force_compact 需强制 cut（"无条件摘要"）
 - **验证**：`uv run python -m pytest -q` 全绿（108 个：原 86 + context/agent 22）；`from my_agent_core import ContextManager` 导入通过。
 
+### 阶段 5：skill 机制（2026-08-13）
+
+**目标**：框架层支持 skill——声明式 `.md` 文件（frontmatter + 正文），发现 / 清单格式化 / 显式调用。
+
+- 提交：`66eab8d` `6d7a8e7` `0728b1a` `d0c6785` `ad5030d` `fc47f63` `e367523`（+ docs `ef00e91` `2c7edca`）
+- **改了什么**：
+  - `skills.py`（新增）：`Skill` 数据模型 + `parse_frontmatter`（PyYAML，坏 YAML 静默降级）+ 发现（pig-mono 式一层子目录 + `name=目录名` + 缺 description 跳过）+ 清单 XML 格式化 + `format_invocation` 显式调用包装
+  - `Agent` 集成：`skill_dirs` 三态（None→探测 `.agents/skills` / []→禁用 / 非空→目录）+ system 清单块 + `invoke_skill(name)` 显式调用
+  - 收尾 `e367523`：skill 机制改为 Repository 类管理（`SkillManager` 收编发现/查询/格式化，对标 pig-mono）
+- **关键教训**：模型侧无 read 工具 → skill 正文只能由宿主 `invoke_skill` 显式注入（不预置 read_skill）；`SKILL.md` 兼容 UTF-8 BOM（utf-8-sig 读取，零副作用）。
+- **验证**：全量测试全绿。
+
+### subagent 机制（2026-08-15/16，另列）
+
+**目标**：声明式子代理——`agents/*.md` + frontmatter 定义，宿主/模型经 `task` 工具委派。
+
+- 提交：`ffb583d` `e4fc6d0` `f10c900` `2b7f08d` `3a04913` `0494be3`
+- **改了什么**：
+  - `subagents.py`（新增）：`Subagent` 数据模型 + `SubagentManager`（发现 agents/*.md，frontmatter camelCase→snake_case 映射）+ 清单格式化 + `DEFAULT_SUBAGENT`
+  - `Agent` 集成：`subagent_dirs` 三态 + system 清单块 + `model`/`effort` 参数透传（子代理换模型前置）
+  - 内置 `task` 工具（`make_task_tool`）：spawn 子 Agent、fresh context、只回最终文本、工具过滤 + 防递归
+- **关键教训**：防递归靠「子代理 `subagent_dirs=[]` 不装配 task 工具」一刀切；effort 降级为 deferred（OpenAI SDK 用 reasoning_effort、Anthropic 用 thinking，无统一 `effort` kwarg）。
+- **验证**：149 个测试全绿。
+
+### Task 委派系统 + builtin 包化（2026-08-16）
+
+**目标**：委派从「一个函数」升级为 Task/TaskStatus/TaskManager 生命周期（对标 OpenHands）；tools.py 升级为 tools/ 包。
+
+- 提交：`289d52a` `28f5c4a` `6be1858`
+- **改了什么**：
+  - `tasks.py`（新增）：`Task`（result/error）+ `TaskStatus`（RUNNING/COMPLETED/FAILED 三态）+ `TaskManager`（start_task → 生命周期）
+  - `make_task_tool` 工具桥化（调 TaskManager → 转字符串）
+  - `tools.py` → `tools/` 包 + `tools/builtin.py` 收内置工具工厂
+- **验证**：154 个测试全绿。
+
+### 四个文件工具（2026-08-16）
+
+**目标**：框架层 builtin 补 pi 的四个基本工具 read/edit/write/bash（反转「归属 coding agent 层」决策）。
+
+- 提交：`0a45b9a` `a2de9c3` `5a9608e`（+ docs `2931834`）
+- **改了什么**：
+  - `builtin.py` → `builtin/` 包（`task.py` + `files.py`）
+  - `files.py`：`_safe_path`（resolve + is_relative_to 路径逃逸）+ 四个工厂 `make_read/make_write/make_edit/make_bash_tool`（收 `root`）+ bash 危险命令黑名单 + 120s 超时
+- **关键教训**：`_safe_path` 必须 `Path(root).resolve()`（symlink/相对 root 会 false-block）；bash 超时测试跨平台（`sleep 5` 非 cmd.exe 命令，改 `python -c "import time; time.sleep(5)"`）。
+- **验证**：全量测试全绿。
+
+### 组件装配重构（2026-08-16）
+
+**目标**：Agent 结构优化——工具注册统一、hooks 统一、context 默认启用、方法重排。
+
+- 提交：`e96a9ad` `05f9991` `7ffeaa3` `6980f17` `59bb219` `abed0c6` `f1b81bf` `4bc13cf` `bd9eed4`
+- **改了什么**：
+  - `_register_tools` 统一注册（用户工具 + 内置 task）
+  - hooks 抽成 `HookRegistry` 类（对标 ToolRegistry）+ 改为构造参数 `hooks=[(事件类, 回调)]` 批量注册（去掉 register_hook/unregister_hook 公共 API）
+  - `context` 默认启用（budget 默认值下沉 ContextManager=100k，Agent 不传用组件默认）
+  - 装配外移试过后撤回（`_init_messages`/`_init_context` 写回 agent.py 内部方法）；方法按「构造/公共 API/内部实现」三组重排
+- **验证**：全量测试全绿（纯重构无新增）。
+
+### session 统一持久化 + system 归 Agent（2026-08-16）
+
+**目标**：system 从「session 持久化内容」改为「Agent 运行时配置」，session 只存纯对话；子代理独立持久化。
+
+- 提交：`a0fbbbf` `8809e48` `4fb888f` `2ef28c7` `6eb19dd`
+- **改了什么**：
+  - `Session` 去 `system_prompt`（只存纯对话，metadata 参数塞 header）；`reset()` 清空树
+  - `Agent` 拼 system（`system_prompt` + skill 清单 + subagent 清单合成消息首条）；`session` 必填（去掉内存模式）
+  - 子代理独立 session 落盘 `subagents/`（meta 塞 header：agent_type/spawn_depth/parent_session_id），对齐 Claude Code 子代理持久化目录
+  - `run()` rewind-sync 保留 system 首条 + 同步纯对话（否则 rewind 后 system 丢失）
+- **关键教训**：system=agent 定义、session=运行历史（对齐 anthropic-sdk-python 的 `agents.create(system=...)` 与 Claude Code 子代理目录）；防污染断言曾恒真，改成真检测父 session 不含子代理 user 消息。
+- **验证**：165 个测试全绿。
+
+### 阶段 9：extension 机制（2026-08-17）
+
+**目标**：外部 `.py` 扩展加载——事件订阅 + 工具注册 + 命令（对齐 pig-mono extensions.py）。
+
+- 提交：`09b7527` `082d75a` `4ba9183` `8976097`
+- **改了什么**：
+  - `extensions.py`（新增）：`ExtensionAPI`（on 事件订阅 / tool 工具注册 / command 命令三件套）+ `ExtensionManager`（discover / load_extension / load / handle_command）
+  - 事件订阅复用 `HookRegistry`（类型化事件 + 双参 handler `(event, api)`，返回 `HookResult` 干预）；工具注册复用 `@tool`；命令查表调度（0/1 参自适应）
+  - `Agent` 接入：`extension_dirs` 三态构造参数，加载在 `_register_tools` 之后（extension 工具可覆盖内置工具）；坏扩展隔离（print 不抛）
+- **关键教训**：plan 测试 #8 笔误（命令注册在独立 ExtensionAPI 却用新 ExtensionManager 调，必抛 ValueError），implementer 修正确认；final review 抓「extension 覆盖内置工具零测试」，补覆盖测试锁住「后加载覆盖」语义。
+- **验证**：182 个测试全绿（17 个 extension 测试 + 既有 165）。
+- **scope 备注**：快捷键/flag/cleanup 按 spec 砍（依赖 CLI/TUI 触发源，等 coding agent 层）；MCP（9.2）后续以 extension 形态落地。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
@@ -221,9 +311,12 @@ my-pi-agent/
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
 - 阶段 3：session 管理（已完成）
 - 阶段 4：context 管理（已完成）
-- 阶段 5：skill 机制
-- 阶段 6：动态工具
-- 阶段 7：memory 记忆系统
-- 阶段 8：task 系统（todo + plan 核心，框架层）
-- 阶段 9：MCP 与 plugin
+- 阶段 5：skill 机制（已完成）
+- subagent 机制（已完成，另列）
+- Task 委派系统 + 四个文件工具（已完成）
+- 阶段 9：extension 机制（9.1/9.3 已完成；9.2 MCP 未做）
+- 阶段 6：动态工具（未做）
+- 阶段 7：memory 记忆系统（未做）
+- 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
+- plugin 分发（前置 subagent/skills/extension 已就绪，未做）
 - coding agent 层（`my_coding_agent`）——框架层完成后（含 plan 模式交互层）
