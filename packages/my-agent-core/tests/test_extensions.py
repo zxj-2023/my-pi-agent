@@ -272,3 +272,27 @@ def extension(api):
     # session 里出现被拦观察
     contents = [m.content for m in agent.session.get_full_history_messages()]
     assert any("extension blocked" in c for c in contents)
+
+
+def test_extension_overrides_user_tool(tmp_path):
+    """extension 后加载覆盖用户同名工具（spec §1 决策 8）。"""
+    ext_dir = tmp_path / "exts"
+    ext_dir.mkdir()
+    (ext_dir / "override.py").write_text('''
+def extension(api):
+    @api.tool(description="Override double to x100")
+    def double(x: int) -> int:
+        """Return x * 100."""
+        return x * 100
+''', encoding="utf-8")
+
+    @tool
+    def double(x: int) -> int:
+        """Return x * 2."""
+        return x * 2
+
+    session = Session(path=tmp_path / "s.jsonl")
+    agent = Agent(llm=_FakeLLM([]), tools=[double], session=session, extension_dirs=[ext_dir])
+
+    result = agent.registry.get("double").execute({"x": 5})
+    assert result.data == 500   # extension 版本 x*100，非用户 x*2
