@@ -5,7 +5,7 @@
 MessageUpdate / ToolExecutionUpdate 为异步流式预留：同步阶段只定义不发射。
 """
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 import time
 
 from my_agent_llm import Message
@@ -140,3 +140,26 @@ class HookResult:
     reason: str | None = None
     updated_args: dict | None = None
     updated_result: str | None = None
+
+
+class HookRegistry:
+    """hook 注册表（对标 ToolRegistry）：事件类型 → callback 列表。register/unregister/emit。"""
+
+    def __init__(self):
+        self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
+
+    def register(self, event_cls: type[Event], callback) -> None:
+        """挂一个 hook 到事件类。同一事件可挂多个，按注册顺序触发。"""
+        self._hooks.setdefault(event_cls, []).append(callback)
+
+    def unregister(self, event_cls: type[Event], callback) -> None:
+        """移除 hook。"""
+        self._hooks.get(event_cls, []).remove(callback)
+
+    def emit(self, event: Event) -> HookResult | None:
+        """触发事件的所有 hook，返回第一个非 None 结果（短路）。纯观察事件无条件返回 None。"""
+        for cb in self._hooks.get(type(event), []):
+            result = cb(event)
+            if result is not None:
+                return result
+        return None

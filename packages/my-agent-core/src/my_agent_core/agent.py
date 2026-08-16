@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import json
-from typing import Callable
 
 from my_agent_llm import LLM, Message
 
@@ -18,6 +17,7 @@ from my_agent_core.events import (
     AgentStart,
     ContextCompacted,
     Event,
+    HookRegistry,
     HookResult,
     MessageEnd,
     MessageStart,
@@ -65,7 +65,7 @@ class Agent:
         self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
         self.max_iterations = max_iterations
         self.session = session
-        self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
+        self.hooks = HookRegistry()
         self.registry = ToolRegistry()
         self.skill_manager = SkillManager(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
         self.skills: list[Skill] = self.skill_manager.list()   # 兼容代理
@@ -191,12 +191,12 @@ class Agent:
         self._handle_compaction()
 
     def register_hook(self, event_cls, callback) -> None:
-        """挂一个 hook 到事件类。同一事件可挂多个，按注册顺序触发，非 None 短路。"""
-        self._hooks.setdefault(event_cls, []).append(callback)
+        """挂一个 hook 到事件类（委托 HookRegistry）。"""
+        self.hooks.register(event_cls, callback)
 
     def unregister_hook(self, event_cls, callback) -> None:
-        """移除 hook。"""
-        self._hooks.get(event_cls, []).remove(callback)
+        """移除 hook（委托 HookRegistry）。"""
+        self.hooks.unregister(event_cls, callback)
 
     # ── 内部实现（run 循环辅助）──────────────────────────────
 
@@ -264,9 +264,5 @@ class Agent:
             ))
 
     def _emit(self, event: Event) -> HookResult | None:
-        """触发事件的所有 hook，返回第一个非 None 结果（短路）。纯观察事件无条件返回 None。"""
-        for cb in self._hooks.get(type(event), []):
-            result = cb(event)
-            if result is not None:
-                return result
-        return None
+        """触发事件的所有 hook（委托 HookRegistry）。"""
+        return self.hooks.emit(event)
