@@ -128,14 +128,11 @@ class Agent:
             self._emit(TurnStart(iteration))
             # ── Reason：把完整消息历史 + 工具说明书发给模型。
             tools = self.registry.get_schemas()
-            if self._ctx is not None:
-                view = self._ctx.prepare(self.messages)
-                resp = self._llm_chat(view, tools)
-                if resp.usage:
-                    self._ctx.record_usage(resp.usage)
-                self._handle_compaction()
-            else:
-                resp = self._llm_chat(self.messages, tools)
+            view = self._ctx.prepare(self.messages)
+            resp = self._llm_chat(view, tools)
+            if resp.usage:
+                self._ctx.record_usage(resp.usage)
+            self._handle_compaction()
             assistant = Message(
                 role="assistant",
                 content=resp.content or "",
@@ -188,13 +185,10 @@ class Agent:
         else:
             system = [m for m in self.messages if m.role == "system"]
             self.messages = system if system else []
-        if self._ctx is not None:
-            self._ctx.reset()
+        self._ctx.reset()
 
     def compact(self) -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
-        if self._ctx is None:
-            return
         self._ctx.force_compact(self.messages)
         self._handle_compaction()
 
@@ -251,8 +245,6 @@ class Agent:
 
     def _handle_compaction(self) -> None:
         """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
-        if self._ctx is None:
-            return
         if self._ctx_bridge is not None:
             self._ctx_bridge.write_compaction(self._ctx)
         info = self._ctx.pending_compaction
