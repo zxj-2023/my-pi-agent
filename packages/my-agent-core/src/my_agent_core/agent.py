@@ -28,7 +28,7 @@ from my_agent_core.events import (
     TurnStart,
 )
 from my_agent_core.registry import ToolRegistry
-from my_agent_core.session import Session, build_initial_messages
+from my_agent_core.session import Session
 from my_agent_core.tools import Tool
 
 from pathlib import Path
@@ -74,10 +74,7 @@ class Agent:
         self.subagent_manager = SubagentManager(subagent_dirs)   # 三态同 skill_dirs
 
         self._register_tools(tools)   # ① 工具注册统一（用户 + 内置 task）
-        self.messages = build_initial_messages(   # ② 取初始 messages（session 恢复 or 拼 system）
-            session, system_prompt=system_prompt,
-            skill_manager=self.skill_manager, subagent_manager=self.subagent_manager,
-        )
+        self.messages = self._init_messages(session, system_prompt)   # ② 取初始 messages
         self._init_context(session, context_budget, keep_recent_tokens)   # ③ context 装配
         self._register_hooks(hooks)   # ④ hooks 批量注册
 
@@ -89,6 +86,20 @@ class Agent:
             if self.registry.get("task") is not None:
                 raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
             self.registry.register(make_task_tool(self.subagent_manager, self))
+
+    def _init_messages(self, session: Session | None, system_prompt: str | None) -> list[Message]:
+        """取初始 messages：session 非 None → 恢复（system 以文件为准）；
+        否则拼 system_prompt + skill 清单 + subagent 清单（\\n\\n 衔接，空段跳过）。"""
+        if session is not None:
+            return session.get_full_history_messages()
+        parts = [p for p in (
+            system_prompt or "",
+            self.skill_manager.format_prompt(),
+            self.subagent_manager.format_prompt(),
+        ) if p]
+        if not parts:
+            return []
+        return [Message(role="system", content="\n\n".join(parts))]
 
     def _init_context(self, session: Session | None, context_budget: int | None,
                       keep_recent_tokens: int | None) -> None:
