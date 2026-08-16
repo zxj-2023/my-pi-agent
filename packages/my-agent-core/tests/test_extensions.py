@@ -200,8 +200,6 @@ def extension(api):
 
 # ── 端到端（FakeLLM 驱动，extension 经 Agent 装配生效）──────────────
 
-import tempfile
-
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
