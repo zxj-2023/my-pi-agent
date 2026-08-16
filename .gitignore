@@ -14,5 +14,6 @@ htmlcov/
 
 # 本地私有文档（不上传远程 GitHub）
 CLAUDE.md
+AGENTS.md
 docs/superpowers/
 docs/references.md
