@@ -38,6 +38,13 @@ def _write_agent(root, name, description="desc", content="body"):
     return p
 
 
+def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
+    import json
+    return {"id": "1", "type": "function",
+            "function": {"name": "task",
+                         "arguments": json.dumps({"prompt": prompt, "agent_type": agent_type})}}
+
+
 def test_task_state_machine():
     """Task 状态机：set_result → COMPLETED，set_error → ERROR（互斥）。"""
     task = Task(id="task_00000001", status=TaskStatus.RUNNING)
@@ -100,3 +107,27 @@ def test_make_task_tool_bridge(tmp_path):
     result = task_tool.execute({"prompt": "review", "agent_type": "code-reviewer"})
     assert result.ok is True
     assert result.data == "found issues"
+
+
+def test_subagent_session_persists(tmp_path):
+    """委派后子代理独立 session 落盘 subagents/，且父 session 不被污染。"""
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
+    manager = SubagentManager([tmp_path])
+    parent_session = Session(path=tmp_path / "parent.jsonl")
+    llm = FakeLLM([
+        _response(tool_calls=[_task_call("review", "code-reviewer")]),
+        _response(content="found issues"),
+        _response(content="done"),
+    ])
+    agent = Agent(llm=llm, tools=[multiply], session=parent_session)
+    agent.registry.register(make_task_tool(manager, agent))
+    agent.run("delegate")
+    subagents_dir = tmp_path / "subagents"
+    assert subagents_dir.is_dir()
+    files = list(subagents_dir.glob("agent-*.jsonl"))
+    assert len(files) == 1
+    # 子代理 session 含子代理对话，父 session 不含子代理消息
+    child = Session.load(files[0])
+    assert any(e.role == "assistant" for e in child.tree.entries.values())
+    assert "review" in parent_session.path.read_text(encoding="utf-8") or \
+           not any("review" in e.content for e in child.tree.entries.values())

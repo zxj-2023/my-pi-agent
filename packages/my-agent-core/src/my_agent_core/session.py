@@ -98,7 +98,7 @@ class SessionTree:
 class Session:
     """树 + 文件持久化（逐条原子全量重写）。"""
 
-    def __init__(self, *, path: Path, cwd: str | None = None):
+    def __init__(self, *, path: Path, cwd: str | None = None, metadata: dict | None = None):
         """新建会话（纯对话，不含 system）。不立即写文件。"""
         self.path = Path(path)
         self.id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
@@ -106,6 +106,7 @@ class Session:
         self.cwd = cwd or str(Path.cwd())
         self.tree = SessionTree()
         self.compaction_floor: str | None = None
+        self.metadata = metadata or {}   # 额外元数据（子代理：agent_type/spawn_depth/parent_session_id），进 header
 
     @classmethod
     def load(cls, path: Path) -> "Session":
@@ -143,6 +144,7 @@ class Session:
         session.created_at = header["created_at"]
         session.tree = tree
         session.compaction_floor = header.get("compaction_floor")
+        session.metadata = header.get("metadata") or {}
         return session
 
     def add_message(
@@ -246,6 +248,7 @@ class Session:
             "current_id": self.tree.current_id,
             "root_id": self.tree.root_id,
             "compaction_floor": self.compaction_floor,
+            "metadata": self.metadata,
         }
         temp_path: Path | None = None
         try:

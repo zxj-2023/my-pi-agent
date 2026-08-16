@@ -66,6 +66,7 @@ class Agent:
         self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
         self.max_iterations = max_iterations
         self.session = session
+        self._spawn_depth = 0     # 委派层级：父默认为 0，子代理 spawn 时 +1 记录
         self._system_prompt = system_prompt     # 保存，reset 重拼用
         self.hooks = HookRegistry()
         self.registry = ToolRegistry()

@@ -4,10 +4,8 @@
 tools/builtin.py（工具桥，真实逻辑在 TaskManager）。"""
 from __future__ import annotations
 
-import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from my_agent_core.session import Session
@@ -80,7 +78,7 @@ class TaskManager:
         """同步阻塞：建 Task(RUNNING) → spawn → run → 更新状态 → 返回。"""
         task = self._create_task(subagent_type)
         try:
-            task.set_result(self._run(prompt, subagent_type))
+            task.set_result(self._run(prompt, subagent_type, task.id))
         except Exception as exc:
             task.set_error(str(exc))
         return task
@@ -89,8 +87,8 @@ class TaskManager:
         self._counter += 1
         return Task(id=f"task_{self._counter:08x}", status=TaskStatus.RUNNING)
 
-    def _run(self, prompt: str, subagent_type: str) -> str:
-        """查定义 → 过滤工具 → spawn 子 Agent → run → 返回最终文本。"""
+    def _run(self, prompt: str, subagent_type: str, task_id: str) -> str:
+        """查定义 → 建独立 session → 过滤工具 → spawn 子 Agent → run → 返回最终文本。"""
         from my_agent_core.agent import Agent   # 延迟 import 避循环
 
         sub = self._manager.get(subagent_type)
@@ -99,10 +97,18 @@ class TaskManager:
         if sub is None:
             available = ", ".join(sorted(self._manager.subagents)) or "(none)"
             raise ValueError(f"Unknown subagent '{subagent_type}'. Available: {available}")
+        child_session = Session(
+            path=self._parent.session.path.parent / "subagents" / f"agent-{task_id}.jsonl",
+            cwd=self._parent.session.cwd,
+            metadata={"agent_type": subagent_type,
+                      "spawn_depth": self._parent._spawn_depth + 1,
+                      "parent_session_id": self._parent.session.id},
+        )
+        child_session.save()
         child = Agent(
             llm=self._parent.llm,
             tools=_filter_tools(self._parent, sub),
-            session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),   # 子代理 fresh context
+            session=child_session,
             system_prompt=_system_for(sub, self._parent),
             model=sub.model,
             max_iterations=sub.max_turns if sub.max_turns is not None else self._parent.max_iterations,
