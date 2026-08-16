@@ -52,7 +52,8 @@ class Agent:
 
         session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
         当前路径恢复 messages，此时 system_prompt 被忽略（文件为准，决策 5）。
-        context_budget 非 None 为 context 管理模式：每次 llm.chat 前 prepare 压缩视图。
+        context_budget 为 context 预算：None → 用 ContextManager 默认（100k）；显式传 → 覆盖。
+        context 默认启用（每次 llm.chat 前 prepare 压缩视图）。
         skill_dirs 为 skill 机制来源：None → 探测 <cwd>/.agents/skills（不存在则空）；
         [] → 显式禁用；非空 list → 只扫这些目录。构造 skill_manager 追加清单块进
         system；self.skill_manager 公开可读，self.skills = manager.list()（兼容代理）。
@@ -88,16 +89,13 @@ class Agent:
 
     def _init_context(self, session: Session | None, context_budget: int | None,
                       keep_recent_tokens: int | None) -> None:
-        """装配 context 管理：context_budget 非 None → ContextManager + bridge（+恢复缓存）。"""
-        self._ctx: ContextManager | None = None
-        self._ctx_bridge: ContextSessionBridge | None = None
-        if context_budget is None:
-            return
+        """装配 context 管理（默认启用）：context_budget None → 用 ContextManager 默认 budget。"""
         self._ctx_bridge = ContextSessionBridge(session) if session is not None else None
         self._ctx = ContextManager(
-            budget=context_budget, llm=self.llm,
+            llm=self.llm,
             keep_recent_tokens=keep_recent_tokens,
             results_dir=self._ctx_bridge.results_dir() if self._ctx_bridge else None,
+            **({} if context_budget is None else {"budget": context_budget}),
         )
         if self._ctx_bridge is not None:
             self._ctx_bridge.restore_cache(self._ctx)

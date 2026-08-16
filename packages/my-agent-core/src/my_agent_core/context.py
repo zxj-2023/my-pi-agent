@@ -12,6 +12,7 @@ from pathlib import Path
 from my_agent_llm import Message
 
 CHARS_PER_TOKEN = 4
+DEFAULT_CONTEXT_BUDGET = 100_000  # 默认 token 预算（约 gpt-4 context 上限）
 
 
 def estimate_tokens(messages: list[Message], ratio: float | None = None) -> int:
@@ -159,7 +160,8 @@ class ContextManager:
     纯视图逻辑：prepare 只返回新 list，绝不修改传入 messages；缓存/树交互由 Agent 做。
     """
 
-    def __init__(self, *, budget: int, llm, keep_recent_tokens: int | None = None,
+    def __init__(self, *, budget: int = DEFAULT_CONTEXT_BUDGET, llm,
+                 keep_recent_tokens: int | None = None,
                  results_dir: Path | None = None):
         self.budget = budget
         self.llm = llm
