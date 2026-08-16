@@ -140,10 +140,8 @@ class Agent:
             )
             self.messages.append(assistant)
             if self.session is not None:
-                if resp.tool_calls:
-                    self.session.add_message("assistant", assistant.content, tool_calls=resp.tool_calls)
-                else:
-                    self.session.add_message("assistant", assistant.content)
+                self.session.add_message("assistant", assistant.content,
+                                         **(assistant.metadata or {}))
             self._emit(MessageStart(assistant))
             self._emit(MessageEnd(assistant))
             # ── 经典退出条件：模型不再发起工具调用 → 结束。
