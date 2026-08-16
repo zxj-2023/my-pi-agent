@@ -3,6 +3,7 @@
 SkillManager 为 Repository 形态：持有 dict 状态，构造即发现，查询/格式化全部
 收编为实例方法（对应 pig-mono 的 SkillManager 类；模块级函数版本见历史）。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -17,8 +18,8 @@ class Skill:
 
     name: str
     description: str
-    content: str                     # frontmatter 之下的正文
-    file_path: Path                  # 调试用；不暴露给模型
+    content: str  # frontmatter 之下的正文
+    file_path: Path  # 调试用；不暴露给模型
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -30,8 +31,8 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     end = text.find("\n---\n", len(header))
     if end == -1:
         return {}, text
-    block = text[len(header):end]
-    body = text[end + len("\n---\n"):].strip()
+    block = text[len(header) : end]
+    body = text[end + len("\n---\n") :].strip()
     try:
         fields = yaml.safe_load(block)
     except yaml.YAMLError:
@@ -82,8 +83,9 @@ class SkillManager:
         description = meta.get("description")
         if not description:
             return None
-        return Skill(name=path.parent.name, description=description,
-                     content=body, file_path=path)
+        return Skill(
+            name=path.parent.name, description=description, content=body, file_path=path
+        )
 
     def get(self, name: str) -> Skill | None:
         """按名查询（Repository 主查询）。"""
@@ -102,8 +104,11 @@ class SkillManager:
     def format_prompt(self, names: list[str] | None = None) -> str:
         """全部（或指定名字子集）skills → XML 清单块；空 → 空串（进 system）。
         names 给定只格式化这些名字（供 subagent skills 字段取子集）；未知名忽略。"""
-        skills = (self.skills[n] for n in names if n in self.skills) if names is not None \
+        skills = (
+            (self.skills[n] for n in names if n in self.skills)
+            if names is not None
             else self.skills.values()
+        )
         parts = ["<available_skills>"]
         for s in skills:
             parts.append("  <skill>")
@@ -122,6 +127,8 @@ class SkillManager:
         if skill is None:
             available = ", ".join(sorted(self.skills)) or "(none)"
             raise ValueError(f"Unknown skill '{name}'. Available: {available}")
-        block = (f'<skill name="{skill.name}" location="{skill.file_path}">\n'
-                 f"{skill.content}\n</skill>")
+        block = (
+            f'<skill name="{skill.name}" location="{skill.file_path}">\n'
+            f"{skill.content}\n</skill>"
+        )
         return f"{block}\n\n{instructions}" if instructions else block

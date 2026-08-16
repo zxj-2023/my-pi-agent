@@ -4,6 +4,7 @@
   （pydantic 驱动），并提供校验执行与直接调用
 - tool() 装饰器：支持 @tool 与 @tool(name=..., description=..., params_model=...)
 """
+
 from __future__ import annotations
 
 import inspect
@@ -49,7 +50,10 @@ class Tool:
         hints = get_type_hints(func)
         fields: dict[str, Any] = {}
         for param_name, param in inspect.signature(func).parameters.items():
-            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            if param.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
                 raise TypeError(
                     f"tool '{func.__name__}': parameter '{param_name}' is "
                     "*args/**kwargs, which is not supported（不支持）"
@@ -65,11 +69,11 @@ class Tool:
         try:
             model = create_model(
                 f"{func.__name__}_Args",
-                __config__=ConfigDict(extra="forbid"),   # 多余参数 → 校验错误
+                __config__=ConfigDict(extra="forbid"),  # 多余参数 → 校验错误
                 **fields,
             )
             return model
-        except Exception as exc:   # 无法建模的类型 → 装饰时明确失败
+        except Exception as exc:  # 无法建模的类型 → 装饰时明确失败
             raise TypeError(
                 f"tool '{func.__name__}': cannot build parameter schema: {exc}"
             ) from exc
@@ -94,7 +98,9 @@ class Tool:
         try:
             result = self.func(**validated.model_dump())
         except Exception as exc:  # 工具错误 → 消息，喂回模型
-            return ToolResult(ok=False, error=f"Error executing tool '{self.name}': {exc}")
+            return ToolResult(
+                ok=False, error=f"Error executing tool '{self.name}': {exc}"
+            )
         return ToolResult(ok=True, data=result)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -116,7 +122,9 @@ def tool(
     """
 
     def decorator(f: Callable[..., Any]) -> Tool:
-        return Tool(func=f, name=name, description=description, params_model=params_model)
+        return Tool(
+            func=f, name=name, description=description, params_model=params_model
+        )
 
     if func is None:
         return decorator

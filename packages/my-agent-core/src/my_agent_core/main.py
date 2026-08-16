@@ -2,6 +2,7 @@
 
 运行：uv run python -m my_agent_core.main（在项目根目录执行，需要 .env 里的 OPENAI_API_KEY）
 """
+
 from __future__ import annotations
 
 import os
@@ -11,7 +12,13 @@ from dotenv import load_dotenv
 from my_agent_llm import Config, LLM
 
 from my_agent_core.agent import Agent
-from my_agent_core.events import AgentEnd, HookResult, ToolExecutionEnd, ToolExecutionStart, TurnStart
+from my_agent_core.events import (
+    AgentEnd,
+    HookResult,
+    ToolExecutionEnd,
+    ToolExecutionStart,
+    TurnStart,
+)
 from my_agent_core.session_store import SessionStore
 from my_agent_core.tools import tool
 
@@ -83,7 +90,10 @@ def main() -> None:
         print(f"\n=== 问题: {question} ===")
         session = store.create()
         agent = Agent(
-            llm=llm, tools=TOOLS, session=session, system_prompt=DEMO_SYSTEM_PROMPT,
+            llm=llm,
+            tools=TOOLS,
+            session=session,
+            system_prompt=DEMO_SYSTEM_PROMPT,
             hooks=[
                 (TurnStart, print_events),
                 (ToolExecutionStart, print_events),
