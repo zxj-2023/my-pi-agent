@@ -84,5 +84,5 @@ def test_bash_timeout(tmp_path, monkeypatch):
     from my_agent_core.tools.builtin import files
     monkeypatch.setattr(files, "_TIMEOUT_SECONDS", 1)
     bash = make_bash_tool(tmp_path)
-    result = bash.execute({"command": "sleep 5"})
+    result = bash.execute({"command": 'python -c "import time; time.sleep(5)"'})
     assert "Timeout" in result.data

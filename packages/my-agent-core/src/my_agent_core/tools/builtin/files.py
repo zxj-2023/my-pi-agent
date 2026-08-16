@@ -18,7 +18,7 @@ def _safe_path(root: Path, p: str) -> Path:
 
 def make_read_tool(root: str | Path) -> Tool:
     """read(path, limit=None)：读文件，limit 行截断 + '... (N more)'。"""
-    root = Path(root)
+    root = Path(root).resolve()
 
     def read(path: str, limit: int | None = None) -> str:
         """Read file contents. Use limit for large files."""
@@ -35,7 +35,7 @@ def make_read_tool(root: str | Path) -> Tool:
 
 def make_write_tool(root: str | Path) -> Tool:
     """write(path, content)：覆盖写（自动建父目录）。"""
-    root = Path(root)
+    root = Path(root).resolve()
 
     def write(path: str, content: str) -> str:
         """Write content to file. Creates/overwrites the file."""
@@ -52,7 +52,7 @@ def make_write_tool(root: str | Path) -> Tool:
 
 def make_edit_tool(root: str | Path) -> Tool:
     """edit(path, old_text, new_text)：精确替换一次。"""
-    root = Path(root)
+    root = Path(root).resolve()
 
     def edit(path: str, old_text: str, new_text: str) -> str:
         """Replace exact text in file (first occurrence only)."""
@@ -71,7 +71,7 @@ def make_edit_tool(root: str | Path) -> Tool:
 
 def make_bash_tool(root: str | Path) -> Tool:
     """bash(command)：在 root 下执行 shell，危险命令黑名单 + 超时。"""
-    root = Path(root)
+    root = Path(root).resolve()
 
     def bash(command: str) -> str:
         """Run a shell command in the workspace root."""
