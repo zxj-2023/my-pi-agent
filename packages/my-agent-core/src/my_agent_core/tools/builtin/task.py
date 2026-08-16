@@ -1,4 +1,4 @@
-"""内置工具：框架层提供的默认工具工厂。task（subagent 委派）是第一个内置工具。"""
+"""内置工具：task（subagent 委派）工厂。"""
 from my_agent_core.subagents import SubagentManager
 from my_agent_core.tasks import TaskManager, TaskStatus
 from my_agent_core.tools import Tool
