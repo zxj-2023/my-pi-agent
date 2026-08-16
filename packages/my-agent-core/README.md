@@ -334,7 +334,8 @@ answer = agent.run(question)
       目录 + manifest（plugin.json），声明带出 skills / agents / MCP servers /
       hooks，宿主展开加载
 - [x] 内置工具模块（`my_agent_core.tools.builtin`）——已建，含 `task` 委派工具工厂
-      （第一个内置工具）。**注：2026-08-16 反转 2026-08-13 决策**——通用文件工具
-      read/edit/write/bash 归属框架层 builtin（不再等 coding agent 层），下一轮实现。
+      + 四个文件工具 `read`/`edit`/`write`/`bash`（路径逃逸防护 `_safe_path` + bash
+      危险命令黑名单 + 120s 超时）。**2026-08-16 反转 2026-08-13 决策**：通用文件工具
+      归属框架层 builtin（不再等 coding agent 层）。
 - [ ] 结构化输出：`run()` 的 JSON schema 强制变体
 - [ ] 交互式多轮 REPL（应用层 demo，`Agent` 已为其铺路）
