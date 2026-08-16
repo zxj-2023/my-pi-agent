@@ -129,5 +129,9 @@ def test_subagent_session_persists(tmp_path):
     # 子代理 session 含子代理对话，父 session 不含子代理消息
     child = Session.load(files[0])
     assert any(e.role == "assistant" for e in child.tree.entries.values())
-    assert "review" in parent_session.path.read_text(encoding="utf-8") or \
-           not any("review" in e.content for e in child.tree.entries.values())
+    # 父 session 不被污染：父的 user 消息是 "delegate"，不含子代理的 user 消息 "review"
+    assert not any(e.role == "user" and e.content == "review"
+                   for e in parent_session.tree.entries.values())
+    # metadata 塞 header 且能 round-trip
+    assert child.metadata["agent_type"] == "code-reviewer"
+    assert child.metadata["parent_session_id"] == parent_session.id
