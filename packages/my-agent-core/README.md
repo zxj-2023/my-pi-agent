@@ -322,19 +322,19 @@ answer = agent.run(question)
       before_agent_start、compaction/tree 自定义、provider 内省）+ 命令自动补全 +
       `registerProvider` + `appendEntry` + `.pi/extensions` 自动发现 + `/reload`
       热载 + 分发（npm/git 式包）
-- [x] **subagent 机制**（2026-08-16 实现，5 commits `ffb583d`→`3a04913`，149 测试；
-      详见 spec `2026-08-15-my-agent-subagent-design.md`）：声明式 `agents/*.md`
-      定义文件（frontmatter：name/description/model/maxTurns/tools/disallowedTools/
-      skills）+ `SubagentManager` 发现 + 内置 `task` 委派工具（spawn 子 Agent、
-      fresh context、只回最终文本、工具过滤 + 防递归）。`effort`/`memory`/
-      `background`/`isolation` 四项 deferred（字段位预留，端到端留后续）。
+- [x] **subagent 机制**（2026-08-16 实现，8 commits `ffb583d`→`6be1858`，154 测试；
+      详见 spec `2026-08-15-my-agent-subagent-design.md` + `2026-08-16-subagent-task-manager-design.md`）：
+      声明式 `agents/*.md` 定义文件（frontmatter：name/description/model/maxTurns/
+      tools/disallowedTools/skills）+ `SubagentManager` 发现 + 内置 `task` 委派工具
+      （spawn 子 Agent、fresh context、只回最终文本、工具过滤 + 防递归）。委派已升级为
+      `Task`/`TaskStatus`/`TaskManager` 结构（`tasks.py`），`make_task_tool` 工具桥化。
+      `effort`/`memory`/`background`/`isolation` 四项 deferred（字段位预留，端到端留后续）。
       （对标 Claude Code sub-agents 生态；**plugin 的 agents 前置已就绪**）
 - [ ] **plugin 分发**（Claude Code 式；前置：subagent 机制 + skills + extension）：
       目录 + manifest（plugin.json），声明带出 skills / agents / MCP servers /
       hooks，宿主展开加载
-- [ ] 可选内置工具（`my_agent_core.tools.builtin`，如 `read_file`）——
-      skill 附带文件特性的前置（注：2026-08-13 决策后通用文件工具 read/edit/
-      write/bash 归属 coding agent 层；此 builtin 仅保留「框架层自带最小
-      read_file 供 skill 附带文件」的备选项，优先级低于 coding agent 层工具）
+- [x] 内置工具模块（`my_agent_core.tools.builtin`）——已建，含 `task` 委派工具工厂
+      （第一个内置工具）。**注：2026-08-16 反转 2026-08-13 决策**——通用文件工具
+      read/edit/write/bash 归属框架层 builtin（不再等 coding agent 层），下一轮实现。
 - [ ] 结构化输出：`run()` 的 JSON schema 强制变体
 - [ ] 交互式多轮 REPL（应用层 demo，`Agent` 已为其铺路）
