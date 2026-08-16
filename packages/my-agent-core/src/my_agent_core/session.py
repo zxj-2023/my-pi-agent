@@ -98,16 +98,14 @@ class SessionTree:
 class Session:
     """树 + 文件持久化（逐条原子全量重写）。"""
 
-    def __init__(self, *, path: Path, cwd: str | None = None, system_prompt: str | None = None):
-        """新建会话。system_prompt 非 None 时作为首个（根）entry 入树。不立即写文件。"""
+    def __init__(self, *, path: Path, cwd: str | None = None):
+        """新建会话（纯对话，不含 system）。不立即写文件。"""
         self.path = Path(path)
         self.id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
         self.created_at = datetime.now().isoformat()
         self.cwd = cwd or str(Path.cwd())
         self.tree = SessionTree()
-        self.compaction_floor: str | None = None  # 压缩时刻 current id（context 管理，header 持久化）
-        if system_prompt is not None:
-            self.tree.add_entry("system", system_prompt)
+        self.compaction_floor: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> "Session":
@@ -272,11 +270,7 @@ class Session:
             raise
 
     def reset(self) -> None:
-        """清空树 + 原子重写（保留 system 消息）。唯一破坏性操作。
-        缓存 entry 与 compaction_floor 一并清除（context 设计 §5）。"""
-        system = [e for e in self.tree.entries.values() if e.role == "system"]
+        """清空树 + 原子重写（纯对话，不含 system）。唯一破坏性操作。"""
         self.tree = SessionTree()
         self.compaction_floor = None
-        for e in system[:1]:
-            self.tree.add_entry(e.role, e.content, **e.metadata)
         self.save()

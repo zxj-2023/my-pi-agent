@@ -34,14 +34,14 @@ class SessionStore:
         root_path = Path(root)
         self.root = root_path if root_path.is_absolute() else self.workspace / root_path
 
-    def create(self, *, system_prompt: str | None = None) -> Session:
-        """新会话：id = 时间戳-hex（碰撞重试），写 <workspace/root>/<id>.jsonl。Session.cwd = workspace。"""
+    def create(self) -> Session:
+        """新会话：写 <root>/<id>.jsonl（不含 system）。Session.cwd = workspace。"""
         self.root.mkdir(parents=True, exist_ok=True)
         while True:
             sid = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
             path = self.root / f"{sid}.jsonl"
             if not path.exists():
-                session = Session(path=path, cwd=str(self.workspace), system_prompt=system_prompt)
+                session = Session(path=path, cwd=str(self.workspace))
                 session.id = sid
                 session.save()
                 return session

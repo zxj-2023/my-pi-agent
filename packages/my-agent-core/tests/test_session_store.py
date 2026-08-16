@@ -9,8 +9,8 @@ from my_agent_core.session_store import SessionMeta, SessionStore
 def test_store_create_list_open_delete(tmp_path):
     """create/list（倒序）/open 全 id/open 前缀/delete；连续 create 不同 id（#11）。"""
     store = SessionStore(tmp_path)
-    s1 = store.create(system_prompt="sys1")
-    s2 = store.create(system_prompt="sys2")
+    s1 = store.create()
+    s2 = store.create()
     assert s1.id != s2.id
     metas = store.list()
     assert [m.id for m in metas] == [s2.id, s1.id]  # 倒序（新→旧）
@@ -23,7 +23,7 @@ def test_store_create_list_open_delete(tmp_path):
 
 
 def test_store_create_writes_header_only(tmp_path):
-    """create 后文件存在且只有 header 行（+ system entry，若给了 system_prompt）（§5）。"""
+    """create 后文件存在且只有 header 行（纯对话，不含 system）（§5）。"""
     store = SessionStore(tmp_path)
     s = store.create()
     lines = s.path.read_text(encoding="utf-8").strip().splitlines()
@@ -67,20 +67,20 @@ def test_store_list_skips_corrupt_files(tmp_path):
 def test_store_fork_copies_path_to_new_session(tmp_path):
     """fork 复制根→entry 路径为新会话；新会话 id 不同、树 = 复制路径（#13）。"""
     store = SessionStore(tmp_path)
-    session = store.create(system_prompt="sys")
+    session = store.create()
     session.add_message("user", "q1")
     a = session.add_message("assistant", "a1")
     session.add_message("user", "q2")  # current 移到 q2（fork 点 a1 之前的旧枝）
     forked = store.fork(session.id, a.id)
     assert forked.id != session.id
     assert forked.cwd == session.cwd
-    assert [e.content for e in forked.tree.get_current_path()] == ["sys", "q1", "a1"]
+    assert [e.content for e in forked.tree.get_current_path()] == ["q1", "a1"]
 
 
 def test_store_fork_sessions_evolve_independently(tmp_path):
     """fork 后新旧会话独立演化（互不影响）（#13）。"""
     store = SessionStore(tmp_path)
-    session = store.create(system_prompt="sys")
+    session = store.create()
     session.add_message("user", "q1")
     a = session.add_message("assistant", "a1")
     forked = store.fork(session.id, a.id)
@@ -89,8 +89,8 @@ def test_store_fork_sessions_evolve_independently(tmp_path):
     # 新会话从文件恢复后继续
     re_forked = store.open(forked.id)
     re_forked.add_message("user", "新枝")
-    assert [e.content for e in session.tree.get_current_path()] == ["sys", "q1", "a1", "q2"]
-    assert [e.content for e in re_forked.tree.get_current_path()] == ["sys", "q1", "a1", "新枝"]
+    assert [e.content for e in session.tree.get_current_path()] == ["q1", "a1", "q2"]
+    assert [e.content for e in re_forked.tree.get_current_path()] == ["q1", "a1", "新枝"]
 
 
 def test_store_fork_missing_entry_raises(tmp_path):
