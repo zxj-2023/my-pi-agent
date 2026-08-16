@@ -12,7 +12,7 @@ from typing import Callable
 
 from my_agent_llm import LLM, Message
 
-from my_agent_core.context import build_context
+from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
@@ -73,10 +73,7 @@ class Agent:
             session, system_prompt=system_prompt,
             skill_manager=self.skill_manager, subagent_manager=self.subagent_manager,
         )
-        self._ctx, self._ctx_bridge = build_context(   # ③ context 装配（context.py 工厂）
-            session, llm=self.llm, context_budget=context_budget,
-            keep_recent_tokens=keep_recent_tokens,
-        )
+        self._init_context(session, context_budget, keep_recent_tokens)   # ③ context 装配
 
     def _register_tools(self, tools: list[Tool]) -> None:
         """注册用户工具 + 内置 task 工具（撞名 ValueError）。"""
@@ -86,6 +83,22 @@ class Agent:
             if self.registry.get("task") is not None:
                 raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
             self.registry.register(make_task_tool(self.subagent_manager, self))
+
+    def _init_context(self, session: Session | None, context_budget: int | None,
+                      keep_recent_tokens: int | None) -> None:
+        """装配 context 管理：context_budget 非 None → ContextManager + bridge（+恢复缓存）。"""
+        self._ctx: ContextManager | None = None
+        self._ctx_bridge: ContextSessionBridge | None = None
+        if context_budget is None:
+            return
+        self._ctx_bridge = ContextSessionBridge(session) if session is not None else None
+        self._ctx = ContextManager(
+            budget=context_budget, llm=self.llm,
+            keep_recent_tokens=keep_recent_tokens,
+            results_dir=self._ctx_bridge.results_dir() if self._ctx_bridge else None,
+        )
+        if self._ctx_bridge is not None:
+            self._ctx_bridge.restore_cache(self._ctx)
 
     def _llm_chat(self, messages, tools):
         """封装 llm.chat：透传 model（SDK 通用参数）。"""
