@@ -116,7 +116,10 @@ def search_docs(query: str, tags: list[str], limit: int = 5) -> str:
 
 # 然后把它组装进 Agent：
 from my_agent_llm import LLM
-agent = Agent(llm=LLM(...), tools=[get_weather, search_docs], system_prompt="...")
+from my_agent_core.session_store import SessionStore
+
+session = SessionStore().create()
+agent = Agent(llm=LLM(...), session=session, tools=[get_weather, search_docs], system_prompt="...")
 answer = agent.run(question)
 ```
 
@@ -180,7 +183,7 @@ answer = agent.run(question)
       + 8 位随机 hex，碰撞重试；workspace 隔离（pig-mono 式：会话目录 =
       `<workspace>/.my_agent_core/sessions`，默认 cwd；跨项目天然隔离）
       → 验证：会话 §8 #11、#13、#14
-- [x] 3.3 `Agent` 集成：`session=` 参数（收 Session 对象；有则逐条落盘，无则纯内存）、
+- [x] 3.3 `Agent` 集成：`session=` 参数（必填，逐条落盘；system 由 Agent 拼、不存 session）、
       `reset()` 重写文件 → 验证：会话 §8 #7、#8、#10、#12
 - [x] 3.4 `rewind`：`Session.rewind(entry_id)` 移动指针（旧分支保留），续跑从回退点长新枝
       → 验证：会话 §8 #3、#9

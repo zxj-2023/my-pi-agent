@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+.my_agent_core/
 
 # 本地工具配置（Claude Code / Codex / Superpowers / MCP）
 .claude/
