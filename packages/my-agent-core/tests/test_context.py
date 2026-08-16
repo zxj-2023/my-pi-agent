@@ -252,9 +252,9 @@ def test_agent_trigger_compaction_and_event(tmp_path):
 
     llm = FakeLLM(default=_response(content="## Goal\n..."))
     session = Session(path=tmp_path / "s.jsonl", system_prompt="sys")
-    agent = _agent(llm, session=session, context_budget=400, keep_recent_tokens=100)
     events: list[ContextCompacted] = []
-    agent.register_hook(ContextCompacted, lambda ev: (events.append(ev), None)[1])
+    agent = _agent(llm, session=session, context_budget=400, keep_recent_tokens=100,
+                   hooks=[(ContextCompacted, lambda ev: (events.append(ev), None)[1])])
     for _ in range(6):  # 累积 6 条大消息 → 超阈触发摘要
         agent.run("y" * 300)
     assert len(events) >= 1
@@ -309,9 +309,9 @@ def test_manual_compact():
     from my_agent_core.events import ContextCompacted
 
     llm = FakeLLM(default=_response(content="## Manual summary"))
-    agent = _agent(llm, context_budget=100_000)  # 阈值很高，正常不会自动触发
     events: list[ContextCompacted] = []
-    agent.register_hook(ContextCompacted, lambda ev: (events.append(ev), None)[1])
+    agent = _agent(llm, context_budget=100_000,  # 阈值很高，正常不会自动触发
+                   hooks=[(ContextCompacted, lambda ev: (events.append(ev), None)[1])])
     agent.run("hi")  # 1 条消息，不触发
     assert len(llm.calls) == 1  # 只有对话请求
     agent.compact()             # 手动强制（无条件摘要）

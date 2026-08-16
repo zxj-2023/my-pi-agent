@@ -95,7 +95,7 @@ my-agent-core/           # 独立 uv 项目（本包根）
    `_prepare_tool`（解析 + `ToolExecutionStart` hook 拦截/改参数）→ `ToolRegistry.execute`
    （内部查表 + pydantic 校验，永不抛）→ `_execute_tool`（执行 + `ToolExecutionEnd` hook 改结果），
    把观察文本作为 `role: "tool"` 消息写回 messages（与助手消息的 `tool_call_id` 配对），
-   再问一轮；为空则循环结束，返回模型的文本。循环各阶段触发 hook（`register_hook` 挂载），
+   再问一轮；为空则循环结束，返回模型的文本。循环各阶段触发 hook（构造时 `hooks=` 批量挂载），
    工具路径任何错误（坏 JSON / 未知工具 / 校验失败 / 工具异常 / hook 拦截）都转成
    描述性消息喂回模型，让模型有机会自我纠正
 

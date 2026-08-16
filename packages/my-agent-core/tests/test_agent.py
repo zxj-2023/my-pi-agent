@@ -115,10 +115,11 @@ def test_event_sequence():
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="6")])
     events = []
-    agent = _agent(llm)
-    for cls in (AgentStart, MessageStart, MessageEnd, TurnStart, TurnEnd,
-                ToolExecutionStart, ToolExecutionEnd, AgentEnd):
-        agent.register_hook(cls, events.append)
+    agent = _agent(llm, hooks=[
+        (cls, events.append) for cls in (AgentStart, MessageStart, MessageEnd,
+                                         TurnStart, TurnEnd, ToolExecutionStart,
+                                         ToolExecutionEnd, AgentEnd)
+    ])
     agent.run("compute")
     kinds = [type(e).__name__ for e in events]
     assert kinds == [
@@ -139,8 +140,7 @@ def test_max_iterations():
     tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
     llm = FakeLLM([_response(tool_calls=tc)])  # 只有一轮 tool_calls，没有最终回答
     events = []
-    agent = _agent(llm, max_iterations=1)
-    agent.register_hook(AgentEnd, events.append)
+    agent = _agent(llm, max_iterations=1, hooks=[(AgentEnd, events.append)])
     answer = agent.run("compute")
     assert answer is None
     end = [e for e in events if isinstance(e, AgentEnd)][0]
@@ -180,8 +180,7 @@ def test_hook_blocks_tool():
         return a * b
 
     probe_tool = tool(probe)
-    agent = Agent(llm=llm, tools=[probe_tool])
-    agent.register_hook(ToolExecutionStart, guard)
+    agent = Agent(llm=llm, tools=[probe_tool], hooks=[(ToolExecutionStart, guard)])
     answer = agent.run("compute")
     assert answer == "blocked ok"
     assert called == []  # 工具未执行
@@ -199,8 +198,7 @@ def test_hook_rewrites_args():
             return HookResult(updated_args={"a": event.args["a"] * 10, "b": event.args["b"]})
         return None
 
-    agent = Agent(llm=llm, tools=[multiply])
-    agent.register_hook(ToolExecutionStart, rewrite)
+    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionStart, rewrite)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
@@ -216,8 +214,7 @@ def test_hook_rewrites_result():
             return HookResult(updated_result=f"[{event.result}]")
         return None
 
-    agent = Agent(llm=llm, tools=[multiply])
-    agent.register_hook(ToolExecutionEnd, rewrite)
+    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionEnd, rewrite)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "[6]"
@@ -231,8 +228,7 @@ def test_hook_exception_becomes_error():
     def boom(event):
         raise ValueError("boom")
 
-    agent = Agent(llm=llm, tools=[multiply])
-    agent.register_hook(ToolExecutionStart, boom)
+    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionStart, boom)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error" in tool_msgs[0].content
@@ -246,8 +242,7 @@ def test_tool_execution_end_hook_exception_becomes_error():
     def boom(event):
         raise ValueError("end boom")
 
-    agent = Agent(llm=llm, tools=[multiply])
-    agent.register_hook(ToolExecutionEnd, boom)
+    agent = Agent(llm=llm, tools=[multiply], hooks=[(ToolExecutionEnd, boom)])
     agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error" in tool_msgs[0].content  # 工具执行了，但结果被 End hook 异常替换
@@ -270,10 +265,11 @@ def test_multiple_hooks_same_event():
     def third(event):
         order.append("third")  # 不应被调用
 
-    agent = Agent(llm=llm, tools=[multiply])
-    agent.register_hook(ToolExecutionStart, first)
-    agent.register_hook(ToolExecutionStart, second)
-    agent.register_hook(ToolExecutionStart, third)
+    agent = Agent(llm=llm, tools=[multiply], hooks=[
+        (ToolExecutionStart, first),
+        (ToolExecutionStart, second),
+        (ToolExecutionStart, third),
+    ])
     agent.run("compute")
     assert order == ["first", "second"]  # third 未触发（短路）
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]

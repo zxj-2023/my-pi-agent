@@ -79,11 +79,15 @@ def main() -> None:
     llm = build_llm()
     for question in QUESTIONS:
         print(f"\n=== 问题: {question} ===")
-        agent = Agent(llm=llm, tools=TOOLS, system_prompt=DEMO_SYSTEM_PROMPT)
-        agent.register_hook(TurnStart, print_events)
-        agent.register_hook(ToolExecutionStart, print_events)
-        agent.register_hook(ToolExecutionEnd, print_events)
-        agent.register_hook(AgentEnd, print_events)
+        agent = Agent(
+            llm=llm, tools=TOOLS, system_prompt=DEMO_SYSTEM_PROMPT,
+            hooks=[
+                (TurnStart, print_events),
+                (ToolExecutionStart, print_events),
+                (ToolExecutionEnd, print_events),
+                (AgentEnd, print_events),
+            ],
+        )
         answer = agent.run(question)
         if answer is None:
             print("（达到 max_iterations 上限，未得到最终回答）")

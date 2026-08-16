@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from typing import Callable
 
 from my_agent_llm import LLM, Message
 
@@ -47,7 +48,8 @@ class Agent:
                  context_budget: int | None = None, keep_recent_tokens: int | None = None,
                  skill_dirs: list[str | Path] | None = None,
                  model: str | None = None,
-                 subagent_dirs: list[str | Path] | None = None):
+                 subagent_dirs: list[str | Path] | None = None,
+                 hooks: list[tuple[type[Event], Callable]] | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
         session 非 None 为持久化模式：run() 内每条消息落盘；构造时从 session
@@ -77,6 +79,7 @@ class Agent:
             skill_manager=self.skill_manager, subagent_manager=self.subagent_manager,
         )
         self._init_context(session, context_budget, keep_recent_tokens)   # ③ context 装配
+        self._register_hooks(hooks)   # ④ hooks 批量注册
 
     def _register_tools(self, tools: list[Tool]) -> None:
         """注册用户工具 + 内置 task 工具（撞名 ValueError）。"""
@@ -99,6 +102,11 @@ class Agent:
         )
         if self._ctx_bridge is not None:
             self._ctx_bridge.restore_cache(self._ctx)
+
+    def _register_hooks(self, hooks) -> None:
+        """构造时批量注册 hooks（对称 _register_tools）。"""
+        for event_cls, callback in hooks or []:
+            self.hooks.register(event_cls, callback)
 
     # ── 公共 API ────────────────────────────────────────────
 
@@ -189,14 +197,6 @@ class Agent:
             return
         self._ctx.force_compact(self.messages)
         self._handle_compaction()
-
-    def register_hook(self, event_cls, callback) -> None:
-        """挂一个 hook 到事件类（委托 HookRegistry）。"""
-        self.hooks.register(event_cls, callback)
-
-    def unregister_hook(self, event_cls, callback) -> None:
-        """移除 hook（委托 HookRegistry）。"""
-        self.hooks.unregister(event_cls, callback)
 
     # ── 内部实现（run 循环辅助）──────────────────────────────
 
