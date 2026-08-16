@@ -196,3 +196,81 @@ def extension(api):
     manager.load()
     assert manager.handle_command("ok") == "ok"
     assert "Failed to load extension" in capsys.readouterr().out
+
+
+# ── 端到端（FakeLLM 驱动，extension 经 Agent 装配生效）──────────────
+
+import tempfile
+
+from my_agent_llm import Response
+
+from my_agent_core.agent import Agent
+from my_agent_core.session import Session
+
+
+class _FakeLLM:
+    """替身：chat 按脚本返回 Response，记录 tools。"""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def chat(self, *, messages, tools=None, **kwargs):
+        self.calls.append({"tools": tools})
+        return self.responses.pop(0)
+
+
+def _resp(content="", tool_calls=None):
+    return Response(content=content, model="fake", tool_calls=tool_calls)
+
+
+def _make_agent(llm, tmp_path, extension_dirs):
+    session = Session(path=tmp_path / "s.jsonl")
+    return Agent(llm=llm, tools=[], session=session, extension_dirs=extension_dirs)
+
+
+def test_extension_tool_end_to_end(tmp_path):
+    """extension 注册的工具在 run() 中被模型调用（#15）。"""
+    ext_dir = tmp_path / "exts"
+    ext_dir.mkdir()
+    (ext_dir / "my_ext.py").write_text('''
+def extension(api):
+    @api.tool(description="Double a number")
+    def double(x: int) -> int:
+        """Double x."""
+        return x * 2
+''', encoding="utf-8")
+
+    tc = [{"id": "1", "type": "function", "function": {"name": "double", "arguments": '{"x": 5}'}}]
+    llm = _FakeLLM([_resp(tool_calls=tc), _resp(content="10")])
+    agent = _make_agent(llm, tmp_path, extension_dirs=[ext_dir])
+
+    answer = agent.run("double 5")
+    assert answer == "10"
+    # 第一轮 tools 含 extension 工具
+    assert any(t["function"]["name"] == "double" for t in llm.calls[0]["tools"])
+
+
+def test_extension_hook_end_to_end(tmp_path):
+    """extension 注册的 ToolExecutionStart hook 在 run() 中拦截工具（#16）。"""
+    ext_dir = tmp_path / "exts"
+    ext_dir.mkdir()
+    (ext_dir / "blocker.py").write_text('''
+from my_agent_core.events import HookResult, ToolExecutionStart
+
+def extension(api):
+    @api.on(ToolExecutionStart)
+    def block(event, api):
+        return HookResult(block=True, reason="extension blocked")
+''', encoding="utf-8")
+
+    # 工具被拦后模型收到 "blocked" 观察，直接结束
+    tc = [{"id": "1", "type": "function", "function": {"name": "double", "arguments": '{"x": 5}'}}]
+    llm = _FakeLLM([_resp(tool_calls=tc), _resp(content="done")])
+    agent = _make_agent(llm, tmp_path, extension_dirs=[ext_dir])
+
+    answer = agent.run("double 5")
+    assert answer == "done"
+    # session 里出现被拦观察
+    contents = [m.content for m in agent.session.get_full_history_messages()]
+    assert any("extension blocked" in c for c in contents)

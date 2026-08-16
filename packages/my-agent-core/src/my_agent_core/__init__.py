@@ -10,6 +10,7 @@ from my_agent_core.tools import Tool, ToolResult, tool
 from my_agent_core.session import Session, SessionTree
 from my_agent_core.session_store import SessionStore
 from my_agent_core.context import ContextManager
+from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 
 __all__ = [
     "Agent", "tool", "Tool", "ToolResult", "ToolRegistry",
@@ -18,5 +19,6 @@ __all__ = [
     "MessageStart", "MessageUpdate", "MessageEnd",
     "ToolExecutionStart", "ToolExecutionUpdate", "ToolExecutionEnd",
     "Session", "SessionTree", "SessionStore", "ContextManager",
+    "ExtensionAPI", "ExtensionManager",
     "ContextCompacted", "ToolsChanged",
 ]

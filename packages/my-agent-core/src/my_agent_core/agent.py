@@ -35,6 +35,7 @@ from pathlib import Path
 
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
+from my_agent_core.extensions import ExtensionManager
 from my_agent_core.tools.builtin import make_task_tool
 
 
@@ -48,6 +49,7 @@ class Agent:
                  context_budget: int | None = None, keep_recent_tokens: int | None = None,
                  skill_dirs: list[str | Path] | None = None, model: str | None = None,
                  subagent_dirs: list[str | Path] | None = None,
+                 extension_dirs: list[str | Path] | None = None,
                  hooks: list[tuple[type[Event], Callable]] | None = None):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
@@ -61,6 +63,10 @@ class Agent:
         正文由宿主 invoke_skill 显式注入（模型侧无 read 工具）。
         subagent_dirs 三态同 skill_dirs：None → 探测 <cwd>/.agents/agents；[] → 禁用；
         非空 → 只扫这些目录。有 agent 时清单追加进 system，且自动装配 task 工具。
+        extension_dirs 三态同 skill_dirs/subagent_dirs：None → 探测 <cwd>/.agents/extensions；
+        [] → 禁用；非空 → 只扫这些目录。extension 在 _register_tools 之后加载，注册的工具可覆盖
+        内置工具（对齐 pi）；hook 注册进 hooks（先于构造参数 hooks 触发）；命令存 extension_manager，
+        上层 CLI 调 handle_command 派发。
         """
         self.llm = llm
         self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
@@ -75,6 +81,8 @@ class Agent:
         self.subagent_manager = SubagentManager(subagent_dirs)   # 三态同 skill_dirs
 
         self._register_tools(tools)   # ① 工具注册统一（用户 + 内置 task）
+        self.extension_manager = ExtensionManager(self, extension_dirs)   # extension 装配
+        self.extension_manager.load()   # 加载（工具→registry / hook→hooks / 命令→管理器）
         self.messages = self._init_messages(session, system_prompt)   # ② 拼 system + 恢复
         self._init_context(session, context_budget, keep_recent_tokens)   # ③ context 装配
         self._register_hooks(hooks)   # ④ hooks 批量注册
