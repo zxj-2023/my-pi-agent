@@ -3,8 +3,9 @@ from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
 from my_agent_core.subagents import SubagentManager
-from my_agent_core.tasks import Task, TaskManager, TaskStatus, make_task_tool
+from my_agent_core.tasks import Task, TaskManager, TaskStatus
 from my_agent_core.tools import tool
+from my_agent_core.tools.builtin import make_task_tool
 
 
 class FakeLLM:

@@ -1,7 +1,7 @@
 """subagent 委派的任务生命周期：Task 模型 + TaskStatus + TaskManager（对标 OpenHands task/manager.py）。
 
-委派逻辑（_filter_tools/_system_for/make_task_tool）从 subagents.py 移入；make_task_tool
-退化为工具桥，真实逻辑在 TaskManager。"""
+委派逻辑（_filter_tools/_system_for）从 subagents.py 移入；make_task_tool 已迁至
+tools/builtin.py（工具桥，真实逻辑在 TaskManager）。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,7 +12,6 @@ from my_agent_core.subagents import DEFAULT_SUBAGENT, Subagent, SubagentManager
 
 if TYPE_CHECKING:
     from my_agent_core.agent import Agent
-    from my_agent_core.tools import Tool
 
 
 class TaskStatus(StrEnum):
@@ -110,18 +109,3 @@ class TaskManager:
             return child.run(prompt) or "(no summary)"
         except Exception as exc:
             raise RuntimeError(f"Subagent '{subagent_type}' failed: {exc}") from exc
-
-
-def make_task_tool(manager: SubagentManager, parent: "Agent") -> "Tool":
-    """产出 `task` 委派工具（工具桥：调 TaskManager.start_task → 转字符串）。"""
-    from my_agent_core.tools import Tool
-
-    task_manager = TaskManager(manager, parent)
-
-    def task(prompt: str, agent_type: str = "default") -> str:
-        """Spawn a subagent with fresh context to complete the given prompt.
-        agent_type: name of the subagent definition (see available agents)."""
-        t = task_manager.start_task(prompt, agent_type)
-        return t.result if t.status is TaskStatus.COMPLETED else (t.error or "(no summary)")
-
-    return Tool(func=task, name="task")

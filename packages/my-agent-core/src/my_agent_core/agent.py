@@ -34,7 +34,7 @@ from pathlib import Path
 
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
-from my_agent_core.tasks import make_task_tool
+from my_agent_core.tools.builtin import make_task_tool
 
 
 class Agent:
