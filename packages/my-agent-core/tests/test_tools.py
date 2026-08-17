@@ -8,7 +8,7 @@ from typing import Literal, Optional
 import pytest
 from pydantic import BaseModel
 
-from my_agent_core.tools import ToolResult, tool
+from my_agent_core.tools import Tool, ToolResult, tool
 
 
 # ---------- 装饰期：schema 生成（规格 §7 #1–#8） ----------
@@ -260,3 +260,50 @@ def test_tool_result_serialize():
     assert ToolResult(ok=True, data=42).serialize() == "42"
     assert ToolResult(ok=False, error="bad").serialize() == "bad"
     assert ToolResult(ok=False).serialize() == "Unknown error"
+
+
+def test_tool_result_meta():
+    """ToolResult 支持携带结构化元数据 meta。"""
+    res = ToolResult(
+        ok=True, data="hello", meta={"server": "test_server", "latency_ms": 12}
+    )
+    assert res.ok is True
+    assert res.meta["server"] == "test_server"
+    assert res.meta["latency_ms"] == 12
+
+
+def test_tool_with_raw_schema_and_timeout():
+    """Tool 支持传入 raw_schema 与 timeout，绕过 pydantic 函数注解推导。"""
+    raw_schema = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+            "limit": {"type": "integer", "default": 10},
+        },
+        "required": ["query"],
+    }
+
+    def my_handler(args: dict) -> str:
+        return f"Query: {args.get('query')}, Limit: {args.get('limit', 10)}"
+
+    tool_instance = Tool(
+        func=my_handler,
+        name="external_search",
+        description="External search service",
+        raw_schema=raw_schema,
+        timeout=45.0,
+    )
+
+    # 1. 验证 Schema 生成直接使用 raw_schema
+    schema = tool_instance.to_openai_schema()
+    assert schema["type"] == "function"
+    assert schema["function"]["name"] == "external_search"
+    assert schema["function"]["description"] == "External search service"
+    assert schema["function"]["parameters"] == raw_schema
+
+    # 2. 验证 execute 直接传字典
+    res = tool_instance.execute({"query": "python", "limit": 5})
+    assert res.ok is True
+    assert res.data == "Query: python, Limit: 5"
+    assert tool_instance.timeout == 45.0
+

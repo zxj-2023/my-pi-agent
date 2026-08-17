@@ -8,19 +8,21 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
-from typing import Any, Callable, get_type_hints
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 
 @dataclass
 class ToolResult:
-    """工具执行结果：成功/失败 + 数据或错误消息。"""
+    """工具执行结果：成功/失败 + 数据或错误消息 + 结构化元数据。"""
 
     ok: bool
     data: Any = None
     error: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def serialize(self) -> str:
         """转成写入 messages 的字符串。失败时返回错误文本。"""
@@ -30,7 +32,7 @@ class ToolResult:
 
 
 class Tool:
-    """一个可被模型调用的工具：函数本体 + 参数模型 + 协议转换。"""
+    """一个可被模型调用的工具：函数本体 + 参数模型/原始Schema + 协议转换 + 超时配置。"""
 
     def __init__(
         self,
@@ -39,11 +41,17 @@ class Tool:
         name: str | None = None,
         description: str | None = None,
         params_model: type[BaseModel] | None = None,
+        raw_schema: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ):
         self.func = func
         self.name = name or func.__name__
         self.description = description or (inspect.getdoc(func) or "")
-        self.params_model = params_model or self._create_params_model(func)
+        self.raw_schema = raw_schema
+        self.timeout = timeout
+        self.params_model = params_model or (
+            None if raw_schema else self._create_params_model(func)
+        )
 
     def _create_params_model(self, func: Callable[..., Any]) -> type[BaseModel]:
         """从函数签名动态建模（pydantic create_model）。"""
@@ -79,28 +87,45 @@ class Tool:
             ) from exc
 
     def to_openai_schema(self) -> dict[str, Any]:
-        """生成 OpenAI tools 参数（pydantic 原始 schema）。"""
+        """生成 OpenAI tools 参数。"""
+        if self.raw_schema is not None:
+            params = self.raw_schema
+        elif self.params_model is not None:
+            params = self.params_model.model_json_schema()
+        else:
+            params = {}
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.params_model.model_json_schema(),
+                "parameters": params,
             },
         }
 
     def execute(self, args: dict[str, Any]) -> ToolResult:
         """校验 + 执行，永不抛（错误全部转 ToolResult）。"""
-        try:
-            validated = self.params_model.model_validate(args)
-        except ValidationError as exc:
-            return ToolResult(ok=False, error=str(exc))
-        try:
-            result = self.func(**validated.model_dump())
-        except Exception as exc:  # 工具错误 → 消息，喂回模型
-            return ToolResult(
-                ok=False, error=f"Error executing tool '{self.name}': {exc}"
-            )
+        if self.params_model is not None:
+            try:
+                validated = self.params_model.model_validate(args)
+            except ValidationError as exc:
+                return ToolResult(ok=False, error=str(exc))
+            try:
+                result = self.func(**validated.model_dump())
+            except Exception as exc:  # 工具错误 → 消息，喂回模型
+                return ToolResult(
+                    ok=False, error=f"Error executing tool '{self.name}': {exc}"
+                )
+        else:
+            try:
+                result = self.func(args)
+            except Exception as exc:  # 工具错误 → 消息，喂回模型
+                return ToolResult(
+                    ok=False, error=f"Error executing tool '{self.name}': {exc}"
+                )
+
+        if isinstance(result, ToolResult):
+            return result
         return ToolResult(ok=True, data=result)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -114,6 +139,8 @@ def tool(
     name: str | None = None,
     description: str | None = None,
     params_model: type[BaseModel] | None = None,
+    raw_schema: dict[str, Any] | None = None,
+    timeout: float | None = None,
 ):
     """@tool 装饰器：支持 @tool 与 @tool(name=..., description=..., params_model=...)。
 
@@ -123,7 +150,12 @@ def tool(
 
     def decorator(f: Callable[..., Any]) -> Tool:
         return Tool(
-            func=f, name=name, description=description, params_model=params_model
+            func=f,
+            name=name,
+            description=description,
+            params_model=params_model,
+            raw_schema=raw_schema,
+            timeout=timeout,
         )
 
     if func is None:
