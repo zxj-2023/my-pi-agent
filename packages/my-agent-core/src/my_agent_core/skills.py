@@ -6,6 +6,7 @@ SkillManager 为 Repository 形态：持有 dict 状态，构造即发现，查�
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -101,7 +102,7 @@ class SkillManager:
     def __contains__(self, name: str) -> bool:
         return name in self.skills
 
-    def format_prompt(self, names: list[str] | None = None) -> str:
+    def format_prompt(self, names: Sequence[str] | None = None) -> str:
         """全部（或指定名字子集）skills → XML 清单块；空 → 空串（进 system）。
         names 给定只格式化这些名字（供 subagent skills 字段取子集）；未知名忽略。"""
         skills = (

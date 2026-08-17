@@ -2,6 +2,7 @@
 
 委派逻辑（_filter_tools/_system_for）从 subagents.py 移入；make_task_tool 已迁至
 tools/builtin.py（工具桥，真实逻辑在 TaskManager）。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -45,7 +46,7 @@ class Task:
         self.status = TaskStatus.ERROR
 
 
-def _system_for(sub: Subagent, parent: "Agent") -> str:
+def _system_for(sub: Subagent, parent: Agent) -> str:
     """子代理 system = 正文 + （若有 skills）子集清单；不收父 system prompt（Claude 官方语义）。"""
     parts = [sub.content]
     if sub.skills:
@@ -55,7 +56,7 @@ def _system_for(sub: Subagent, parent: "Agent") -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def _filter_tools(parent: "Agent", sub: Subagent) -> list:
+def _filter_tools(parent: Agent, sub: Subagent) -> list:
     """父工具集按白/黑名单过滤；task 永不出现（防递归）。"""
     tools = [t for t in parent.registry.list() if t.name != "task"]
     if sub.tools is not None:
@@ -69,9 +70,9 @@ def _filter_tools(parent: "Agent", sub: Subagent) -> list:
 class TaskManager:
     """委派任务的生命周期管理器（对标 OpenHands TaskManager）。"""
 
-    def __init__(self, manager: SubagentManager, parent: "Agent"):
-        self._manager = manager     # 查 agent 定义
-        self._parent = parent       # 供 llm/工具集/skill_manager/max_iterations
+    def __init__(self, manager: SubagentManager, parent: Agent):
+        self._manager = manager  # 查 agent 定义
+        self._parent = parent  # 供 llm/工具集/skill_manager/max_iterations
         self._counter = 0
 
     def start_task(self, prompt: str, subagent_type: str = "default") -> Task:
@@ -89,20 +90,25 @@ class TaskManager:
 
     def _run(self, prompt: str, subagent_type: str, task_id: str) -> str:
         """查定义 → 建独立 session → 过滤工具 → spawn 子 Agent → run → 返回最终文本。"""
-        from my_agent_core.agent import Agent   # 延迟 import 避循环
+        from my_agent_core.agent import Agent  # 延迟 import 避循环
 
         sub = self._manager.get(subagent_type)
         if sub is None and subagent_type == "default":
             sub = DEFAULT_SUBAGENT
         if sub is None:
             available = ", ".join(sorted(self._manager.subagents)) or "(none)"
-            raise ValueError(f"Unknown subagent '{subagent_type}'. Available: {available}")
+            raise ValueError(
+                f"Unknown subagent '{subagent_type}'. Available: {available}"
+            )
         child_session = Session(
-            path=self._parent.session.path.parent / "subagents" / f"agent-{task_id}.jsonl",
+            path=self._parent.session.path.parent
+            / "subagents"
+            / f"agent-{task_id}.jsonl",
             cwd=self._parent.session.cwd,
-            metadata={"agent_type": subagent_type,
-                      "spawn_depth": self._parent._spawn_depth + 1,
-                      "parent_session_id": self._parent.session.id},
+            metadata={
+                "agent_type": subagent_type,
+                "parent_session_id": self._parent.session.id,
+            },
         )
         child_session.save()
         child = Agent(
@@ -111,9 +117,11 @@ class TaskManager:
             session=child_session,
             system_prompt=_system_for(sub, self._parent),
             model=sub.model,
-            max_iterations=sub.max_turns if sub.max_turns is not None else self._parent.max_iterations,
-            skill_dirs=[],      # skill 清单已由 _system_for 拼入
-            subagent_dirs=[],   # 防递归：禁用子代理再探测
+            max_iterations=sub.max_turns
+            if sub.max_turns is not None
+            else self._parent.max_iterations,
+            skill_dirs=[],  # skill 清单已由 _system_for 拼入
+            subagent_dirs=[],  # 防递归：禁用子代理再探测
         )
         try:
             return child.run(prompt) or "(no summary)"

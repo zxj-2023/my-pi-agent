@@ -3,14 +3,16 @@
 一个会话 = 一棵树（entry 带 id/parent_id）+ current_id 指针。rewind = 移动指针、
 旧分支保留。文件格式见 session 设计文档 §3：header 行 + 每行一个 entry。
 """
+
 from __future__ import annotations
 
 import json
 import os
 import tempfile
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from uuid import uuid4
 
 from my_agent_llm import Message
@@ -43,7 +45,9 @@ class SessionTree:
         """追加到 current 下（或指定 parent）。首个 entry 成为根。"""
         if parent_id is None:
             parent_id = self.current_id
-        entry = SessionEntry(parent_id=parent_id, role=role, content=content, metadata=metadata)
+        entry = SessionEntry(
+            parent_id=parent_id, role=role, content=content, metadata=metadata
+        )
         self.entries[entry.id] = entry
         self.current_id = entry.id
         if self.root_id is None:
@@ -78,7 +82,7 @@ class SessionTree:
         return "\n".join(e.model_dump_json() for e in self.entries.values())
 
     @classmethod
-    def from_jsonl_iter(cls, lines: Iterable[str]) -> "SessionTree":
+    def from_jsonl_iter(cls, lines: Iterable[str]) -> SessionTree:
         """从 entry 行重建树。任一行损坏抛 ValueError（带行号）。head 之后从 2 起算。"""
         tree = cls()
         for line_no, line in enumerate(lines, start=2):
@@ -98,7 +102,9 @@ class SessionTree:
 class Session:
     """树 + 文件持久化（逐条原子全量重写）。"""
 
-    def __init__(self, *, path: Path, cwd: str | None = None, metadata: dict | None = None):
+    def __init__(
+        self, *, path: Path, cwd: str | None = None, metadata: dict | None = None
+    ):
         """新建会话（纯对话，不含 system）。不立即写文件。"""
         self.path = Path(path)
         self.id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
@@ -106,10 +112,12 @@ class Session:
         self.cwd = cwd or str(Path.cwd())
         self.tree = SessionTree()
         self.compaction_floor: str | None = None
-        self.metadata = metadata or {}   # 额外元数据（子代理：agent_type/spawn_depth/parent_session_id），进 header
+        self.metadata = (
+            metadata or {}
+        )  # 额外元数据（子代理：agent_type/parent_session_id），进 header
 
     @classmethod
-    def load(cls, path: Path) -> "Session":
+    def load(cls, path: Path) -> Session:
         """从 JSONL 文件恢复整棵树。header 缺失/非法/缺必要字段 → ValueError；
         非尾行 JSON 损坏 → ValueError（带行号）；尾行撕裂 → 丢弃该行（宽容兜底）。"""
         path = Path(path)
@@ -122,8 +130,12 @@ class Session:
         except json.JSONDecodeError as exc:
             raise ValueError(f"Session file {path}: invalid header: {exc}") from exc
         # 必要字段门禁（替代 type/version 标签：缺 id/created_at 的文件不是会话）
-        if not isinstance(header.get("id"), str) or not isinstance(header.get("created_at"), str):
-            raise ValueError(f"Session file {path}: invalid header (missing id/created_at)")
+        if not isinstance(header.get("id"), str) or not isinstance(
+            header.get("created_at"), str
+        ):
+            raise ValueError(
+                f"Session file {path}: invalid header (missing id/created_at)"
+            )
         # 尾行撕裂：最后一行 JSON 损坏 → 丢弃
         tree_lines = lines[1:]
         if tree_lines and tree_lines[-1].strip():
@@ -167,8 +179,13 @@ class Session:
         ]
 
     def add_summary_cache(
-        self, summary: str, *, covered_count: int, retained_tail: list[dict],
-        tokens_before: int, summary_usage: dict | None = None,
+        self,
+        summary: str,
+        *,
+        covered_count: int,
+        retained_tail: list[dict],
+        tokens_before: int,
+        summary_usage: dict | None = None,
         summary_model: str | None = None,
     ) -> None:
         """写一条 type='compaction' 缓存 entry（不动 current_id）+ 更新 compaction_floor。
@@ -185,8 +202,11 @@ class Session:
         if summary_model is not None:
             metadata["summary_model"] = summary_model
         entry = SessionEntry(
-            parent_id=self.tree.current_id, type="compaction",
-            role="system", content=summary, metadata=metadata,
+            parent_id=self.tree.current_id,
+            type="compaction",
+            role="system",
+            content=summary,
+            metadata=metadata,
         )
         self.tree.entries[entry.id] = entry
         self.compaction_floor = self.tree.current_id
@@ -209,10 +229,14 @@ class Session:
 
         供 ContextSessionBridge.restore_cache 用（取沿路径回溯最深的 = 最后一次压缩）。
         """
-        cache_entries = [e for e in self.tree.entries.values() if e.type == "compaction"]
+        cache_entries = [
+            e for e in self.tree.entries.values() if e.type == "compaction"
+        ]
         if not cache_entries:
             return None
-        latest = max(cache_entries, key=lambda e: len(self.tree.get_path_to_entry(e.id)))
+        latest = max(
+            cache_entries, key=lambda e: len(self.tree.get_path_to_entry(e.id))
+        )
         md = latest.metadata
         return {
             "summary": latest.content,

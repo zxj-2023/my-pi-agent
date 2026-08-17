@@ -5,10 +5,12 @@
 
 模型边界交给 my-agent-llm 的 LLM 门面；消息状态是 Message 对象列表。
 """
+
 from __future__ import annotations
 
 import json
-from typing import Callable
+from collections.abc import Callable
+from pathlib import Path
 
 from my_agent_llm import LLM, Message
 
@@ -27,15 +29,12 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
+from my_agent_core.extensions import ExtensionManager
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
-from my_agent_core.tools import Tool
-
-from pathlib import Path
-
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
-from my_agent_core.extensions import ExtensionManager
+from my_agent_core.tools import Tool
 from my_agent_core.tools.builtin import make_task_tool
 
 
@@ -44,13 +43,22 @@ class Agent:
 
     # ── 构造与装配 ──────────────────────────────────────────
 
-    def __init__(self, *, llm: LLM, tools: list[Tool], session: Session,
-                 system_prompt: str | None = None, max_iterations: int | None = None,
-                 context_budget: int | None = None, keep_recent_tokens: int | None = None,
-                 skill_dirs: list[str | Path] | None = None, model: str | None = None,
-                 subagent_dirs: list[str | Path] | None = None,
-                 extension_dirs: list[str | Path] | None = None,
-                 hooks: list[tuple[type[Event], Callable]] | None = None):
+    def __init__(
+        self,
+        *,
+        llm: LLM,
+        tools: list[Tool],
+        session: Session,
+        system_prompt: str | None = None,
+        max_iterations: int | None = None,
+        context_budget: int | None = None,
+        keep_recent_tokens: int | None = None,
+        skill_dirs: list[str | Path] | None = None,
+        model: str | None = None,
+        subagent_dirs: list[str | Path] | None = None,
+        extension_dirs: list[str | Path] | None = None,
+        hooks: list[tuple[type[Event], Callable]] | None = None,
+    ):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
         session 必填：run() 内每条消息落盘；构造时从 session 当前路径恢复纯对话，
@@ -69,23 +77,30 @@ class Agent:
         上层 CLI 调 handle_command 派发。
         """
         self.llm = llm
-        self.model = model          # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
+        self.model = model  # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
         self.max_iterations = max_iterations
         self.session = session
-        self._spawn_depth = 0     # 委派层级：父默认为 0，子代理 spawn 时 +1 记录
-        self._system_prompt = system_prompt     # 保存，reset 重拼用
+        self._system_prompt = system_prompt  # 保存，reset 重拼用
         self.hooks = HookRegistry()
         self.registry = ToolRegistry()
-        self.skill_manager = SkillManager(skill_dirs)   # None→探测默认 / []→禁用 / 显式→目录
-        self.skills: list[Skill] = self.skill_manager.list()   # 兼容代理
-        self.subagent_manager = SubagentManager(subagent_dirs)   # 三态同 skill_dirs
+        self.skill_manager = SkillManager(
+            skill_dirs
+        )  # None→探测默认 / []→禁用 / 显式→目录
+        self.skills: list[Skill] = self.skill_manager.list()  # 兼容代理
+        self.subagent_manager = SubagentManager(subagent_dirs)  # 三态同 skill_dirs
 
-        self._register_tools(tools)   # ① 工具注册统一（用户 + 内置 task）
-        self.extension_manager = ExtensionManager(self, extension_dirs)   # extension 装配
-        self.extension_manager.load()   # 加载（工具→registry / hook→hooks / 命令→管理器）
-        self.messages = self._init_messages(session, system_prompt)   # ② 拼 system + 恢复
-        self._init_context(session, context_budget, keep_recent_tokens)   # ③ context 装配
-        self._register_hooks(hooks)   # ④ hooks 批量注册
+        self._register_tools(tools)  # ① 工具注册统一（用户 + 内置 task）
+        self.extension_manager = ExtensionManager(
+            self, extension_dirs
+        )  # extension 装配
+        self.extension_manager.load()  # 加载（工具→registry / hook→hooks / 命令→管理器）
+        self.messages = self._init_messages(
+            session, system_prompt
+        )  # ② 拼 system + 恢复
+        self._init_context(
+            session, context_budget, keep_recent_tokens
+        )  # ③ context 装配
+        self._register_hooks(hooks)  # ④ hooks 批量注册
 
     def _register_tools(self, tools: list[Tool]) -> None:
         """注册用户工具 + 内置 task 工具（撞名 ValueError）。"""
@@ -93,23 +108,35 @@ class Agent:
             self.registry.register(t)
         if self.subagent_manager:
             if self.registry.get("task") is not None:
-                raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
+                raise ValueError(
+                    "Tool name 'task' conflicts with the built-in subagent delegation tool"
+                )
             self.registry.register(make_task_tool(self.subagent_manager, self))
 
-    def _init_messages(self, session: Session, system_prompt: str | None) -> list[Message]:
+    def _init_messages(
+        self, session: Session, system_prompt: str | None
+    ) -> list[Message]:
         """拼 system（Agent 配置）+ 恢复 session 纯对话，合成初始 messages。"""
-        parts = [p for p in (
-            system_prompt or "",
-            self.skill_manager.format_prompt(),
-            self.subagent_manager.format_prompt(),
-        ) if p]
-        messages = session.get_full_history_messages()   # 纯对话（不含 system）
+        parts = [
+            p
+            for p in (
+                system_prompt or "",
+                self.skill_manager.format_prompt(),
+                self.subagent_manager.format_prompt(),
+            )
+            if p
+        ]
+        messages = session.get_full_history_messages()  # 纯对话（不含 system）
         if parts:
             messages.insert(0, Message(role="system", content="\n\n".join(parts)))
         return messages
 
-    def _init_context(self, session: Session, context_budget: int | None,
-                      keep_recent_tokens: int | None) -> None:
+    def _init_context(
+        self,
+        session: Session,
+        context_budget: int | None,
+        keep_recent_tokens: int | None,
+    ) -> None:
         """装配 context 管理（默认启用）：context_budget None → 用 ContextManager 默认 budget。"""
         self._ctx_bridge = ContextSessionBridge(session)
         self._ctx = ContextManager(
@@ -156,33 +183,51 @@ class Agent:
                 metadata={"tool_calls": resp.tool_calls} if resp.tool_calls else None,
             )
             self.messages.append(assistant)
-            self.session.add_message("assistant", assistant.content,
-                                     **(assistant.metadata or {}))
+            self.session.add_message(
+                "assistant", assistant.content, **(assistant.metadata or {})
+            )
             self._emit(MessageStart(assistant))
             self._emit(MessageEnd(assistant))
             # ── 经典退出条件：模型不再发起工具调用 → 结束。
             if not resp.tool_calls:
-                self._emit(AgentEnd(
-                    messages=list(self.messages), final_text=resp.content,
-                    iterations=iteration, stop_reason="end_turn"))
+                self._emit(
+                    AgentEnd(
+                        messages=list(self.messages),
+                        final_text=resp.content,
+                        iterations=iteration,
+                        stop_reason="end_turn",
+                    )
+                )
                 return resp.content
             # ── Act + Observe：逐个执行本轮全部 tool_calls，结果写回 messages。
             tool_results: list[Message] = []
             for tc in resp.tool_calls:
-                name, args, err, _hook = self._prepare_tool(tc)  # 内部触发 ToolExecutionStart + hook
+                name, args, err, _hook = self._prepare_tool(
+                    tc
+                )  # 内部触发 ToolExecutionStart + hook
                 # err 非 None 时它本身就是观察文本；否则执行工具（内部触发 ToolExecutionEnd + hook）
-                observation = err if err is not None else self._execute_tool(tc, args)[0]
+                observation = (
+                    err if err is not None else self._execute_tool(tc, args)[0]
+                )
                 tool_msg = Message(
-                    role="tool", content=observation, metadata={"tool_call_id": tc["id"]})
+                    role="tool",
+                    content=observation,
+                    metadata={"tool_call_id": tc["id"]},
+                )
                 self.messages.append(tool_msg)
                 self.session.add_message("tool", observation, tool_call_id=tc["id"])
                 self._emit(MessageStart(tool_msg))
                 self._emit(MessageEnd(tool_msg))
                 tool_results.append(tool_msg)
             self._emit(TurnEnd(message=assistant, tool_results=tool_results))
-        self._emit(AgentEnd(
-            messages=list(self.messages), final_text=None,
-            iterations=iteration, stop_reason="max_iterations"))
+        self._emit(
+            AgentEnd(
+                messages=list(self.messages),
+                final_text=None,
+                iterations=iteration,
+                stop_reason="max_iterations",
+            )
+        )
         return None
 
     def invoke_skill(self, name: str, instructions: str = "") -> str | None:
@@ -207,7 +252,9 @@ class Agent:
         """封装 llm.chat：透传 model（SDK 通用参数）。"""
         return self.llm.chat(messages=messages, tools=tools, model=self.model)
 
-    def _prepare_tool(self, tc: dict) -> tuple[str, dict, str | None, HookResult | None]:
+    def _prepare_tool(
+        self, tc: dict
+    ) -> tuple[str, dict, str | None, HookResult | None]:
         """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。
 
         args 为实际生效参数（hook 改写后；畸形 JSON 时为空 dict）。
@@ -222,7 +269,12 @@ class Agent:
         try:
             hook = self._emit(ToolExecutionStart(tc["id"], name, args))
         except Exception as exc:  # hook 抛异常 → 转错误字符串，不中断循环
-            return name, args, f"Error in ToolExecutionStart hook for '{name}': {exc}", None
+            return (
+                name,
+                args,
+                f"Error in ToolExecutionStart hook for '{name}': {exc}",
+                None,
+            )
         # 防御：hook 违反契约返回非 HookResult 真值（如 True）时按无干预处理，避免 AttributeError 穿出
         if isinstance(hook, HookResult) and hook.block:
             return name, args, f"Tool '{name}' blocked: {hook.reason}", hook
@@ -238,13 +290,18 @@ class Agent:
         name = tc["function"]["name"]
         # 执行：以改写后 args 生效（序列化回协议 dict 交给 registry）
         try:
-            effective = {**tc, "function": {**tc["function"], "arguments": json.dumps(args)}}
+            effective = {
+                **tc,
+                "function": {**tc["function"], "arguments": json.dumps(args)},
+            }
             result = self.registry.execute(effective)
         except Exception as exc:  # json.dumps 兜底（registry.execute 自身声明永不抛）
             return f"Error executing tool '{name}': {exc}", True
         # ToolExecutionEnd hook：改写结果（updated_result）
         try:
-            hook = self._emit(ToolExecutionEnd(tc["id"], name, result.serialize(), not result.ok))
+            hook = self._emit(
+                ToolExecutionEnd(tc["id"], name, result.serialize(), not result.ok)
+            )
         except Exception as exc:  # hook 抛异常 → 转错误字符串，不中断循环
             return f"Error in ToolExecutionEnd hook for '{name}': {exc}", True
         # 防御：hook 违反契约返回非 HookResult 真值（如 True）时按无干预处理，避免 AttributeError 穿出
@@ -257,11 +314,13 @@ class Agent:
         self._ctx_bridge.write_compaction(self._ctx)
         info = self._ctx.pending_compaction
         if info is not None:
-            self._emit(ContextCompacted(
-                tokens_before=info.tokens_before,
-                tokens_after=info.tokens_after,
-                summarized_count=info.summarized_count,
-            ))
+            self._emit(
+                ContextCompacted(
+                    tokens_before=info.tokens_before,
+                    tokens_after=info.tokens_after,
+                    summarized_count=info.summarized_count,
+                )
+            )
 
     def _emit(self, event: Event) -> HookResult | None:
         """触发事件的所有 hook（委托 HookRegistry）。"""
