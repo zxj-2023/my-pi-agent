@@ -48,20 +48,23 @@ def test_mcp_extension_integration(tmp_path):
 
     # 2. 写入 .mcp.json
     mcp_config = tmp_path / ".mcp.json"
-    mcp_config.write_text(json.dumps({
-        "mcpServers": {
-            "calc": {
-                "command": sys.executable,
-                "args": [str(server_script)]
+    mcp_config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "calc": {"command": sys.executable, "args": [str(server_script)]}
+                }
             }
-        }
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
 
     # 3. 编写 MCP 加载 extension 脚本
     ext_dir = tmp_path / "exts"
     ext_dir.mkdir()
     ext_file = ext_dir / "mcp_ext.py"
-    ext_file.write_text(f"""
+    ext_file.write_text(
+        f"""
 from my_agent_core.mcp import MCPClientManager
 from pathlib import Path
 
@@ -72,20 +75,28 @@ def extension(api):
         tools = manager.connect_server(cfg)
         for t in tools:
             api.register_tool(t)
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     # 4. 组装 Agent 并运行
-    llm = FakeLLM([
-        _response(tool_calls=[{
-            "id": "call_1",
-            "type": "function",
-            "function": {
-                "name": "mcp_add",
-                "arguments": json.dumps({"a": 10, "b": 25})
-            }
-        }]),
-        _response(content="Result is 35"),
-    ])
+    llm = FakeLLM(
+        [
+            _response(
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "mcp_add",
+                            "arguments": json.dumps({"a": 10, "b": 25}),
+                        },
+                    }
+                ]
+            ),
+            _response(content="Result is 35"),
+        ]
+    )
 
     session = Session(path=tmp_path / "session.jsonl")
     agent = Agent(llm=llm, tools=[], session=session, extension_dirs=[ext_dir])

@@ -1,4 +1,5 @@
 """my_agent_core 公共 API。"""
+
 from my_agent_core.agent import Agent
 from my_agent_core.context import ContextManager
 from my_agent_core.events import (
@@ -26,13 +27,33 @@ from my_agent_core.session_store import SessionStore
 from my_agent_core.tools import Tool, ToolResult, tool
 
 __all__ = [
-    "Agent", "tool", "Tool", "ToolResult", "ToolRegistry",
-    "HookResult", "Interceptable", "Event",
-    "AgentStart", "AgentEnd", "TurnStart", "TurnEnd",
-    "MessageStart", "MessageUpdate", "MessageEnd",
-    "ToolExecutionStart", "ToolExecutionUpdate", "ToolExecutionEnd",
-    "Session", "SessionTree", "SessionStore", "ContextManager",
-    "ExtensionAPI", "ExtensionManager",
-    "MCPClientManager", "MCPConnection", "MCPServerConfig",
-    "ContextCompacted", "ToolsChanged",
+    "Agent",
+    "tool",
+    "Tool",
+    "ToolResult",
+    "ToolRegistry",
+    "HookResult",
+    "Interceptable",
+    "Event",
+    "AgentStart",
+    "AgentEnd",
+    "TurnStart",
+    "TurnEnd",
+    "MessageStart",
+    "MessageUpdate",
+    "MessageEnd",
+    "ToolExecutionStart",
+    "ToolExecutionUpdate",
+    "ToolExecutionEnd",
+    "Session",
+    "SessionTree",
+    "SessionStore",
+    "ContextManager",
+    "ExtensionAPI",
+    "ExtensionManager",
+    "MCPClientManager",
+    "MCPConnection",
+    "MCPServerConfig",
+    "ContextCompacted",
+    "ToolsChanged",
 ]
