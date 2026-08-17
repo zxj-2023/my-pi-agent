@@ -3,13 +3,13 @@
 无需 API key。测试清单对应
 docs/superpowers/specs/2026-08-03-pydantic-tool-schema-design.md §7。
 """
-from typing import Literal, Optional
+
+from typing import Literal
 
 import pytest
 from pydantic import BaseModel
 
 from my_agent_core.tools import Tool, ToolResult, tool
-
 
 # ---------- 装饰期：schema 生成（规格 §7 #1–#8） ----------
 
@@ -59,7 +59,7 @@ def test_schema_optional():
     """#4 Optional：无默认值仍必填（anyOf 形式）；= None 时可选。"""
 
     @tool
-    def f(a: Optional[int], b: Optional[int] = None) -> None:
+    def f(a: int | None, b: int | None = None) -> None:
         """doc"""
 
     params = f.to_openai_schema()["function"]["parameters"]
@@ -161,8 +161,9 @@ def test_tool_description_override():
 
 def test_tool_params_model_override():
     """params_model 覆盖：外部传入 BaseModel。"""
-    from my_agent_core.tools import tool as _tool
     from pydantic import BaseModel as BM
+
+    from my_agent_core.tools import tool as _tool
 
     class MyArgs(BM):
         city: str
@@ -306,4 +307,3 @@ def test_tool_with_raw_schema_and_timeout():
     assert res.ok is True
     assert res.data == "Query: python, Limit: 5"
     assert tool_instance.timeout == 45.0
-
