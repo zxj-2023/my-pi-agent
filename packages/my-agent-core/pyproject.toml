@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.0,<2.0",
     "pyyaml>=6.0",
     "my-agent-llm",
+    "mcp>=2.0.0",
 ]
 
 [tool.uv.sources]
