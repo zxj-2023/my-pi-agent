@@ -29,7 +29,8 @@ if __name__ == "__main__":
 def test_mcp_config_parsing(tmp_path):
     """验证 .mcp.json 配置正确解析。"""
     config_file = tmp_path / ".mcp.json"
-    config_file.write_text("""
+    config_file.write_text(
+        """
     {
       "mcpServers": {
         "local_srv": {
@@ -39,7 +40,9 @@ def test_mcp_config_parsing(tmp_path):
         }
       }
     }
-    """, encoding="utf-8")
+    """,
+        encoding="utf-8",
+    )
 
     manager = MCPClientManager()
     configs = manager.load_config(config_file)
