@@ -262,9 +262,7 @@ class Agent:
             assistant = Message(
                 role="assistant",
                 content=content_acc,
-                metadata={"tool_calls": final_tool_calls}
-                if final_tool_calls
-                else None,
+                metadata={"tool_calls": final_tool_calls} if final_tool_calls else None,
             )
             self.messages.append(assistant)
             self.session.add_message(
