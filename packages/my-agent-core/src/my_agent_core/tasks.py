@@ -75,11 +75,11 @@ class TaskManager:
         self._parent = parent  # 供 llm/工具集/skill_manager/max_iterations
         self._counter = 0
 
-    def start_task(self, prompt: str, subagent_type: str = "default") -> Task:
-        """同步阻塞：建 Task(RUNNING) → spawn → run → 更新状态 → 返回。"""
+    async def start_task(self, prompt: str, subagent_type: str = "default") -> Task:
+        """异步：建 Task(RUNNING) → spawn → run → 更新状态 → 返回。"""
         task = self._create_task(subagent_type)
         try:
-            task.set_result(self._run(prompt, subagent_type, task.id))
+            task.set_result(await self._run(prompt, subagent_type, task.id))
         except Exception as exc:
             task.set_error(str(exc))
         return task
@@ -88,7 +88,7 @@ class TaskManager:
         self._counter += 1
         return Task(id=f"task_{self._counter:08x}", status=TaskStatus.RUNNING)
 
-    def _run(self, prompt: str, subagent_type: str, task_id: str) -> str:
+    async def _run(self, prompt: str, subagent_type: str, task_id: str) -> str:
         """查定义 → 建独立 session → 过滤工具 → spawn 子 Agent → run → 返回最终文本。"""
         from my_agent_core.agent import Agent  # 延迟 import 避循环
 
@@ -124,6 +124,6 @@ class TaskManager:
             subagent_dirs=[],  # 防递归：禁用子代理再探测
         )
         try:
-            return child.run(prompt) or "(no summary)"
+            return (await child.run(prompt)) or "(no summary)"
         except Exception as exc:
             raise RuntimeError(f"Subagent '{subagent_type}' failed: {exc}") from exc
