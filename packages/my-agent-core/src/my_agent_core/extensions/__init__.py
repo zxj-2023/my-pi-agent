@@ -5,6 +5,7 @@ ExtensionManager 是 Repository（发现 / 加载 / 命令调度），对标 Ski
 SubagentManager。加载协议：扩展文件定义 `def extension(api)`（或 default /
 第一个形参名含 api 的函数），由 importlib 动态加载。
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -14,7 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from my_agent_core.events import Event
-from my_agent_core.tools import Tool, tool as _tool
+from my_agent_core.tools import Tool
+from my_agent_core.tools import tool as _tool
 
 if TYPE_CHECKING:
     from my_agent_core.agent import Agent
@@ -25,7 +27,7 @@ CommandHandler = Callable[..., Any]
 class ExtensionAPI:
     """暴露给 extension 的能力面：事件订阅 + 工具注册 + 命令。"""
 
-    def __init__(self, agent: "Agent") -> None:
+    def __init__(self, agent: Agent) -> None:
         self.agent = agent
         self._commands: dict[str, CommandHandler] = {}
 
@@ -34,9 +36,11 @@ class ExtensionAPI:
     def on(self, event_cls: type[Event], handler=None):
         """注册事件 handler（可作装饰器）。handler 签名 (event, api)：
         返回 None=观察，返回 HookResult=干预（block/updated_args/updated_result）。"""
+
         def _register(h):
             def wrapped(event: Event):
                 return h(event, self)
+
             self.agent.hooks.register(event_cls, wrapped)
             return h
 
@@ -53,6 +57,7 @@ class ExtensionAPI:
 
     def tool(self, **kwargs: Any):
         """@api.tool(description=...) 装饰器：@tool 包装 + register_tool。"""
+
         def decorator(func) -> Tool:
             t = _tool(**kwargs)(func)
             self.register_tool(t)
@@ -62,12 +67,15 @@ class ExtensionAPI:
 
     # ── 命令（注册 + 存表，调度在 ExtensionManager）────────────────────
 
-    def register_command(self, name: str, handler: CommandHandler, description: str = "") -> None:
+    def register_command(
+        self, name: str, handler: CommandHandler, description: str = ""
+    ) -> None:
         """注册命令（name 不含 /）。"""
         self._commands[name] = handler
 
     def command(self, name: str, description: str = ""):
         """@api.command("now") 装饰器。"""
+
         def decorator(func: CommandHandler) -> CommandHandler:
             self.register_command(name, func, description)
             return func
@@ -82,9 +90,9 @@ class ExtensionAPI:
 class ExtensionManager:
     """扩展管理器（Repository）：发现 / 加载 / 命令调度。"""
 
-    DEFAULT_DIR_NAME = "extensions"   # <cwd>/.agents/extensions
+    DEFAULT_DIR_NAME = "extensions"  # <cwd>/.agents/extensions
 
-    def __init__(self, agent: "Agent", extension_dirs: list[str | Path] | None = None):
+    def __init__(self, agent: Agent, extension_dirs: list[str | Path] | None = None):
         """解析目录（三态同 skill_dirs）：None → 探测 <cwd>/.agents/extensions；
         [] → 禁用；非空 → 只扫这些目录。load() 显式加载（有副作用）。"""
         self.agent = agent
@@ -150,3 +158,6 @@ class ExtensionManager:
         if len(inspect.signature(handler).parameters) > 0:
             return handler(args)
         return handler()
+
+
+__all__ = ["ExtensionAPI", "ExtensionManager", "CommandHandler"]

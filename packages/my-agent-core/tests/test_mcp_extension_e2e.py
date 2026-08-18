@@ -6,6 +6,9 @@ import sys
 from my_agent_llm import Response
 
 from my_agent_core import Agent
+from my_agent_core.extensions.builtin.mcp import (
+    extension as mcp_extension,
+)
 from my_agent_core.session import Session
 
 FAKE_SERVER_CODE = """
@@ -65,7 +68,7 @@ def test_mcp_extension_integration(tmp_path):
     ext_file = ext_dir / "mcp_ext.py"
     ext_file.write_text(
         f"""
-from my_agent_core.mcp import MCPClientManager
+from my_agent_core.extensions.builtin.mcp import MCPClientManager
 from pathlib import Path
 
 def extension(api):
@@ -112,3 +115,43 @@ def extension(api):
     # 验证历史记录正确收到了工具结果
     tool_msg = [m for m in agent.messages if m.role == "tool"][0]
     assert tool_msg.content == "35"
+
+
+def test_builtin_mcp_extension_with_command(tmp_path, monkeypatch):
+    """验证内置 mcp.py extension 入口函数与 /mcp 状态命令。"""
+    monkeypatch.chdir(tmp_path)
+
+    # 1. 写入 Fake MCP Server 脚本
+    server_script = tmp_path / "server.py"
+    server_script.write_text(FAKE_SERVER_CODE, encoding="utf-8")
+
+    # 2. 写入 .mcp.json
+    mcp_config = tmp_path / ".mcp.json"
+    mcp_config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "calc_server": {
+                        "command": sys.executable,
+                        "args": [str(server_script)],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # 3. 构造 Agent 并执行 mcp_extension
+    session = Session(path=tmp_path / "session.jsonl")
+    agent = Agent(llm=FakeLLM([]), tools=[], session=session, extension_dirs=[])
+
+    mcp_extension(agent.extension_manager.api)
+
+    # 验证工具被注册
+    assert agent.registry.get("mcp_add") is not None
+
+    # 验证 /mcp 命令被注册并能正确输出连接状态
+    mcp_status = agent.extension_manager.handle_command("mcp")
+    assert "=== MCP 服务状态 ===" in mcp_status
+    assert "calc_server" in mcp_status
+    assert "mcp_add" in mcp_status

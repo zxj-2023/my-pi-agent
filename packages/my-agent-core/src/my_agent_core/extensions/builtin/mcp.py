@@ -1,4 +1,4 @@
-"""MCP 客户端核心 —— Stdio 子进程连接与同步/异步线程桥接。"""
+"""MCP 客户端内置扩展 —— Stdio 子进程连接、同步/异步线程桥接与 extension 入口。"""
 
 from __future__ import annotations
 
@@ -10,11 +10,16 @@ import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mcp import ClientSession, StdioServerParameters, stdio_client, types
+import mcp.types as mcp_types
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from my_agent_core.tools import Tool, ToolResult
+
+if TYPE_CHECKING:
+    from my_agent_core.extensions import ExtensionAPI
 
 
 @dataclass
@@ -88,7 +93,7 @@ class MCPConnection:
             while not self._stopped.is_set():
                 await asyncio.sleep(0.1)
 
-    def list_tools(self, timeout: float = 30.0) -> list[types.Tool]:
+    def list_tools(self, timeout: float = 30.0) -> list[mcp_types.Tool]:
         """拉取远程工具列表。"""
         if self._loop is None or self._session is None:
             raise RuntimeError(f"MCP server '{self.config.name}' is not connected")
@@ -114,7 +119,7 @@ class MCPConnection:
             self._loop,
         )
         try:
-            call_res: types.CallToolResult = future.result(timeout=timeout)
+            call_res = future.result(timeout=timeout)
         except Exception as exc:
             return ToolResult(
                 ok=False,
@@ -208,3 +213,40 @@ class MCPClientManager:
             with contextlib.suppress(Exception):
                 conn.close()
         self.connections.clear()
+
+
+# ── 标准 Extension 入口协议 ──────────────────────────────────────────
+
+def extension(api: ExtensionAPI) -> None:
+    """MCP Extension 标准入口函数。"""
+    config_path = Path.cwd() / ".mcp.json"
+    if not config_path.exists():
+        return
+
+    manager = MCPClientManager()
+    try:
+        server_configs = manager.load_config(config_path)
+    except Exception as exc:
+        print(f"[MCP] 解析 .mcp.json 失败: {exc}")
+        return
+
+    registered_tools: list[str] = []
+    for cfg in server_configs:
+        try:
+            tools = manager.connect_server(cfg)
+            for t in tools:
+                api.register_tool(t)
+                registered_tools.append(t.name)
+        except Exception as exc:
+            print(f"[MCP] 连接服务 '{cfg.name}' 失败: {exc}")
+
+    @api.command("mcp", description="查看当前已连接的 MCP 服务状态与工具列表")
+    def cmd_mcp(args: str | None = None) -> str:
+        if not manager.connections:
+            return "当前未连接任何 MCP 服务。"
+        lines = ["=== MCP 服务状态 ==="]
+        for name, conn in manager.connections.items():
+            status = "Connected" if conn._started.is_set() else "Disconnected"
+            lines.append(f"- {name}: {status} (命令: {conn.config.command})")
+        lines.append(f"已加载工具: {', '.join(registered_tools) or '(none)'}")
+        return "\n".join(lines)

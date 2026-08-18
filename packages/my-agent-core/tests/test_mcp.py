@@ -2,7 +2,7 @@
 
 import sys
 
-from my_agent_core.mcp import MCPClientManager, MCPServerConfig
+from my_agent_core import MCPClientManager, MCPServerConfig
 
 FAKE_SERVER_CODE = """
 import asyncio
