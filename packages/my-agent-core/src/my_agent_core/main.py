@@ -95,7 +95,7 @@ async def amain() -> None:
     llm = build_llm()
     store = SessionStore()  # 默认 workspace=cwd
     for question in QUESTIONS:
-        print(f"\n{'='*20} 问题: {question} {'='*20}")
+        print(f"\n{'=' * 20} 问题: {question} {'=' * 20}")
         session = store.create()
         agent = Agent(
             llm=llm,

@@ -1,4 +1,5 @@
 """SessionTree 树结构测试（会话设计文档 §8 #1–#3）。"""
+
 import json
 
 import pytest
@@ -161,7 +162,13 @@ def _response(content: str = "", tool_calls=None) -> Response:
 @pytest.mark.anyio
 async def test_agent_persists_file_line_order(tmp_path):
     """Agent + Session 跑一轮 → 文件行序：header, user, assistant(tool_calls), tool, assistant（#7）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 6, "b": 7}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 6, "b": 7}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
     agent = Agent(llm=llm, tools=[multiply], session=session)
@@ -176,7 +183,13 @@ async def test_agent_persists_file_line_order(tmp_path):
 @pytest.mark.anyio
 async def test_second_agent_resumes_history(tmp_path):
     """第一 Agent 跑完 → Session.load 恢复 → 第二 Agent 首次请求 messages 含全部历史（#8）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 6, "b": 7}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 6, "b": 7}'},
+        }
+    ]
     llm1 = FakeLLM([_response(tool_calls=tc), _response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
     await Agent(llm=llm1, tools=[multiply], session=session).run("compute")
@@ -197,14 +210,26 @@ async def test_rewind_then_run_grows_new_branch(tmp_path):
     session = Session(path=tmp_path / "s.jsonl")
     agent = Agent(llm=llm1, tools=[multiply], session=session)
     await agent.run("q1")
-    q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
+    q1_entry = next(
+        e
+        for e in session.tree.entries.values()
+        if e.role == "user" and e.content == "q1"
+    )
     session.rewind(q1_entry.id)
     llm2 = FakeLLM([_response(content="另答")])
     agent2 = Agent(llm=llm2, tools=[multiply], session=session)
     await agent2.run("换个问法")
-    new_user = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "换个问法")
+    new_user = next(
+        e
+        for e in session.tree.entries.values()
+        if e.role == "user" and e.content == "换个问法"
+    )
     assert new_user.parent_id == q1_entry.id  # 从回退点长新枝
-    assert [e.content for e in session.tree.get_current_path()] == ["q1", "换个问法", "另答"]
+    assert [e.content for e in session.tree.get_current_path()] == [
+        "q1",
+        "换个问法",
+        "另答",
+    ]
     # 旧枝保留
     assert "42" in [e.content for e in session.tree.entries.values()]
 
@@ -228,15 +253,19 @@ async def test_resume_uses_new_system_prompt(tmp_path):
     """session 不含 system：恢复后 Agent 用传入的 system_prompt 拼 system。"""
     llm1 = FakeLLM([_response(content="hi")])
     session = Session(path=tmp_path / "s.jsonl")
-    await Agent(llm=llm1, tools=[multiply], session=session, system_prompt="旧system").run("q1")
+    await Agent(
+        llm=llm1, tools=[multiply], session=session, system_prompt="旧system"
+    ).run("q1")
     restored = Session.load(session.path)
     llm2 = FakeLLM([_response(content="ok")])
-    agent2 = Agent(llm=llm2, tools=[multiply], session=restored, system_prompt="新system")
+    agent2 = Agent(
+        llm=llm2, tools=[multiply], session=restored, system_prompt="新system"
+    )
     await agent2.run("q2")
     first = llm2.calls[0]["messages"]
     sys_msgs = [m for m in first if m.role == "system"]
     assert len(sys_msgs) == 1
-    assert sys_msgs[0].content == "新system"      # 不再是「文件里的 system」，而是新传入的
+    assert sys_msgs[0].content == "新system"  # 不再是「文件里的 system」，而是新传入的
 
 
 @pytest.mark.anyio
@@ -246,13 +275,21 @@ async def test_rewind_then_same_agent_run_syncs_context(tmp_path):
     session = Session(path=tmp_path / "s.jsonl")
     agent = Agent(llm=llm1, tools=[multiply], session=session, system_prompt="sys")
     await agent.run("q1")
-    q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
+    q1_entry = next(
+        e
+        for e in session.tree.entries.values()
+        if e.role == "user" and e.content == "q1"
+    )
     session.rewind(q1_entry.id)
     llm2 = FakeLLM([_response(content="另答")])
     agent.llm = llm2  # 同一 Agent 实例续跑
     await agent.run("换个问法")
     first = llm2.calls[0]["messages"]
-    assert [m.role for m in first] == ["system", "user", "user"]  # 从回退点开始，旧分支尾不在
+    assert [m.role for m in first] == [
+        "system",
+        "user",
+        "user",
+    ]  # 从回退点开始，旧分支尾不在
     assert [m.content for m in first] == ["sys", "q1", "换个问法"]
 
 
@@ -287,9 +324,11 @@ def test_add_summary_cache_does_not_move_current(tmp_path):
     session.add_message("assistant", "a1")
     current_before = session.tree.current_id
     session.add_summary_cache(
-        "## Goal ...", covered_count=2,
+        "## Goal ...",
+        covered_count=2,
         retained_tail=[{"role": "assistant", "content": "a1"}],
-        tokens_before=95000, summary_model="fake",
+        tokens_before=95000,
+        summary_model="fake",
     )
     assert session.tree.current_id == current_before  # 不动 current
     cache_entries = [e for e in session.tree.entries.values() if e.type == "compaction"]
@@ -306,7 +345,12 @@ def test_full_history_filters_compaction(tmp_path):
     session = Session(path=tmp_path / "s.jsonl")
     session.add_message("user", "q1")
     session.add_message("assistant", "a1")
-    session.add_summary_cache("## Goal", covered_count=2, retained_tail=[{"role": "assistant", "content": "a1"}], tokens_before=10)
+    session.add_summary_cache(
+        "## Goal",
+        covered_count=2,
+        retained_tail=[{"role": "assistant", "content": "a1"}],
+        tokens_before=10,
+    )
     msgs = session.get_full_history_messages()
     assert [m.role for m in msgs] == ["user", "assistant"]
     assert all("[Context summary" not in m.content for m in msgs)
@@ -318,8 +362,12 @@ def test_rewind_guard_blocks_pre_floor(tmp_path):
     session.add_message("user", "q1")
     a1 = session.add_message("assistant", "a1")
     session.add_message("user", "q2")  # floor 将设在这里
-    session.add_summary_cache("## Goal", covered_count=2,
-                              retained_tail=[{"role": "user", "content": "q2"}], tokens_before=10)
+    session.add_summary_cache(
+        "## Goal",
+        covered_count=2,
+        retained_tail=[{"role": "user", "content": "q2"}],
+        tokens_before=10,
+    )
     # floor 之后的新消息
     new_entry = session.add_message("user", "q3")
     assert new_entry.id is not None
@@ -340,7 +388,12 @@ def test_rewind_guard_after_reset(tmp_path):
     """reset 清 floor → rewind 恢复自由（context §5）。"""
     session = Session(path=tmp_path / "s.jsonl")
     session.add_message("user", "q1")
-    session.add_summary_cache("## Goal", covered_count=1, retained_tail=[{"role": "assistant", "content": "a1"}], tokens_before=10)
+    session.add_summary_cache(
+        "## Goal",
+        covered_count=1,
+        retained_tail=[{"role": "assistant", "content": "a1"}],
+        tokens_before=10,
+    )
     session.reset()
     assert session.compaction_floor is None
     # reset 后树为空；新消息入树后 rewind 不受旧 floor 限制
