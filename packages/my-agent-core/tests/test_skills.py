@@ -3,7 +3,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
@@ -22,6 +21,15 @@ class FakeLLM:
     def chat(self, *, messages, tools=None, **kwargs) -> Response:
         self.calls.append({"messages": list(messages), "tools": tools})
         return self.responses.pop(0)
+
+    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
+        self.calls.append({"messages": list(messages), "tools": tools})
+        return self.responses.pop(0)
+
+    async def achat_stream(self, *, messages, tools=None, **kwargs):
+        self.calls.append({"messages": list(messages), "tools": tools})
+        resp = self.responses.pop(0)
+        yield resp
 
 
 @tool
@@ -163,7 +171,8 @@ def test_format_skill_invocation(tmp_path):
                                                     '">\nchecklist\n</skill>')
 
 
-def test_agent_assembles_with_skills(tmp_path, monkeypatch):
+@pytest.mark.anyio
+async def test_agent_assembles_with_skills(tmp_path, monkeypatch):
     """skill_dirs → system 含清单块、agent.skills 正确、tools 不变（#7）。"""
     _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     llm = FakeLLM([_response(content="ok")])
@@ -171,7 +180,7 @@ def test_agent_assembles_with_skills(tmp_path, monkeypatch):
                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
                   skill_dirs=[tmp_path])
     assert [s.name for s in agent.skills] == ["code-review"]
-    agent.run("hi")  # 触发 llm.chat 才能看到 tools/messages
+    await agent.run("hi")  # 触发 llm.chat 才能看到 tools/messages
     first = llm.calls[0]["messages"][0]
     assert first.role == "system"
     assert "<available_skills>" in first.content
@@ -180,7 +189,8 @@ def test_agent_assembles_with_skills(tmp_path, monkeypatch):
     assert llm.calls[0]["tools"] == [t.to_openai_schema() for t in [multiply]]
 
 
-def test_agent_skill_dirs_none_no_default_dir(tmp_path, monkeypatch):
+@pytest.mark.anyio
+async def test_agent_skill_dirs_none_no_default_dir(tmp_path, monkeypatch):
     """skill_dirs=None（默认）→ 探测 cwd/.agents/skills；目录不存在 → skills 空、
     无清单块、tools 不变；既有行为保持（#7 回归）。"""
     monkeypatch.chdir(tmp_path)  # 干净的 cwd，无 .agents/skills → 探测结果空
@@ -189,7 +199,7 @@ def test_agent_skill_dirs_none_no_default_dir(tmp_path, monkeypatch):
                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
                   system_prompt="sys")
     assert agent.skills == []
-    agent.run("hi")
+    await agent.run("hi")
     assert llm.calls[0]["messages"][0].content == "sys"
     assert llm.calls[0]["tools"] == [t.to_openai_schema() for t in [multiply]]
 
@@ -214,14 +224,15 @@ def test_agent_skill_dirs_empty_list_no_probe(tmp_path, monkeypatch):
     assert agent.skills == []
 
 
-def test_invoke_skill(tmp_path):
+@pytest.mark.anyio
+async def test_invoke_skill(tmp_path):
     """invoke_skill：追加 user 消息 = <skill>包装 + 附言；未知名字 → ValueError（#8）。"""
     _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     llm = FakeLLM([_response(content="done")])
     agent = Agent(llm=llm, tools=[multiply],
                   session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
                   skill_dirs=[tmp_path])
-    answer = agent.invoke_skill("code-review", "重点看并发")
+    answer = await agent.invoke_skill("code-review", "重点看并发")
     assert answer == "done"
     last_msg = llm.calls[0]["messages"][-1]
     assert last_msg.role == "user"
@@ -230,7 +241,7 @@ def test_invoke_skill(tmp_path):
     assert "重点看并发" in last_msg.content
     # 未知名字 → ValueError（列可用名字）
     with pytest.raises(ValueError, match="code-review"):
-        agent.invoke_skill("nope")
+        await agent.invoke_skill("nope")
 
 
 def test_load_skills_with_bom(tmp_path):
@@ -238,7 +249,7 @@ def test_load_skills_with_bom(tmp_path):
     d = tmp_path / "code-review"
     d.mkdir()
     p = d / "SKILL.md"
-    p.write_bytes("﻿---\ndescription: review code\n---\n\nbody".encode("utf-8"))
+    p.write_bytes("﻿---\ndescription: review code\n---\n\nbody".encode())
     skills = SkillManager([tmp_path]).list()
     assert len(skills) == 1
     assert skills[0].name == "code-review"

@@ -6,12 +6,15 @@ from pathlib import Path
 import pytest
 from my_agent_llm import Message, Response
 
+from my_agent_core.agent import Agent
 from my_agent_core.context import (
     budget_tool_results,
     estimate_tokens,
     micro_compact,
     snip_messages,
 )
+from my_agent_core.session import Session
+from my_agent_core.tools import tool
 
 
 def _msg(role: str, content: str, **metadata) -> Message:
@@ -253,10 +256,6 @@ async def test_usage_ratio_anchoring():
 
 # ── Agent 集成 ──
 
-from my_agent_core.agent import Agent
-from my_agent_core.session import Session
-from my_agent_core.tools import tool
-
 
 @tool
 def multiply(a: int, b: int) -> int:
@@ -270,15 +269,17 @@ def _agent(llm, *, tools=(multiply,), session=None, **kw) -> Agent:
     return Agent(llm=llm, tools=list(tools), session=session, **kw)
 
 
-def test_context_budget_none_unchanged():
+@pytest.mark.anyio
+async def test_context_budget_none_unchanged():
     """未启用：context_budget=None → llm 收到的 messages 与 transcript 全等（#2）。"""
     llm = FakeLLM([_response(content="hi")])
     agent = _agent(llm)
-    agent.run("hello")
+    await agent.run("hello")
     assert llm.calls[0]["messages"] == agent.messages[:-1]
 
 
-def test_agent_trigger_compaction_and_event(tmp_path):
+@pytest.mark.anyio
+async def test_agent_trigger_compaction_and_event(tmp_path):
     """完整 run 触发压缩 → ContextCompacted 恰发射；session 写缓存 entry + floor（#11、#14）。"""
     from my_agent_core.events import ContextCompacted
 
@@ -293,7 +294,7 @@ def test_agent_trigger_compaction_and_event(tmp_path):
         hooks=[(ContextCompacted, lambda ev: (events.append(ev), None)[1])],
     )
     for _ in range(6):  # 累积 6 条大消息 → 超阈触发摘要
-        agent.run("y" * 300)
+        await agent.run("y" * 300)
     assert len(events) >= 1
     assert events[0].tokens_before > events[0].tokens_after
     cache_entries = [e for e in session.tree.entries.values() if e.type == "compaction"]
@@ -315,7 +316,7 @@ async def test_cache_persist_across_agents(tmp_path):
         keep_recent_tokens=100,
     )
     for _ in range(6):
-        agent1.run("y" * 300)
+        await agent1.run("y" * 300)
     # “进程 2”：新 Agent 同 session
     llm2 = FakeLLM()
     agent2 = _agent(
@@ -334,13 +335,14 @@ async def test_cache_persist_across_agents(tmp_path):
     assert len(llm2.calls) == 0
 
 
-def test_rewind_guard_blocks_after_compaction(tmp_path):
+@pytest.mark.anyio
+async def test_rewind_guard_blocks_after_compaction(tmp_path):
     """压缩后 rewind 到压缩点前 → ValueError（#12 agent 侧）。"""
     llm = FakeLLM(default=_response(content="## Goal\n..."))
     session = Session(path=tmp_path / "s.jsonl")
     agent = _agent(llm, session=session, context_budget=400, keep_recent_tokens=100)
     for _ in range(6):
-        agent.run("y" * 300)
+        await agent.run("y" * 300)
     first_user = next(
         e
         for e in session.tree.entries.values()
@@ -354,7 +356,8 @@ def test_rewind_guard_blocks_after_compaction(tmp_path):
         raise AssertionError("expected ValueError (rewind before floor)")
 
 
-def test_manual_compact():
+@pytest.mark.anyio
+async def test_manual_compact():
     """手动 compact()：无条件触发一次摘要 + 写缓存 + 事件；不动 messages（#16）。"""
     from my_agent_core.events import ContextCompacted
 
@@ -365,9 +368,9 @@ def test_manual_compact():
         context_budget=100_000,
         hooks=[(ContextCompacted, lambda ev: (events.append(ev), None)[1])],
     )
-    agent.run("hi")
+    await agent.run("hi")
     assert len(llm.calls) == 1
-    agent.compact()
+    await agent.compact()
     assert len(llm.calls) >= 2
     assert len(events) == 1
     assert agent._ctx._summary is not None
