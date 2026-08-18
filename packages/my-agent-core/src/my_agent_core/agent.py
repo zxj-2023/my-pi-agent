@@ -98,7 +98,7 @@ class Agent:
         self.extension_manager = ExtensionManager(
             self, extension_dirs
         )  # extension 装配
-        self.extension_manager.load()  # 加载（工具→registry / hook→hooks / 命令→管理器）
+        self._extensions_loaded = False
         self.messages = self._init_messages(
             session, system_prompt
         )  # ② 拼 system + 恢复
@@ -170,6 +170,9 @@ class Agent:
     async def run(self, user_input: str) -> str | None:
         """追加 user 消息 → 异步内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
         self._aborted = False
+        if not self._extensions_loaded:
+            await self.extension_manager.load()
+            self._extensions_loaded = True
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
         self.messages = system + self.session.get_current_path_messages()
@@ -311,7 +314,9 @@ class Agent:
                 ]
                 call_dicts_to_run = [c[1] for c in effective_calls]
                 batch_results = await self.registry.execute_batch(call_dicts_to_run)
-                for (idx, _tc), res in zip(effective_calls, batch_results):
+                for (idx, _tc), res in zip(
+                    effective_calls, batch_results, strict=False
+                ):
                     obs, is_err = await self._post_execute_hook(_tc, res)
                     direct_observations[idx] = (
                         ToolResult(ok=not is_err, data=obs)

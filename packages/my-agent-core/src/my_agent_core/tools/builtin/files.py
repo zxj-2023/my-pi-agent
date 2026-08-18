@@ -1,4 +1,8 @@
 """内置工具：四个文件工具（read/edit/write/bash）工厂 + 路径逃逸防护。"""
+
+from __future__ import annotations
+
+import os
 import subprocess
 from pathlib import Path
 
@@ -30,7 +34,7 @@ def make_read_tool(root: str | Path) -> Tool:
         except Exception as e:
             return f"Error: {e}"
 
-    return Tool(func=read, name="read")
+    return Tool(func=read, name="read", is_parallel_safe=True)
 
 
 def make_write_tool(root: str | Path) -> Tool:
@@ -47,7 +51,7 @@ def make_write_tool(root: str | Path) -> Tool:
         except Exception as e:
             return f"Error: {e}"
 
-    return Tool(func=write, name="write")
+    return Tool(func=write, name="write", is_parallel_safe=False)
 
 
 def make_edit_tool(root: str | Path) -> Tool:
@@ -66,7 +70,7 @@ def make_edit_tool(root: str | Path) -> Tool:
         except Exception as e:
             return f"Error: {e}"
 
-    return Tool(func=edit, name="edit")
+    return Tool(func=edit, name="edit", is_parallel_safe=False)
 
 
 def make_bash_tool(root: str | Path) -> Tool:
@@ -78,8 +82,18 @@ def make_bash_tool(root: str | Path) -> Tool:
         if any(d in command for d in _DANGEROUS):
             return "Error: Dangerous command blocked"
         try:
-            r = subprocess.run(command, shell=True, cwd=root,
-                               capture_output=True, text=True, timeout=_TIMEOUT_SECONDS)
+            cmd_args = (
+                ["cmd.exe", "/c", command]
+                if os.name == "nt"
+                else ["/bin/sh", "-c", command]
+            )
+            r = subprocess.run(
+                cmd_args,
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=_TIMEOUT_SECONDS,
+            )
             out = (r.stdout + r.stderr).strip()
             return out[:50000] if out else "(no output)"
         except subprocess.TimeoutExpired:
@@ -87,4 +101,4 @@ def make_bash_tool(root: str | Path) -> Tool:
         except (FileNotFoundError, OSError) as e:
             return f"Error: {e}"
 
-    return Tool(func=bash, name="bash")
+    return Tool(func=bash, name="bash", is_parallel_safe=False)

@@ -109,9 +109,9 @@ class ExtensionManager:
             return []
         return [p for p in directory.glob("**/*.py") if not p.name.startswith("_")]
 
-    def load_extension(self, path: Path | str) -> None:
+    async def load_extension(self, path: Path | str) -> None:
         """importlib 动态加载 .py；找 extension → default → 第一个形参名含 api 的函数；
-        找不到 → ValueError；找到则 extension_func(self.api) 执行并登记。"""
+        找不到 → ValueError；找到则 extension_func(self.api) 执行并登记。支持 async/sync 扩展。"""
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Extension not found: {path}")
@@ -137,15 +137,18 @@ class ExtensionManager:
             raise ValueError(
                 f"Extension {path} must define an 'extension' function that takes ExtensionAPI"
             )
-        extension_func(self.api)
+        if inspect.iscoroutinefunction(extension_func):
+            await extension_func(self.api)
+        else:
+            extension_func(self.api)
         self.extensions[path.name] = module
 
-    def load(self) -> None:
+    async def load(self) -> None:
         """遍历 self._dirs 逐个 load_extension；单个失败只 print 不抛（隔离坏扩展）。"""
         for directory in self._dirs:
             for path in self.discover(directory):
                 try:
-                    self.load_extension(path)
+                    await self.load_extension(path)
                 except Exception as exc:
                     print(f"Failed to load extension {path}: {exc}")
 

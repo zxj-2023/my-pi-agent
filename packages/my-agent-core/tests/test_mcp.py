@@ -2,7 +2,12 @@
 
 import sys
 
-from my_agent_core.extensions.builtin.mcp import MCPClientManager, MCPServerConfig
+import pytest
+
+from my_agent_core.extensions.builtin.mcp import (
+    MCPClientManager,
+    MCPServerConfig,
+)
 
 FAKE_SERVER_CODE = """
 import asyncio
@@ -53,7 +58,8 @@ def test_mcp_config_parsing(tmp_path):
     assert configs[0].env == {"DEBUG": "1"}
 
 
-def test_mcp_connection_lifecycle_and_tools(tmp_path):
+@pytest.mark.anyio
+async def test_mcp_connection_lifecycle_and_tools(tmp_path):
     """验证使用 Python 子进程建立 Stdio 连接并调用工具。"""
     server_script = tmp_path / "fake_server.py"
     server_script.write_text(FAKE_SERVER_CODE, encoding="utf-8")
@@ -65,7 +71,7 @@ def test_mcp_connection_lifecycle_and_tools(tmp_path):
     )
 
     manager = MCPClientManager()
-    tools = manager.connect_server(cfg)
+    tools = await manager.connect_server(cfg)
     try:
         assert len(tools) == 2
         tool_map = {t.name: t for t in tools}
@@ -74,16 +80,16 @@ def test_mcp_connection_lifecycle_and_tools(tmp_path):
 
         # 测试正常调用
         echo_tool = tool_map["fake_echo"]
-        res = echo_tool.execute({"text": "Hello MCP"})
+        res = await echo_tool.execute({"text": "Hello MCP"})
         assert res.ok is True
         assert res.data == "ECHO: Hello MCP"
         assert res.meta.get("server") == "test_server"
 
         # 测试错误调用
         err_tool = tool_map["fake_error"]
-        err_res = err_tool.execute({})
+        err_res = await err_tool.execute({})
         assert err_res.ok is False
         assert err_res.error is not None
         assert "Something went wrong" in err_res.error
     finally:
-        manager.close_all()
+        await manager.close_all()
