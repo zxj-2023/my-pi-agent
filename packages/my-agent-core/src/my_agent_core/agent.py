@@ -8,14 +8,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from my_agent_llm import LLM, Message
+from my_agent_llm import LLM, Message  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
@@ -162,10 +160,6 @@ class Agent:
     def abort(self) -> None:
         """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本）。"""
         self._aborted = True
-
-    def run_sync(self, user_input: str) -> str | None:
-        """同步运行快捷入口（内部自动驱动事件循环）。"""
-        return _run_sync(self.run(user_input))
 
     async def run(self, user_input: str) -> str | None:
         """追加 user 消息 → 异步内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
@@ -432,21 +426,3 @@ class Agent:
     async def _emit(self, event: Event) -> HookResult | None:
         """触发事件的所有 hook（委托 HookRegistry）。"""
         return await self.hooks.emit(event)
-
-
-def _run_sync(coro_or_val):
-    if inspect.isawaitable(coro_or_val):
-
-        async def _wrapper():
-            return await coro_or_val
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(_wrapper())
-        else:
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, _wrapper()).result()
-    return coro_or_val

@@ -506,11 +506,3 @@ async def test_message_update_hook_interception():
     assert result == "(cancelled)"
     # 半截文本被丢弃，Session 纯净
     assert not any(e.role == "assistant" for e in session.tree.entries.values())
-
-
-def test_agent_run_sync_compatibility():
-    """Agent.run_sync() 同步快捷入口向前兼容。"""
-    llm = FakeLLM([_response(content="sync response")])
-    agent = _agent(llm)
-    res = agent.run_sync("hello sync")
-    assert res == "sync response"
