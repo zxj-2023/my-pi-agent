@@ -5,7 +5,7 @@
 
 ## 当前结构（2026-08）
 
-```
+```text
 my-pi-agent/
 ├── packages/
 │   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
