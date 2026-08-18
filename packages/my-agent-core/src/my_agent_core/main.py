@@ -11,7 +11,7 @@ import sys
 from datetime import datetime
 
 from dotenv import load_dotenv
-from my_agent_llm import LLM, Config
+from my_agent_llm import LLM, Config  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (

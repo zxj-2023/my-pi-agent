@@ -318,6 +318,25 @@ my-pi-agent/
   - 100% 离线测试：使用内联 Python 脚本作为 Stdio MCP Server 子进程，完全不依赖外部网络与外部 CLI 安装。
 - **验证**：全量 223 个测试全绿（187 个 core 测试 + 36 个 llm 测试）。
 
+### 阶段 10：框架层原生异步架构升级（2026-08-18）
+
+**目标**：将 `my-agent-core` 从同步伪装全面重构为原生 `asyncio` 异步引擎，实现流式 Token 增量事件打字机、无污染 `agent.abort()` 熔断取消机制、声明式 `is_parallel_safe` 读写分流并发与严格保序回填、MCP 客户端彻底去多线程化（`AsyncExitStack`）。
+
+- 提交：`c0fa31c` `422e4a1` `10e3bd4` `c1d41f3` `43c801e` `a5a3e87` `eef8a36` `9bb5018` `0dba2fc` `0cadeb1` `e006c7f` `8d0159b`
+- **改了什么**：
+  - `events.py`：`HookRegistry.emit(event)` 异步化（支持 `async def` 协程与同步 `def` 回调混合注册与短路拦截）；`MessageUpdate` 继承 `Interceptable` 并增加 `chunk` 字段，支持流式 Token 生成过程中的 Hook 实时熔断。
+  - `tools/core.py` & `registry.py`：`Tool` 增加 `is_parallel_safe: bool = False`；`Tool.execute` 支持原生协程并用 `asyncio.to_thread` 自动桥接同步函数；`ToolRegistry.execute_batch` 实现**只读并发（`asyncio.gather`）+ 写入按序串行 + 严格保序回填**。
+  - `context.py`：`prepare`、`force_compact`、`_do_summarize`、`_call_summarizer` 四层压缩管线异步化，使用 `await self.llm.achat` 生成 L4 摘要。
+  - `agent.py`：核心 ReAct 循环重构为原生异步 `async def run(prompt)`，接入 `llm.achat_stream` 流式迭代；实现 `agent.abort()` 叫停机制（叫停时丢弃未完成半截内容，不写入 Session，发射 `AgentEnd(stop_reason="cancelled")`）；提供 `run_sync` 向前兼容入口。
+  - `tasks.py` & `task.py`：`TaskManager.start_task` 与工具桥 `task` 异步化，标记 `is_parallel_safe=True`，支持父 Agent 一次性派发多个子代理并发并行执行。
+  - `files.py` & `mcp.py`：`read` 标记为并发安全，`write/edit/bash` 标记为写入串行；MCP 客户端基于 `AsyncExitStack` 重写，彻底移除所有 `threading.Thread`、`threading.Event`、`run_coroutine_threadsafe` 等多线程代码（~60% 代码量缩减）。
+  - `main.py`：升级为 `asyncio.run(amain())`，展示流式 Token 打字机打印与工具并发调用效果。
+- **过程中的关键教训**：
+  - 优雅叫停与脏上下文隔离：Cancel 发生时必须直接丢弃未完成的累积文本，不向持久化 Session 与上下文注入残缺内容，避免模型在下一轮对话中产生“续写断句”幻觉。
+  - 并发执行与上下文严格保序：只读工具并发启动（如并发读取多个文件），写入工具串行；但最终回填给 `messages` 和 `session` 时按大模型原始 `tool_calls` 索引预分配插槽回填，确保历史记录严格确定性。
+  - MCP 原生异步：基于 `AsyncExitStack` 进入 `stdio_client` 与 `ClientSession` 上下文，彻底消除了后台守护线程与跨线程事件循环的复杂性。
+- **验证**：全量 232 个离线测试全部 100% 绿灯通过（196 个 core 测试 + 36 个 llm 测试）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
@@ -329,6 +348,7 @@ my-pi-agent/
 - subagent 机制（已完成，另列）
 - Task 委派系统 + 四个文件工具（已完成）
 - 阶段 9：extension 机制与 MCP 客户端扩展（9.1/9.2/9.3 已全部完成）
+- 阶段 10：框架层原生异步架构升级（已完成）
 - 阶段 6：动态工具（未做）
 - 阶段 7：memory 记忆系统（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
