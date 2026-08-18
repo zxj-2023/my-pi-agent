@@ -1,12 +1,27 @@
 """events.py 事件 dataclass + HookResult 离线测试：可导入、可实例化、字段正确。"""
+import asyncio
 from dataclasses import fields, is_dataclass
 
-from my_agent_llm import Message
+import pytest
+from my_agent_llm import Message, StreamChunk
 
 from my_agent_core.events import (
-    AgentEnd, AgentStart, ContextCompacted, Event, HookResult, Interceptable,
-    MessageEnd, MessageStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart,
-    ToolExecutionUpdate, ToolsChanged, TurnEnd, TurnStart,
+    AgentEnd,
+    AgentStart,
+    ContextCompacted,
+    Event,
+    HookRegistry,
+    HookResult,
+    Interceptable,
+    MessageEnd,
+    MessageStart,
+    MessageUpdate,
+    ToolExecutionEnd,
+    ToolExecutionStart,
+    ToolExecutionUpdate,
+    ToolsChanged,
+    TurnEnd,
+    TurnStart,
 )
 
 
@@ -149,10 +164,17 @@ def test_hook_result_fields():
 
 
 def test_interceptable_events():
-    """ToolExecutionStart/End 继承 Interceptable，其余事件不继承。"""
-    assert isinstance(ToolExecutionStart(tool_call_id="1", tool_name="f", args={}), Interceptable)
+    """ToolExecutionStart/End 与 MessageUpdate 继承 Interceptable，其余事件不继承。"""
     assert isinstance(
-        ToolExecutionEnd(tool_call_id="1", tool_name="f", result="", is_error=False), Interceptable)
+        ToolExecutionStart(tool_call_id="1", tool_name="f", args={}), Interceptable
+    )
+    assert isinstance(
+        ToolExecutionEnd(tool_call_id="1", tool_name="f", result="", is_error=False),
+        Interceptable,
+    )
+    assert isinstance(
+        MessageUpdate(message=Message(role="assistant", content="hi")), Interceptable
+    )
     assert not isinstance(TurnStart(iteration=1), Interceptable)
     assert not isinstance(AgentStart(), Interceptable)
 
@@ -161,3 +183,40 @@ def test_hook_result_frozen():
     """HookResult 是 frozen dataclass。"""
     assert is_dataclass(HookResult)
     assert HookResult.__dataclass_params__.frozen
+
+
+@pytest.mark.anyio
+async def test_hook_registry_async_emit():
+    """HookRegistry.emit 支持异步与同步 hook 混用，并正确短路。"""
+    registry = HookRegistry()
+    calls = []
+
+    async def async_hook(event: Event):
+        await asyncio.sleep(0.01)
+        calls.append("async")
+        return None
+
+    def sync_hook(event: Event):
+        calls.append("sync")
+        return HookResult(block=True, reason="blocked in sync")
+
+    def never_called(event: Event):
+        calls.append("never")
+        return None
+
+    registry.register(MessageUpdate, async_hook)
+    registry.register(MessageUpdate, sync_hook)
+    registry.register(MessageUpdate, never_called)
+
+    msg = Message(role="assistant", content="hello")
+    chunk = StreamChunk(content="lo")
+    event = MessageUpdate(message=msg, chunk=chunk)
+
+    assert issubclass(MessageUpdate, Interceptable)
+    res = await registry.emit(event)
+
+    assert calls == ["async", "sync"]
+    assert res is not None
+    assert res.block is True
+    assert res.reason == "blocked in sync"
+

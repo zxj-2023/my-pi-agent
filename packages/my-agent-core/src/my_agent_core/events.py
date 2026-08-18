@@ -2,11 +2,17 @@
 
 事件集对齐 pi 的生命周期模型（Agent/Turn/Message/Tool 四组；正常执行 start/end
 成对，被拦截/畸形参数的调用不发射 End）。
-MessageUpdate / ToolExecutionUpdate 为异步流式预留：同步阶段只定义不发射。
+MessageUpdate / ToolExecutionUpdate 为异步流式发射。
 """
-from dataclasses import dataclass
-from typing import Any, Callable
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from my_agent_llm import Message
 
@@ -35,7 +41,7 @@ class AgentStart(Event):
 
 @dataclass(frozen=True)
 class AgentEnd(Event):
-    """run() 结束。stop_reason: "end_turn" | "max_iterations"。"""
+    """run() 结束。stop_reason: "end_turn" | "max_iterations" | "cancelled"。"""
 
     messages: list[Message]
     final_text: str | None
@@ -68,10 +74,11 @@ class MessageStart(Event):
 
 
 @dataclass(frozen=True)
-class MessageUpdate(Event):
-    """消息增量更新（仅异步流式发射）。"""
+class MessageUpdate(Event, Interceptable):
+    """消息增量更新（异步流式发射，每收到一个 Token 时触发；支持被 Hook 拦截取消）。"""
 
     message: Message
+    chunk: Any = None
 
 
 @dataclass(frozen=True)
@@ -135,7 +142,9 @@ class HookResult:
 
     - ToolExecutionStart 用 block / updated_args（拦截 / 改参数）
     - ToolExecutionEnd 用 updated_result（改结果）
+    - MessageUpdate 用 block / reason（中途中止流式生成并丢弃半截产物）
     """
+
     block: bool = False
     reason: str | None = None
     updated_args: dict | None = None
@@ -143,23 +152,27 @@ class HookResult:
 
 
 class HookRegistry:
-    """hook 注册表（对标 ToolRegistry）：事件类型 → callback 列表。register/unregister/emit。"""
+    """hook 注册表（对标 ToolRegistry）：事件类型 → callback 列表。支持 async / sync 钩子混合执行。"""
 
     def __init__(self):
-        self._hooks: dict[type[Event], list[Callable[[Event], HookResult | None]]] = {}
+        self._hooks: dict[type[Event], list[Callable]] = {}
 
-    def register(self, event_cls: type[Event], callback) -> None:
+    def register(self, event_cls: type[Event], callback: Callable) -> None:
         """挂一个 hook 到事件类。同一事件可挂多个，按注册顺序触发。"""
         self._hooks.setdefault(event_cls, []).append(callback)
 
-    def unregister(self, event_cls: type[Event], callback) -> None:
+    def unregister(self, event_cls: type[Event], callback: Callable) -> None:
         """移除 hook。"""
-        self._hooks.get(event_cls, []).remove(callback)
+        with contextlib.suppress(ValueError):
+            self._hooks.get(event_cls, []).remove(callback)
 
-    def emit(self, event: Event) -> HookResult | None:
-        """触发事件的所有 hook，返回第一个非 None 结果（短路）。纯观察事件无条件返回 None。"""
+    async def emit(self, event: Event) -> HookResult | None:
+        """异步触发事件的所有 hook，支持协程与普通函数，返回第一个非 None 结果（短路）。"""
         for cb in self._hooks.get(type(event), []):
-            result = cb(event)
+            if asyncio.iscoroutinefunction(cb):
+                result = await cb(event)
+            else:
+                result = cb(event)
             if result is not None:
                 return result
         return None
