@@ -1,4 +1,5 @@
 """events.py 事件 dataclass + HookResult 离线测试：可导入、可实例化、字段正确。"""
+
 import asyncio
 from dataclasses import fields, is_dataclass
 
@@ -60,19 +61,25 @@ def test_message_lifecycle_events_carry_message():
 
 def test_tool_execution_start_fields():
     """ToolExecutionStart 带 tool_call_id/tool_name/args。"""
-    e = ToolExecutionStart(tool_call_id="1", tool_name="multiply", args={"a": 2, "b": 3})
+    e = ToolExecutionStart(
+        tool_call_id="1", tool_name="multiply", args={"a": 2, "b": 3}
+    )
     assert (e.tool_call_id, e.tool_name, e.args) == ("1", "multiply", {"a": 2, "b": 3})
 
 
 def test_tool_execution_update_fields():
     """ToolExecutionUpdate 带 partial_result。"""
-    e = ToolExecutionUpdate(tool_call_id="1", tool_name="multiply", args={}, partial_result="2")
+    e = ToolExecutionUpdate(
+        tool_call_id="1", tool_name="multiply", args={}, partial_result="2"
+    )
     assert e.partial_result == "2"
 
 
 def test_tool_execution_end_fields():
     """ToolExecutionEnd 带 tool_call_id/tool_name/result/is_error。"""
-    e = ToolExecutionEnd(tool_call_id="1", tool_name="multiply", result="6", is_error=False)
+    e = ToolExecutionEnd(
+        tool_call_id="1", tool_name="multiply", result="6", is_error=False
+    )
     assert e.result == "6"
     assert e.is_error is False
 
@@ -99,9 +106,19 @@ def test_tools_changed_fields():
 
 def test_all_events_frozen_and_dataclass():
     """全部事件都是 frozen dataclass，非空 fields（AgentStart 无字段跳过）。"""
-    with_fields = (TurnStart, TurnEnd, MessageStart, MessageUpdate, MessageEnd,
-                   ToolExecutionStart, ToolExecutionUpdate, ToolExecutionEnd,
-                   AgentEnd, ContextCompacted, ToolsChanged)
+    with_fields = (
+        TurnStart,
+        TurnEnd,
+        MessageStart,
+        MessageUpdate,
+        MessageEnd,
+        ToolExecutionStart,
+        ToolExecutionUpdate,
+        ToolExecutionEnd,
+        AgentEnd,
+        ContextCompacted,
+        ToolsChanged,
+    )
     no_fields = (AgentStart,)
     for cls in (*with_fields, *no_fields):
         assert is_dataclass(cls)
@@ -122,6 +139,7 @@ def test_event_has_timestamp():
 
 def test_all_events_have_timestamp():
     """全部事件实例都有 timestamp（继承自 Event 基类）。"""
+
     def make(cls):
         if cls is AgentStart:
             return cls()
@@ -134,16 +152,26 @@ def test_all_events_have_timestamp():
         if cls is ToolExecutionEnd:
             return cls(tool_call_id="1", tool_name="f", result="", is_error=False)
         if cls is AgentEnd:
-            return cls(messages=[], final_text=None, iterations=1, stop_reason="end_turn")
+            return cls(
+                messages=[], final_text=None, iterations=1, stop_reason="end_turn"
+            )
         if cls is ContextCompacted:
             return cls(tokens_before=1, tokens_after=1, summarized_count=0)
         if cls is ToolsChanged:
             return cls(action="registered", name="x")
         raise AssertionError(f"no constructor for {cls.__name__}")
 
-    for cls in (AgentStart, TurnStart, MessageStart, MessageEnd,
-                ToolExecutionStart, ToolExecutionEnd, AgentEnd,
-                ContextCompacted, ToolsChanged):
+    for cls in (
+        AgentStart,
+        TurnStart,
+        MessageStart,
+        MessageEnd,
+        ToolExecutionStart,
+        ToolExecutionEnd,
+        AgentEnd,
+        ContextCompacted,
+        ToolsChanged,
+    ):
         e = make(cls)
         assert hasattr(e, "timestamp")
         assert isinstance(e.timestamp, float)
@@ -156,7 +184,9 @@ def test_hook_result_fields():
     assert r.reason is None
     assert r.updated_args is None
     assert r.updated_result is None
-    r2 = HookResult(block=True, reason="denied", updated_args={"a": 1}, updated_result="hi")
+    r2 = HookResult(
+        block=True, reason="denied", updated_args={"a": 1}, updated_result="hi"
+    )
     assert r2.block is True
     assert r2.reason == "denied"
     assert r2.updated_args == {"a": 1}
@@ -219,4 +249,3 @@ async def test_hook_registry_async_emit():
     assert res is not None
     assert res.block is True
     assert res.reason == "blocked in sync"
-
