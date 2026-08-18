@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -172,7 +174,7 @@ class Agent:
             self._emit(TurnStart(iteration))
             # ── Reason：把完整消息历史 + 工具说明书发给模型。
             tools = self.registry.get_schemas()
-            view = self._ctx.prepare(self.messages)
+            view = _run_sync(self._ctx.prepare(self.messages))
             resp = self._llm_chat(view, tools)
             if resp.usage:
                 self._ctx.record_usage(resp.usage)
@@ -243,7 +245,7 @@ class Agent:
 
     def compact(self) -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
-        self._ctx.force_compact(self.messages)
+        _run_sync(self._ctx.force_compact(self.messages))
         self._handle_compaction()
 
     # ── 内部实现（run 循环辅助）──────────────────────────────
@@ -294,7 +296,7 @@ class Agent:
                 **tc,
                 "function": {**tc["function"], "arguments": json.dumps(args)},
             }
-            result = self.registry.execute(effective)
+            result = _run_sync(self.registry.execute(effective))
         except Exception as exc:  # json.dumps 兜底（registry.execute 自身声明永不抛）
             return f"Error executing tool '{name}': {exc}", True
         # ToolExecutionEnd hook：改写结果（updated_result）
@@ -324,4 +326,21 @@ class Agent:
 
     def _emit(self, event: Event) -> HookResult | None:
         """触发事件的所有 hook（委托 HookRegistry）。"""
-        return self.hooks.emit(event)
+        return _run_sync(self.hooks.emit(event))
+
+
+def _run_sync(coro_or_val):
+    if inspect.isawaitable(coro_or_val):
+        async def _wrapper():
+            return await coro_or_val
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_wrapper())
+        else:
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                return pool.submit(asyncio.run, _wrapper()).result()
+    return coro_or_val

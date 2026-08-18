@@ -9,8 +9,12 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from my_agent_llm import Message
+
+if TYPE_CHECKING:
+    from my_agent_core.session import Session
 
 CHARS_PER_TOKEN = 4
 DEFAULT_CONTEXT_BUDGET = 100_000  # 默认 token 预算（约 gpt-4 context 上限）
@@ -222,7 +226,7 @@ class ContextManager:
         if usage and usage.get("prompt_tokens") and self._last_view_chars:
             self._ratio = int(usage["prompt_tokens"]) / self._last_view_chars
 
-    def prepare(self, messages: list[Message]) -> list[Message]:
+    async def prepare(self, messages: list[Message]) -> list[Message]:
         """四层管线 → 返回发送视图（非破坏）。有缓存先试缓存视图；仍超阈 → 迭代再摘要。"""
         self.pending_compaction = None
         if self._summary is not None:
@@ -231,7 +235,7 @@ class ContextManager:
             if estimate_tokens(view, self._ratio) <= int(self.budget * 0.8):
                 return view
             # 缓存视图仍超阈 → 迭代再摘要（_call_summarizer 附旧摘要）
-            return self._do_summarize(messages)
+            return await self._do_summarize(messages)
         view = list(messages)
         view = budget_tool_results(view, results_dir=self.results_dir)
         view = snip_messages(view)
@@ -239,7 +243,7 @@ class ContextManager:
         self._last_view_chars = _chars_of(view)
         if estimate_tokens(view, self._ratio) <= int(self.budget * 0.8):
             return view
-        return self._do_summarize(messages)
+        return await self._do_summarize(messages)
 
     def reset(self) -> None:
         """清缓存 + 锚定（Agent.reset 时调用）。"""
@@ -249,7 +253,7 @@ class ContextManager:
         self._ratio = None
         self.pending_compaction = None
 
-    def force_compact(self, messages: list[Message]) -> list[Message]:
+    async def force_compact(self, messages: list[Message]) -> list[Message]:
         """无条件执行一次摘要（手动 compact 用），不管阈值。清缓存后基于完整历史重摘要。
 
         对话过短（正常切点逻辑找不到 cut）时仍强制：摘要全部非 system 消息，不保留尾部。
@@ -263,7 +267,7 @@ class ContextManager:
             if len(messages) <= start:
                 return list(messages)  # 空 / 仅 system → 无可摘要
             cut = len(messages)  # 强制：全部非 system 消息进摘要，不保留尾部
-        return self._summarize_from_cut(messages, cut)
+        return await self._summarize_from_cut(messages, cut)
 
     # ── 内部 ──
 
@@ -291,14 +295,16 @@ class ContextManager:
         view = snip_messages(view)
         return view
 
-    def _do_summarize(self, messages: list[Message]) -> list[Message]:
+    async def _do_summarize(self, messages: list[Message]) -> list[Message]:
         """无缓存时的首次压缩（或缓存失效的后备）。定 cut → 摘要调用 → 写缓存。"""
         cut = self._find_cut(messages)
         if cut is None:
             return list(messages)  # 找不到 user 切点 → 不压缩
-        return self._summarize_from_cut(messages, cut)
+        return await self._summarize_from_cut(messages, cut)
 
-    def _summarize_from_cut(self, messages: list[Message], cut: int) -> list[Message]:
+    async def _summarize_from_cut(
+        self, messages: list[Message], cut: int
+    ) -> list[Message]:
         """按既定 cut 执行摘要：调 LLM → 写缓存 → 构造视图。降级失败返回原视图。"""
         tokens_before = estimate_tokens(messages, self._ratio)
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
@@ -307,7 +313,7 @@ class ContextManager:
         ]  # 摘要输入不含 system（persona 保持原样）
         retained = messages[cut:]
         try:
-            summary, usage, model = self._call_summarizer(summarized)
+            summary, usage, model = await self._call_summarizer(summarized)
         except Exception:
             return list(messages)  # 降级：不压缩
         if not summary.strip():
@@ -352,7 +358,7 @@ class ContextManager:
             return None
         return cut
 
-    def _call_summarizer(
+    async def _call_summarizer(
         self, messages: list[Message]
     ) -> tuple[str, dict | None, str | None]:
         """调 self.llm 做摘要调用（tools=[]）→ (摘要, usage, model)。迭代：附旧摘要。"""
@@ -361,13 +367,14 @@ class ContextManager:
             previous_summary=self._summary or "(none)",
             conversation=conversation,
         )
-        resp = self.llm.chat(
-            messages=[
-                Message(role="system", content=SUMMARIZATION_SYSTEM_PROMPT),
-                Message(role="user", content=user_content),
-            ],
-            tools=[],
-        )
+        msgs = [
+            Message(role="system", content=SUMMARIZATION_SYSTEM_PROMPT),
+            Message(role="user", content=user_content),
+        ]
+        if hasattr(self.llm, "achat"):
+            resp = await self.llm.achat(messages=msgs, tools=[])
+        else:
+            resp = self.llm.chat(messages=msgs, tools=[])
         return self._extract_summary(resp.content), resp.usage, resp.model
 
     @staticmethod
@@ -389,7 +396,7 @@ class ContextSessionBridge:
     与 session 树的相互转换。Agent 只调本类方法，不碰桥内部。
     """
 
-    def __init__(self, session: "Session"):
+    def __init__(self, session: Session):
         self.session = session
 
     def results_dir(self) -> Path | None:
