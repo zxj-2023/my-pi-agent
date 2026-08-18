@@ -2,7 +2,9 @@
 
 无需 API key。对应 docs/superpowers/specs/2026-08-03-tool-class-design.md §7。
 """
+
 import asyncio
+
 import pytest
 
 from my_agent_core.registry import ToolRegistry
@@ -85,7 +87,9 @@ def test_get_schemas_shape():
 @pytest.mark.anyio
 async def test_execute_success():
     """正常执行返回 ToolResult(ok=True)。"""
-    result = await _registry(multiply).execute(make_tool_call("multiply", '{"a": 6, "b": 7}'))
+    result = await _registry(multiply).execute(
+        make_tool_call("multiply", '{"a": 6, "b": 7}')
+    )
     assert result.ok is True
     assert result.data == 42
 
@@ -93,7 +97,9 @@ async def test_execute_success():
 @pytest.mark.anyio
 async def test_execute_coerces_string_to_int():
     """类型强转："37" → 37。"""
-    result = await _registry(multiply).execute(make_tool_call("multiply", '{"a": "6", "b": 7}'))
+    result = await _registry(multiply).execute(
+        make_tool_call("multiply", '{"a": "6", "b": 7}')
+    )
     assert result.ok is True
     assert result.data == 42
 
@@ -191,4 +197,3 @@ async def test_registry_execute_batch_parallel_and_order_preserving():
     # 2. 验证只读工具并发启动 (start_read_0 与 start_read_2 都在前)
     assert timeline[0] == "start_read_0"
     assert timeline[1] == "start_read_2"
-
