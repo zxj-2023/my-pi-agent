@@ -30,9 +30,7 @@ def test_estimate_tokens_monotonic():
 
 def test_snip_keeps_pairing():
     """L1：>50 消息裁中间 + [snipped] 占位，不拆 assistant(tool_calls)+tool 配对（#5）。"""
-    tc = [
-        {"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}
-    ]
+    tc = [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
     msgs = [_msg("user", f"q{i}") for i in range(40)]
     msgs.append(_msg("assistant", "", tool_calls=tc))  # index 40
     msgs.append(_msg("tool", "result"))  # index 41（配对）

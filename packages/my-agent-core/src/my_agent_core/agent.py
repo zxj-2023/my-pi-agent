@@ -331,6 +331,7 @@ class Agent:
 
 def _run_sync(coro_or_val):
     if inspect.isawaitable(coro_or_val):
+
         async def _wrapper():
             return await coro_or_val
 
