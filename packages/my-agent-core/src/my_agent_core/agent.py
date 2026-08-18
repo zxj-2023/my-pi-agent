@@ -1,4 +1,4 @@
-"""单层 Agent —— 状态 + 循环 + 工具执行全在一个类（pig-mono 式）。
+"""单层 Agent —— 状态 + 循环 + 工具执行全在一个类（原生异步驱动）。
 
 模型调用 → 检查 tool_calls → 执行工具 → 观察结果写回消息 → 循环，
 直到模型不再发起工具调用（经典退出条件：tool_calls 为空 → 结束）。
@@ -13,6 +13,7 @@ import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from my_agent_llm import LLM, Message
 
@@ -26,6 +27,7 @@ from my_agent_core.events import (
     HookResult,
     MessageEnd,
     MessageStart,
+    MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
     TurnEnd,
@@ -36,12 +38,12 @@ from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
-from my_agent_core.tools import Tool
+from my_agent_core.tools import Tool, ToolResult
 from my_agent_core.tools.builtin import make_task_tool
 
 
 class Agent:
-    """单层 Agent：持有 llm / 工具注册表 / 消息，内联 ReAct 循环。"""
+    """单层 Agent：持有 llm / 工具注册表 / 消息，内联 ReAct 异步循环。"""
 
     # ── 构造与装配 ──────────────────────────────────────────
 
@@ -83,6 +85,7 @@ class Agent:
         self.max_iterations = max_iterations
         self.session = session
         self._system_prompt = system_prompt  # 保存，reset 重拼用
+        self._aborted = False  # 中止状态标记
         self.hooks = HookRegistry()
         self.registry = ToolRegistry()
         self.skill_manager = SkillManager(
@@ -156,61 +159,173 @@ class Agent:
 
     # ── 公共 API ────────────────────────────────────────────
 
-    def run(self, user_input: str) -> str | None:
-        """追加 user 消息 → 内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
+    def abort(self) -> None:
+        """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本）。"""
+        self._aborted = True
+
+    def run_sync(self, user_input: str) -> str | None:
+        """同步运行快捷入口（内部自动驱动事件循环）。"""
+        return _run_sync(self.run(user_input))
+
+    async def run(self, user_input: str) -> str | None:
+        """追加 user 消息 → 异步内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
+        self._aborted = False
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
-        # session 只存纯对话，故先保留 _init_messages 拼出的 system 首条。
         system = [m for m in self.messages if m.role == "system"]
         self.messages = system + self.session.get_current_path_messages()
         user_msg = Message(role="user", content=user_input)
         self.messages.append(user_msg)
         self.session.add_message("user", user_input)
-        self._emit(AgentStart())
-        self._emit(MessageStart(user_msg))
-        self._emit(MessageEnd(user_msg))
+        await self._emit(AgentStart())
+        await self._emit(MessageStart(user_msg))
+        await self._emit(MessageEnd(user_msg))
+
         iteration = 0
         while self.max_iterations is None or iteration < self.max_iterations:
             iteration += 1
-            self._emit(TurnStart(iteration))
-            # ── Reason：把完整消息历史 + 工具说明书发给模型。
+            if self._aborted:
+                await self._emit(
+                    AgentEnd(
+                        messages=list(self.messages),
+                        final_text=None,
+                        iterations=iteration,
+                        stop_reason="cancelled",
+                    )
+                )
+                return "(cancelled)"
+
+            await self._emit(TurnStart(iteration))
+
+            # ── Reason：准备上下文视图 + 异步流式调大模型
             tools = self.registry.get_schemas()
-            view = _run_sync(self._ctx.prepare(self.messages))
-            resp = self._llm_chat(view, tools)
-            if resp.usage:
-                self._ctx.record_usage(resp.usage)
-            self._handle_compaction()
+            view = await self._ctx.prepare(self.messages)
+
+            content_acc = ""
+            final_tool_calls = None
+            last_usage = None
+            cancelled = False
+
+            if hasattr(self.llm, "achat_stream"):
+                stream = self.llm.achat_stream(
+                    messages=view, tools=tools, model=self.model
+                )
+                async for chunk in stream:
+                    if self._aborted:
+                        cancelled = True
+                        break
+
+                    if chunk.content:
+                        content_acc += chunk.content
+                    if getattr(chunk, "tool_calls", None):
+                        final_tool_calls = chunk.tool_calls
+                    if getattr(chunk, "usage", None):
+                        last_usage = chunk.usage
+
+                    hook = await self._emit(
+                        MessageUpdate(
+                            message=Message(role="assistant", content=content_acc),
+                            chunk=chunk,
+                        )
+                    )
+                    if isinstance(hook, HookResult) and hook.block:
+                        self._aborted = True
+                        cancelled = True
+                        break
+            elif hasattr(self.llm, "achat"):
+                resp = await self.llm.achat(
+                    messages=view, tools=tools, model=self.model
+                )
+                content_acc = resp.content or ""
+                final_tool_calls = resp.tool_calls
+                last_usage = resp.usage
+            else:
+                resp = self._llm_chat(view, tools)
+                content_acc = resp.content or ""
+                final_tool_calls = resp.tool_calls
+                last_usage = resp.usage
+
+            if cancelled or self._aborted:
+                await self._emit(
+                    AgentEnd(
+                        messages=list(self.messages),
+                        final_text=None,
+                        iterations=iteration,
+                        stop_reason="cancelled",
+                    )
+                )
+                return "(cancelled)"
+
+            if last_usage:
+                self._ctx.record_usage(last_usage)
+            await self._handle_compaction()
+
             assistant = Message(
                 role="assistant",
-                content=resp.content or "",
-                metadata={"tool_calls": resp.tool_calls} if resp.tool_calls else None,
+                content=content_acc,
+                metadata={"tool_calls": final_tool_calls}
+                if final_tool_calls
+                else None,
             )
             self.messages.append(assistant)
             self.session.add_message(
                 "assistant", assistant.content, **(assistant.metadata or {})
             )
-            self._emit(MessageStart(assistant))
-            self._emit(MessageEnd(assistant))
+            await self._emit(MessageStart(assistant))
+            await self._emit(MessageEnd(assistant))
+
             # ── 经典退出条件：模型不再发起工具调用 → 结束。
-            if not resp.tool_calls:
-                self._emit(
+            if not final_tool_calls:
+                await self._emit(
                     AgentEnd(
                         messages=list(self.messages),
-                        final_text=resp.content,
+                        final_text=content_acc,
                         iterations=iteration,
                         stop_reason="end_turn",
                     )
                 )
-                return resp.content
-            # ── Act + Observe：逐个执行本轮全部 tool_calls，结果写回 messages。
+                return content_acc
+
+            # ── Act + Observe：异步并发/串行分流执行，严格保序回填
+            tool_call_dicts = final_tool_calls
+            prepared_calls: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+            direct_observations: dict[int, ToolResult] = {}
+
+            for idx, tc in enumerate(tool_call_dicts):
+                name, args, err, _hook = await self._prepare_tool(tc)
+                if err is not None:
+                    direct_observations[idx] = ToolResult(ok=False, error=err)
+                else:
+                    prepared_calls.append((idx, tc, args))
+
+            if prepared_calls:
+                effective_calls = [
+                    (
+                        idx,
+                        {
+                            **tc,
+                            "function": {
+                                **tc["function"],
+                                "arguments": json.dumps(args),
+                            },
+                        },
+                    )
+                    for idx, tc, args in prepared_calls
+                ]
+                call_dicts_to_run = [c[1] for c in effective_calls]
+                batch_results = await self.registry.execute_batch(call_dicts_to_run)
+                for (idx, _tc), res in zip(effective_calls, batch_results):
+                    obs, is_err = await self._post_execute_hook(_tc, res)
+                    direct_observations[idx] = (
+                        ToolResult(ok=not is_err, data=obs)
+                        if not is_err
+                        else ToolResult(ok=False, error=obs)
+                    )
+
+            # 保序写回 messages 和 session
             tool_results: list[Message] = []
-            for tc in resp.tool_calls:
-                name, args, err, _hook = self._prepare_tool(
-                    tc
-                )  # 内部触发 ToolExecutionStart + hook
-                # err 非 None 时它本身就是观察文本；否则执行工具（内部触发 ToolExecutionEnd + hook）
-                observation = (
-                    err if err is not None else self._execute_tool(tc, args)[0]
-                )
+            for idx, tc in enumerate(tool_call_dicts):
+                res = direct_observations[idx]
+                observation = res.serialize()
                 tool_msg = Message(
                     role="tool",
                     content=observation,
@@ -218,11 +333,13 @@ class Agent:
                 )
                 self.messages.append(tool_msg)
                 self.session.add_message("tool", observation, tool_call_id=tc["id"])
-                self._emit(MessageStart(tool_msg))
-                self._emit(MessageEnd(tool_msg))
+                await self._emit(MessageStart(tool_msg))
+                await self._emit(MessageEnd(tool_msg))
                 tool_results.append(tool_msg)
-            self._emit(TurnEnd(message=assistant, tool_results=tool_results))
-        self._emit(
+
+            await self._emit(TurnEnd(message=assistant, tool_results=tool_results))
+
+        await self._emit(
             AgentEnd(
                 messages=list(self.messages),
                 final_text=None,
@@ -232,10 +349,10 @@ class Agent:
         )
         return None
 
-    def invoke_skill(self, name: str, instructions: str = "") -> str | None:
+    async def invoke_skill(self, name: str, instructions: str = "") -> str | None:
         """显式调用：skill_manager.format_invocation 包装（未知名 ValueError）→
         self.run(包装文本) 跑一轮。"""
-        return self.run(self.skill_manager.format_invocation(name, instructions))
+        return await self.run(self.skill_manager.format_invocation(name, instructions))
 
     def reset(self) -> None:
         """清空对话（保留 system）。session 树清空 + 重拼 system。"""
@@ -243,10 +360,10 @@ class Agent:
         self.messages = self._init_messages(self.session, self._system_prompt)
         self._ctx.reset()
 
-    def compact(self) -> None:
+    async def compact(self, custom_instructions: str = "") -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
-        _run_sync(self._ctx.force_compact(self.messages))
-        self._handle_compaction()
+        await self._ctx.force_compact(self.messages)
+        await self._handle_compaction()
 
     # ── 内部实现（run 循环辅助）──────────────────────────────
 
@@ -254,69 +371,54 @@ class Agent:
         """封装 llm.chat：透传 model（SDK 通用参数）。"""
         return self.llm.chat(messages=messages, tools=tools, model=self.model)
 
-    def _prepare_tool(
+    async def _prepare_tool(
         self, tc: dict
     ) -> tuple[str, dict, str | None, HookResult | None]:
-        """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。
-
-        args 为实际生效参数（hook 改写后；畸形 JSON 时为空 dict）。
-        err 非 None 表示该调用在 execute 前被拦截（畸形 JSON / hook block）。
-        """
+        """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。"""
         name = tc["function"]["name"]
         try:
             args = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, TypeError) as exc:
             return name, {}, f"Invalid JSON arguments for tool '{name}': {exc}", None
-        # ToolExecutionStart hook：拦截（block）或改写（updated_args）
+
         try:
-            hook = self._emit(ToolExecutionStart(tc["id"], name, args))
-        except Exception as exc:  # hook 抛异常 → 转错误字符串，不中断循环
+            hook = await self._emit(ToolExecutionStart(tc["id"], name, args))
+        except Exception as exc:
             return (
                 name,
                 args,
                 f"Error in ToolExecutionStart hook for '{name}': {exc}",
                 None,
             )
-        # 防御：hook 违反契约返回非 HookResult 真值（如 True）时按无干预处理，避免 AttributeError 穿出
+
         if isinstance(hook, HookResult) and hook.block:
             return name, args, f"Tool '{name}' blocked: {hook.reason}", hook
         if isinstance(hook, HookResult) and hook.updated_args is not None:
             args = hook.updated_args
         return name, args, None, hook
 
-    def _execute_tool(self, tc: dict, args: dict) -> tuple[str, bool]:
-        """执行阶段：以改写后 args 构造 effective 协议 dict → registry.execute → ToolExecutionEnd hook。永不抛。
-
-        返回 (观察文本, is_error)。调用方保证 args 已通过 _prepare_tool 校验/改写。
-        """
+    async def _post_execute_hook(
+        self, tc: dict, result: ToolResult
+    ) -> tuple[str, bool]:
+        """执行后处理阶段：ToolExecutionEnd hook 改写结果。永不抛。"""
         name = tc["function"]["name"]
-        # 执行：以改写后 args 生效（序列化回协议 dict 交给 registry）
         try:
-            effective = {
-                **tc,
-                "function": {**tc["function"], "arguments": json.dumps(args)},
-            }
-            result = _run_sync(self.registry.execute(effective))
-        except Exception as exc:  # json.dumps 兜底（registry.execute 自身声明永不抛）
-            return f"Error executing tool '{name}': {exc}", True
-        # ToolExecutionEnd hook：改写结果（updated_result）
-        try:
-            hook = self._emit(
+            hook = await self._emit(
                 ToolExecutionEnd(tc["id"], name, result.serialize(), not result.ok)
             )
-        except Exception as exc:  # hook 抛异常 → 转错误字符串，不中断循环
+        except Exception as exc:
             return f"Error in ToolExecutionEnd hook for '{name}': {exc}", True
-        # 防御：hook 违反契约返回非 HookResult 真值（如 True）时按无干预处理，避免 AttributeError 穿出
+
         if isinstance(hook, HookResult) and hook.updated_result is not None:
             return hook.updated_result, False
         return result.serialize(), not result.ok
 
-    def _handle_compaction(self) -> None:
+    async def _handle_compaction(self) -> None:
         """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
         self._ctx_bridge.write_compaction(self._ctx)
         info = self._ctx.pending_compaction
         if info is not None:
-            self._emit(
+            await self._emit(
                 ContextCompacted(
                     tokens_before=info.tokens_before,
                     tokens_after=info.tokens_after,
@@ -324,9 +426,9 @@ class Agent:
                 )
             )
 
-    def _emit(self, event: Event) -> HookResult | None:
+    async def _emit(self, event: Event) -> HookResult | None:
         """触发事件的所有 hook（委托 HookRegistry）。"""
-        return _run_sync(self.hooks.emit(event))
+        return await self.hooks.emit(event)
 
 
 def _run_sync(coro_or_val):

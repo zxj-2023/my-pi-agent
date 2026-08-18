@@ -1,8 +1,10 @@
 """Agent 单层循环离线测试（假 LLM 替身，不碰真网络）。"""
+
 import tempfile
 from pathlib import Path
 
-from my_agent_llm import Message, Response
+import pytest
+from my_agent_llm import Message, Response, StreamChunk
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
@@ -11,6 +13,7 @@ from my_agent_core.events import (
     HookResult,
     MessageEnd,
     MessageStart,
+    MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
     TurnEnd,
@@ -21,7 +24,7 @@ from my_agent_core.tools import tool
 
 
 class FakeLLM:
-    """替身：chat 按脚本返回 Response，记录收到的 messages/tools。"""
+    """替身：chat / achat_stream 按脚本返回 Response / StreamChunk，记录收到的 messages/tools。"""
 
     def __init__(self, responses: list[Response]):
         self.responses = list(responses)
@@ -31,14 +34,41 @@ class FakeLLM:
         self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
         return self.responses.pop(0)
 
+    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
+        return self.chat(messages=messages, tools=tools, **kwargs)
 
-@tool
+    async def achat_stream(self, *, messages, tools=None, **kwargs):
+        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
+        resp = self.responses.pop(0)
+        if resp.content:
+            # 拆为两段 chunk 测试流式
+            mid = len(resp.content) // 2
+            if mid > 0:
+                yield StreamChunk(content=resp.content[:mid])
+                yield StreamChunk(
+                    content=resp.content[mid:],
+                    tool_calls=resp.tool_calls,
+                    finish_reason=resp.finish_reason,
+                )
+            else:
+                yield StreamChunk(
+                    content=resp.content,
+                    tool_calls=resp.tool_calls,
+                    finish_reason=resp.finish_reason,
+                )
+        elif resp.tool_calls:
+            yield StreamChunk(content="", tool_calls=resp.tool_calls)
+        else:
+            yield StreamChunk(content="", finish_reason="end_turn")
+
+
+@tool(is_parallel_safe=True)
 def multiply(a: int, b: int) -> int:
     """Multiply two integers."""
     return a * b
 
 
-@tool
+@tool(is_parallel_safe=True)
 def get_time() -> str:
     """Get the current time."""
     return "12:00"
@@ -54,34 +84,51 @@ def _agent(llm, *, tools=(multiply,), session=None, **kwargs) -> Agent:
     return Agent(llm=llm, tools=list(tools), session=session, **kwargs)
 
 
-def test_direct_answer():
+@pytest.mark.anyio
+async def test_direct_answer():
     """直接回答路径：纯 content → 一轮结束返回文本（#2）。"""
     llm = FakeLLM([_response(content="hi")])
     agent = _agent(llm)
-    answer = agent.run("hello")
+    answer = await agent.run("hello")
     assert answer == "hi"
     assert len(llm.calls) == 1
 
 
-def test_tool_call_then_answer():
+@pytest.mark.anyio
+async def test_tool_call_then_answer():
     """工具调用路径：先 tool_calls 再纯 content → 循环执行 + 写回（#3）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 6, "b": 7}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 6, "b": 7}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="42")])
     agent = _agent(llm)
-    answer = agent.run("compute")
+    answer = await agent.run("compute")
     assert answer == "42"
     assert len(llm.calls) == 2
 
 
-def test_multiple_tool_calls():
+@pytest.mark.anyio
+async def test_multiple_tool_calls():
     """一轮多个 tool_calls 各自配对写回（#4）。"""
     tcs = [
-        {"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}},
-        {"id": "2", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 4, "b": 5}'}},
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        },
+        {
+            "id": "2",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 4, "b": 5}'},
+        },
     ]
     llm = FakeLLM([_response(tool_calls=tcs), _response(content="done")])
     agent = _agent(llm)
-    answer = agent.run("compute")
+    answer = await agent.run("compute")
     assert answer == "done"
     second_call = llm.calls[1]["messages"]
     tool_msgs = [m for m in second_call if m.role == "tool"]
@@ -92,23 +139,31 @@ def test_multiple_tool_calls():
     assert assistant_msgs[0].metadata["tool_calls"] == tcs
 
 
-def test_unknown_tool_error_recovered():
+@pytest.mark.anyio
+async def test_unknown_tool_error_recovered():
     """未知工具名 → 错误字符串写回，循环继续（#5）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "nope", "arguments": "{}"}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "nope", "arguments": "{}"},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
     agent = _agent(llm)
-    answer = agent.run("do")
+    answer = await agent.run("do")
     assert answer == "ok"
     second_call = llm.calls[1]["messages"]
     tool_msgs = [m for m in second_call if m.role == "tool"]
     assert "Unknown tool 'nope'" in tool_msgs[0].content
 
 
-def test_messages_are_message_objects():
+@pytest.mark.anyio
+async def test_messages_are_message_objects():
     """FakeLLM 收到的 messages 是 list[Message]，含 system（#14）。"""
     llm = FakeLLM([_response(content="hi")])
     agent = _agent(llm, system_prompt="be nice")
-    agent.run("hello")
+    await agent.run("hello")
     first_call = llm.calls[0]["messages"]
     assert all(isinstance(m, Message) for m in first_call)
     assert first_call[0].role == "system"
@@ -116,23 +171,52 @@ def test_messages_are_message_objects():
     assert first_call[1].role == "user"
 
 
-def test_event_sequence():
+@pytest.mark.anyio
+async def test_event_sequence():
     """事件序列完整顺序：AgentStart → Message(user) → TurnStart → Message(assistant) → ToolExecution → TurnEnd → ... → AgentEnd（#11）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="6")])
     events = []
-    agent = _agent(llm, hooks=[
-        (cls, events.append) for cls in (AgentStart, MessageStart, MessageEnd,
-                                         TurnStart, TurnEnd, ToolExecutionStart,
-                                         ToolExecutionEnd, AgentEnd)
-    ])
-    agent.run("compute")
+    agent = _agent(
+        llm,
+        hooks=[
+            (cls, events.append)
+            for cls in (
+                AgentStart,
+                MessageStart,
+                MessageEnd,
+                TurnStart,
+                TurnEnd,
+                ToolExecutionStart,
+                ToolExecutionEnd,
+                AgentEnd,
+            )
+        ],
+    )
+    await agent.run("compute")
     kinds = [type(e).__name__ for e in events]
     assert kinds == [
-        "AgentStart", "MessageStart", "MessageEnd", "TurnStart",
-        "MessageStart", "MessageEnd", "ToolExecutionStart", "ToolExecutionEnd",
-        "MessageStart", "MessageEnd", "TurnEnd",
-        "TurnStart", "MessageStart", "MessageEnd", "AgentEnd",
+        "AgentStart",
+        "MessageStart",
+        "MessageEnd",
+        "TurnStart",
+        "MessageStart",
+        "MessageEnd",
+        "ToolExecutionStart",
+        "ToolExecutionEnd",
+        "MessageStart",
+        "MessageEnd",
+        "TurnEnd",
+        "TurnStart",
+        "MessageStart",
+        "MessageEnd",
+        "AgentEnd",
     ]
     # AgentEnd 携带 messages 与 stop_reason
     end = [e for e in events if isinstance(e, AgentEnd)][0]
@@ -141,25 +225,33 @@ def test_event_sequence():
     assert end.messages[-1].role == "assistant"
 
 
-def test_max_iterations():
+@pytest.mark.anyio
+async def test_max_iterations():
     """max_iterations=1 且模型一直发 tool_calls → stop_reason="max_iterations"、final_text=None（#12）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc)])  # 只有一轮 tool_calls，没有最终回答
     events = []
     agent = _agent(llm, max_iterations=1, hooks=[(AgentEnd, events.append)])
-    answer = agent.run("compute")
+    answer = await agent.run("compute")
     assert answer is None
     end = [e for e in events if isinstance(e, AgentEnd)][0]
     assert end.stop_reason == "max_iterations"
     assert end.final_text is None
 
 
-def test_agent_multiple_runs_and_reset():
+@pytest.mark.anyio
+async def test_agent_multiple_runs_and_reset():
     """连续两次 run 第二次含第一轮历史；reset 后只剩 system（#13）。"""
     llm = FakeLLM([_response(content="first"), _response(content="second")])
     agent = _agent(llm, system_prompt="sys")
-    assert agent.run("q1") == "first"
-    assert agent.run("q2") == "second"
+    assert await agent.run("q1") == "first"
+    assert await agent.run("q2") == "second"
     # 第二次请求含第一轮 user + assistant 历史
     second_call = llm.calls[1]["messages"]
     roles = [m.role for m in second_call]
@@ -170,9 +262,16 @@ def test_agent_multiple_runs_and_reset():
     assert agent.messages[0].content == "sys"
 
 
-def test_hook_blocks_tool():
+@pytest.mark.anyio
+async def test_hook_blocks_tool():
     """ToolExecutionStart hook 返回 block → 工具未执行，tool 消息含 blocked（#7）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     called = []
     llm = FakeLLM([_response(tool_calls=tc), _response(content="blocked ok")])
 
@@ -187,32 +286,48 @@ def test_hook_blocks_tool():
 
     probe_tool = tool(probe)
     agent = _agent(llm, tools=[probe_tool], hooks=[(ToolExecutionStart, guard)])
-    answer = agent.run("compute")
+    answer = await agent.run("compute")
     assert answer == "blocked ok"
     assert called == []  # 工具未执行
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "blocked: no way" in tool_msgs[0].content
 
 
-def test_hook_rewrites_args():
+@pytest.mark.anyio
+async def test_hook_rewrites_args():
     """ToolExecutionStart hook 返回 updated_args → 工具收到改写值（#8）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
     def rewrite(event):
         if isinstance(event, ToolExecutionStart):
-            return HookResult(updated_args={"a": event.args["a"] * 10, "b": event.args["b"]})
+            return HookResult(
+                updated_args={"a": event.args["a"] * 10, "b": event.args["b"]}
+            )
         return None
 
     agent = _agent(llm, hooks=[(ToolExecutionStart, rewrite)])
-    agent.run("compute")
+    await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
 
 
-def test_hook_rewrites_result():
+@pytest.mark.anyio
+async def test_hook_rewrites_result():
     """ToolExecutionEnd hook 返回 updated_result → transcript 中是改写后的文本（#9）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
     def rewrite(event):
@@ -221,42 +336,63 @@ def test_hook_rewrites_result():
         return None
 
     agent = _agent(llm, hooks=[(ToolExecutionEnd, rewrite)])
-    agent.run("compute")
+    await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "[6]"
 
 
-def test_hook_exception_becomes_error():
+@pytest.mark.anyio
+async def test_hook_exception_becomes_error():
     """hook 抛异常 → 转错误字符串，transcript 不变形（#10）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
     def boom(event):
         raise ValueError("boom")
 
     agent = _agent(llm, hooks=[(ToolExecutionStart, boom)])
-    agent.run("compute")
+    await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error" in tool_msgs[0].content
 
 
-def test_tool_execution_end_hook_exception_becomes_error():
+@pytest.mark.anyio
+async def test_tool_execution_end_hook_exception_becomes_error():
     """ToolExecutionEnd hook 抛异常 → 转错误字符串，工具已执行但结果被替换。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
     def boom(event):
         raise ValueError("end boom")
 
     agent = _agent(llm, hooks=[(ToolExecutionEnd, boom)])
-    agent.run("compute")
+    await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert "Error" in tool_msgs[0].content  # 工具执行了，但结果被 End hook 异常替换
 
 
-def test_multiple_hooks_same_event():
+@pytest.mark.anyio
+async def test_multiple_hooks_same_event():
     """同一事件挂多个 hook，按注册顺序触发，非 None 短路。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'}}]
+    tc = [
+        {
+            "id": "1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
     order = []
 
@@ -271,24 +407,34 @@ def test_multiple_hooks_same_event():
     def third(event):
         order.append("third")  # 不应被调用
 
-    agent = _agent(llm, hooks=[
-        (ToolExecutionStart, first),
-        (ToolExecutionStart, second),
-        (ToolExecutionStart, third),
-    ])
-    agent.run("compute")
+    agent = _agent(
+        llm,
+        hooks=[
+            (ToolExecutionStart, first),
+            (ToolExecutionStart, second),
+            (ToolExecutionStart, third),
+        ],
+    )
+    await agent.run("compute")
     assert order == ["first", "second"]  # third 未触发（短路）
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "100"  # 第二个 hook 的改写生效
 
 
-def test_malformed_arguments_does_not_crash():
+@pytest.mark.anyio
+async def test_malformed_arguments_does_not_crash():
     """畸形/空 JSON 参数 → 错误写回 tool 消息，run() 不崩溃、正常结束（Important #1 修复验证）。"""
     for raw in ("not-json", ""):
-        tc = [{"id": "1", "type": "function", "function": {"name": "multiply", "arguments": raw}}]
+        tc = [
+            {
+                "id": "1",
+                "type": "function",
+                "function": {"name": "multiply", "arguments": raw},
+            }
+        ]
         llm = FakeLLM([_response(tool_calls=tc), _response(content="recovered")])
         agent = _agent(llm)
-        answer = agent.run("compute")
+        answer = await agent.run("compute")
         assert answer == "recovered"
         second_call = llm.calls[1]["messages"]
         tool_msgs = [m for m in second_call if m.role == "tool"]
@@ -296,9 +442,75 @@ def test_malformed_arguments_does_not_crash():
         assert tool_msgs[0].metadata["tool_call_id"] == "1"
 
 
-def test_model_passthrough():
+@pytest.mark.anyio
+async def test_model_passthrough():
     """Agent(model=) 透传给 llm.chat（子代理换模型的前置）。"""
     llm = FakeLLM([_response(content="hi")])
     agent = _agent(llm, model="sonnet")
-    agent.run("hello")
+    await agent.run("hello")
     assert llm.calls[0]["model"] == "sonnet"
+
+
+@pytest.mark.anyio
+async def test_agent_async_run_streaming_events():
+    """Agent 流式运行期间逐 Token 发射 MessageUpdate 事件。"""
+    llm = FakeLLM([_response(content="streaming hello world")])
+    updates = []
+    agent = _agent(llm, hooks=[(MessageUpdate, updates.append)])
+    res = await agent.run("say hello")
+    assert res == "streaming hello world"
+    assert len(updates) >= 2
+    assert all(isinstance(u, MessageUpdate) for u in updates)
+    assert updates[-1].message.content == "streaming hello world"
+
+
+@pytest.mark.anyio
+async def test_agent_abort_cancels_and_discards_partial():
+    """agent.abort() 触发取消，流式中断，半截文本不写入 Session，返回 (cancelled)。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM([_response(content="half text that will be aborted")])
+
+    agent = _agent(llm, session=session)
+
+    # 注册一个 Hook 在收到第一个 chunk 时调用 agent.abort()
+    def cancel_on_first_chunk(event: MessageUpdate):
+        agent.abort()
+        return None
+
+    agent.hooks.register(MessageUpdate, cancel_on_first_chunk)
+
+    result = await agent.run("test abort")
+    assert result == "(cancelled)"
+
+    # 验证 Session 中只有 user 消息，半截 assistant 文本未落盘
+    entries = list(session.tree.entries.values())
+    assert len(entries) == 1
+    assert entries[0].role == "user"
+
+
+@pytest.mark.anyio
+async def test_message_update_hook_interception():
+    """MessageUpdate Hook 返回 HookResult(block=True) 实时阻断流式并退出。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM([_response(content="dangerous payload in stream")])
+    agent = _agent(llm, session=session)
+
+    def guard_hook(event: MessageUpdate):
+        if "dangerous" in event.message.content:
+            return HookResult(block=True, reason="Security alert")
+        return None
+
+    agent.hooks.register(MessageUpdate, guard_hook)
+
+    result = await agent.run("danger test")
+    assert result == "(cancelled)"
+    # 半截文本被丢弃，Session 纯净
+    assert not any(e.role == "assistant" for e in session.tree.entries.values())
+
+
+def test_agent_run_sync_compatibility():
+    """Agent.run_sync() 同步快捷入口向前兼容。"""
+    llm = FakeLLM([_response(content="sync response")])
+    agent = _agent(llm)
+    res = agent.run_sync("hello sync")
+    assert res == "sync response"
