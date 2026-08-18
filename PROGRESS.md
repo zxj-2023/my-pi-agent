@@ -302,7 +302,21 @@ my-pi-agent/
   - `Agent` 接入：`extension_dirs` 三态构造参数，加载在 `_register_tools` 之后（extension 工具可覆盖内置工具）；坏扩展隔离（print 不抛）
 - **关键教训**：plan 测试 #8 笔误（命令注册在独立 ExtensionAPI 却用新 ExtensionManager 调，必抛 ValueError），implementer 修正确认；final review 抓「extension 覆盖内置工具零测试」，补覆盖测试锁住「后加载覆盖」语义。
 - **验证**：182 个测试全绿（17 个 extension 测试 + 既有 165）。
-- **scope 备注**：快捷键/flag/cleanup 按 spec 砍（依赖 CLI/TUI 触发源，等 coding agent 层）；MCP（9.2）后续以 extension 形态落地。
+
+### 阶段 9.2：基于 Extension 的 MCP 客户端扩展（2026-08-17）
+
+**目标**：基于 `ExtensionAPI` 机制实现 MCP 客户端扩展——Stdio 子进程长连接、同步/异步线程事件循环桥接、`Tool` 解耦与 `raw_schema` 增强、`.mcp.json` 工作区配置加载。
+
+- 提交：`950d528` `222754c` `d52764f` `300a742` `1fa10ed`
+- **改了什么**：
+  - `tools/__init__.py`：`ToolResult` 增加 `meta: dict[str, Any]`；`Tool` 增加 `raw_schema: dict | None` 与 `timeout: float | None` 参数，解耦 Python 函数注解推导，直接支持外部 JSON Schema 协议转换与字典参数执行。
+  - `mcp.py`（新增）：`MCPServerConfig`（配置模型）+ `MCPConnection`（后台线程 asyncio 事件循环长连接守护，跨线程阻塞 RPC 转发 `session.call_tool` 与超时防护）+ `MCPClientManager`（`.mcp.json` 读取解析、多 Server 批处理连接、`atexit` 优雅关闭）。
+  - `__init__.py`：导出 `MCPClientManager`、`MCPConnection`、`MCPServerConfig`。
+  - 测试：新增 `tests/test_mcp.py`（配置解析 + Stdio 握手与工具调用）与 `tests/test_mcp_extension_e2e.py`（端到端 FakeLLM 驱动 Agent ReAct 循环调 MCP 工具）。
+- **过程中的关键教训**：
+  - 同步/异步桥接：官方 `mcp` SDK 是基于 `asyncio` 的长连接上下文管理器，通过为每个 Server 维护一个后台守护线程与 `asyncio.run_coroutine_threadsafe(...).result(timeout=...)` 实现了干净、高效的同步跨线程调用。
+  - 100% 离线测试：使用内联 Python 脚本作为 Stdio MCP Server 子进程，完全不依赖外部网络与外部 CLI 安装。
+- **验证**：全量 223 个测试全绿（187 个 core 测试 + 36 个 llm 测试）。
 
 ---
 
@@ -314,9 +328,9 @@ my-pi-agent/
 - 阶段 5：skill 机制（已完成）
 - subagent 机制（已完成，另列）
 - Task 委派系统 + 四个文件工具（已完成）
-- 阶段 9：extension 机制（9.1/9.3 已完成；9.2 MCP 未做）
+- 阶段 9：extension 机制与 MCP 客户端扩展（9.1/9.2/9.3 已全部完成）
 - 阶段 6：动态工具（未做）
 - 阶段 7：memory 记忆系统（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
-- plugin 分发（前置 subagent/skills/extension 已就绪，未做）
+- plugin 分发（前置 subagent/skills/extension/MCP 已就绪，未做）
 - coding agent 层（`my_coding_agent`）——框架层完成后（含 plan 模式交互层）
