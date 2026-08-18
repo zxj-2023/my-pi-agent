@@ -167,7 +167,9 @@ def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
     }
 
 
-def _parent(manager: SubagentManager, llm: FakeLLM, tools=(multiply, get_time)) -> Agent:
+def _parent(
+    manager: SubagentManager, llm: FakeLLM, tools=(multiply, get_time)
+) -> Agent:
     """构造父 Agent 并手动装配 task 工具（Task 4 前暂不自动装配）。"""
     agent = Agent(
         llm=llm,
@@ -228,7 +230,9 @@ async def test_subagent_tool_filtering(tmp_path: Path):
     agent = _parent(manager, llm)
     await agent.run("delegate")
     sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
-    assert sub_tool_names == ["multiply"]  # 只剩白名单（get_time 被黑名单 + 白名单共同剔除）
+    assert sub_tool_names == [
+        "multiply"
+    ]  # 只剩白名单（get_time 被黑名单 + 白名单共同剔除）
 
 
 @pytest.mark.anyio

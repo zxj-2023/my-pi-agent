@@ -51,7 +51,9 @@ def multiply(a: int, b: int) -> int:
     return a * b
 
 
-def _write_agent(root: Path, name: str, description: str = "desc", content: str = "body") -> Path:
+def _write_agent(
+    root: Path, name: str, description: str = "desc", content: str = "body"
+) -> Path:
     p = root / f"{name}.md"
     p.write_text(f"---\ndescription: {description}\n---\n\n{content}", encoding="utf-8")
     return p
@@ -158,7 +160,9 @@ async def test_make_task_tool_bridge(tmp_path: Path):
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
     task_tool = make_task_tool(manager, parent)
-    result = await task_tool.execute({"prompt": "review", "agent_type": "code-reviewer"})
+    result = await task_tool.execute(
+        {"prompt": "review", "agent_type": "code-reviewer"}
+    )
     assert result.ok is True
     assert result.data == "found issues"
 
