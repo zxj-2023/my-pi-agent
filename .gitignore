@@ -6,10 +6,12 @@ __pycache__/
 htmlcov/
 .my_agent_core/
 
-# 本地工具配置（Claude Code / Codex / Superpowers / MCP）
+# 本地工具配置（Claude Code / Codex / Superpowers / MCP / Pi）
 .claude/
 .codex/
 .superpowers/
+.pi/
+.pi-glla/
 .mcp.json
 
 # 本地私有文档（不上传远程 GitHub）
