@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, get_type_hints
+from typing import Any, get_type_hints, overload
 
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
@@ -27,7 +28,7 @@ class ToolResult:
 
 
 class Tool:
-    """一个可被模型调用的工具：函数本体 + 参数模型/原始Schema + 协议转换 + 超时配置。"""
+    """一个可被模型调用的工具：函数本体 + 参数模型/原始Schema + 协议转换 + 超时与并发配置。"""
 
     def __init__(
         self,
@@ -38,12 +39,15 @@ class Tool:
         params_model: type[BaseModel] | None = None,
         raw_schema: dict[str, Any] | None = None,
         timeout: float | None = None,
+        is_parallel_safe: bool = False,
     ):
         self.func = func
         self.name = name or func.__name__
         self.description = description or (inspect.getdoc(func) or "")
         self.raw_schema = raw_schema
         self.timeout = timeout
+        self.is_parallel_safe = is_parallel_safe
+        self.is_async = inspect.iscoroutinefunction(func)
         self.params_model = params_model or (
             None if raw_schema else self._create_params_model(func)
         )
@@ -98,26 +102,37 @@ class Tool:
             },
         }
 
-    def execute(self, args: dict[str, Any]) -> ToolResult:
-        """校验 + 执行，永不抛（错误全部转 ToolResult）。"""
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
+        """校验 + 执行，永不抛（错误全部转 ToolResult）。自动适配 sync/async 函数。"""
         if self.params_model is not None:
             try:
                 validated = self.params_model.model_validate(args)
             except ValidationError as exc:
                 return ToolResult(ok=False, error=str(exc))
-            try:
-                result = self.func(**validated.model_dump())
-            except Exception as exc:  # 工具错误 → 消息，喂回模型
-                return ToolResult(
-                    ok=False, error=f"Error executing tool '{self.name}': {exc}"
-                )
+            kwargs = validated.model_dump()
+
+            def func_call() -> Any:
+                return self.func(**kwargs)
+
+            async def async_func_call() -> Any:
+                return await self.func(**kwargs)
         else:
-            try:
-                result = self.func(args)
-            except Exception as exc:  # 工具错误 → 消息，喂回模型
-                return ToolResult(
-                    ok=False, error=f"Error executing tool '{self.name}': {exc}"
-                )
+
+            def func_call() -> Any:
+                return self.func(args)
+
+            async def async_func_call() -> Any:
+                return await self.func(args)
+
+        try:
+            if self.is_async:
+                result = await async_func_call()
+            else:
+                result = await asyncio.to_thread(func_call)
+        except Exception as exc:  # 工具错误 → 消息，喂回模型
+            return ToolResult(
+                ok=False, error=f"Error executing tool '{self.name}': {exc}"
+            )
 
         if isinstance(result, ToolResult):
             return result
@@ -128,6 +143,32 @@ class Tool:
         return self.func(*args, **kwargs)
 
 
+@overload
+def tool(
+    func: Callable[..., Any],
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    params_model: type[BaseModel] | None = None,
+    raw_schema: dict[str, Any] | None = None,
+    timeout: float | None = None,
+    is_parallel_safe: bool = False,
+) -> Tool: ...
+
+
+@overload
+def tool(
+    func: None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    params_model: type[BaseModel] | None = None,
+    raw_schema: dict[str, Any] | None = None,
+    timeout: float | None = None,
+    is_parallel_safe: bool = False,
+) -> Callable[[Callable[..., Any]], Tool]: ...
+
+
 def tool(
     func: Callable[..., Any] | None = None,
     *,
@@ -136,7 +177,8 @@ def tool(
     params_model: type[BaseModel] | None = None,
     raw_schema: dict[str, Any] | None = None,
     timeout: float | None = None,
-):
+    is_parallel_safe: bool = False,
+) -> Tool | Callable[[Callable[..., Any]], Tool]:
     """@tool 装饰器：支持 @tool 与 @tool(name=..., description=..., params_model=...)。
 
     schema 生成由 pydantic 驱动：参数类型支持 pydantic 全集（list/dict/Optional/嵌套等），
@@ -151,6 +193,7 @@ def tool(
             params_model=params_model,
             raw_schema=raw_schema,
             timeout=timeout,
+            is_parallel_safe=is_parallel_safe,
         )
 
     if func is None:

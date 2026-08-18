@@ -11,6 +11,35 @@ from pydantic import BaseModel
 
 from my_agent_core.tools import Tool, ToolResult, tool
 
+# ---------- 异步与并发能力 ----------
+
+
+@pytest.mark.anyio
+async def test_tool_async_and_sync_functions():
+    """Tool.execute 统一支持 async 协程与普通同步函数（线程池包装）。"""
+    import asyncio
+
+    @tool(is_parallel_safe=True)
+    async def async_add(a: int, b: int) -> int:
+        await asyncio.sleep(0.01)
+        return a + b
+
+    @tool
+    def sync_mul(a: int, b: int) -> int:
+        return a * b
+
+    assert async_add.is_parallel_safe is True
+    assert sync_mul.is_parallel_safe is False
+
+    res1 = await async_add.execute({"a": 2, "b": 3})
+    assert res1.ok is True
+    assert res1.data == 5
+
+    res2 = await sync_mul.execute({"a": 4, "b": 5})
+    assert res2.ok is True
+    assert res2.data == 20
+
+
 # ---------- 装饰期：schema 生成（规格 §7 #1–#8） ----------
 
 
@@ -159,7 +188,8 @@ def test_tool_description_override():
     assert f.description == "Override desc"
 
 
-def test_tool_params_model_override():
+@pytest.mark.anyio
+async def test_tool_params_model_override():
     """params_model 覆盖：外部传入 BaseModel。"""
     from pydantic import BaseModel as BM
 
@@ -174,7 +204,7 @@ def test_tool_params_model_override():
         return city
 
     assert f.params_model is MyArgs
-    result = f.execute({"city": "北京"})
+    result = await f.execute({"city": "北京"})
     assert result.ok and result.data == "北京"
 
 
@@ -215,7 +245,8 @@ def test_tool_callable():
     assert multiply(6, 7) == 42
 
 
-def test_tool_execute_success():
+@pytest.mark.anyio
+async def test_tool_execute_success():
     """execute 成功 → ToolResult(ok=True, data=...)。"""
 
     @tool
@@ -223,13 +254,14 @@ def test_tool_execute_success():
         """Multiply two integers."""
         return a * b
 
-    result = multiply.execute({"a": 6, "b": 7})
+    result = await multiply.execute({"a": 6, "b": 7})
     assert result.ok is True
     assert result.data == 42
     assert result.error is None
 
 
-def test_tool_execute_validation_error():
+@pytest.mark.anyio
+async def test_tool_execute_validation_error():
     """execute 校验失败 → ToolResult(ok=False)，永不抛。"""
 
     @tool
@@ -237,13 +269,14 @@ def test_tool_execute_validation_error():
         """doc"""
         return a
 
-    result = f.execute({"a": "abc"})
+    result = await f.execute({"a": "abc"})
     assert result.ok is False
     assert result.error is not None
     assert "Input should be a valid integer" in result.error
 
 
-def test_tool_execute_tool_exception():
+@pytest.mark.anyio
+async def test_tool_execute_tool_exception():
     """execute 工具异常 → ToolResult(ok=False)，永不抛。"""
 
     @tool
@@ -251,7 +284,7 @@ def test_tool_execute_tool_exception():
         """Always fails."""
         raise RuntimeError("kaboom")
 
-    result = boom.execute({"x": 1})
+    result = await boom.execute({"x": 1})
     assert result.ok is False
     assert result.error == "Error executing tool 'boom': kaboom"
 
@@ -273,7 +306,8 @@ def test_tool_result_meta():
     assert res.meta["latency_ms"] == 12
 
 
-def test_tool_with_raw_schema_and_timeout():
+@pytest.mark.anyio
+async def test_tool_with_raw_schema_and_timeout():
     """Tool 支持传入 raw_schema 与 timeout，绕过 pydantic 函数注解推导。"""
     raw_schema = {
         "type": "object",
@@ -303,7 +337,7 @@ def test_tool_with_raw_schema_and_timeout():
     assert schema["function"]["parameters"] == raw_schema
 
     # 2. 验证 execute 直接传字典
-    res = tool_instance.execute({"query": "python", "limit": 5})
+    res = await tool_instance.execute({"query": "python", "limit": 5})
     assert res.ok is True
     assert res.data == "Query: python, Limit: 5"
     assert tool_instance.timeout == 45.0
