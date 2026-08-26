@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "my-agent-core",
     "my-agent-llm",
-    "mcp>=2.0.0",
+    "mcp>=2.0.0,<2.1",
 ]
 
 [tool.uv.sources]

@@ -20,11 +20,6 @@ from my_agent_core.events import (
     TurnStart,
 )
 from my_agent_core.extensions import ExtensionAPI, ExtensionManager
-from my_agent_core.extensions.builtin.mcp import (
-    MCPClientManager,
-    MCPConnection,
-    MCPServerConfig,
-)
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session, SessionTree
 from my_agent_core.session_store import SessionStore
@@ -55,9 +50,6 @@ __all__ = [
     "ContextManager",
     "ExtensionAPI",
     "ExtensionManager",
-    "MCPClientManager",
-    "MCPConnection",
-    "MCPServerConfig",
     "ContextCompacted",
     "ToolsChanged",
 ]

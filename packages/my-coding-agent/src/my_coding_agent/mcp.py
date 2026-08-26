@@ -1,4 +1,4 @@
-"""MCP 客户端内置扩展 —— 原生异步 Stdio 子进程连接与 extension 入口。"""
+"""MCP 客户端（产品层）—— 原生异步 Stdio 子进程连接与 extension 入口。"""
 
 from __future__ import annotations
 

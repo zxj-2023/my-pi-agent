@@ -76,7 +76,7 @@ async def test_mcp_extension_integration(tmp_path):
     ext_file = ext_dir / "mcp_ext.py"
     ext_file.write_text(
         f"""
-from my_agent_core.extensions.builtin.mcp import MCPClientManager
+from my_coding_agent.mcp import MCPClientManager
 
 async def extension(api):
     manager = MCPClientManager()
@@ -163,7 +163,7 @@ async def test_builtin_mcp_extension_with_command(tmp_path, monkeypatch):
 
     # mcp_extension 内部创建的 manager 通过闭包持有连接；无法从外部访问，
     # 改为通过 MCPClientManager 单独连接并在 finally 里关闭。
-    from my_agent_core.extensions.builtin.mcp import MCPClientManager, MCPServerConfig
+    from my_coding_agent.mcp import MCPClientManager, MCPServerConfig
 
     mgr = MCPClientManager()
     cfg = MCPServerConfig(

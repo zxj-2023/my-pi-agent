@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from my_agent_core.extensions.builtin.mcp import (
+from my_coding_agent.mcp import (
     MCPClientManager,
     MCPServerConfig,
 )
