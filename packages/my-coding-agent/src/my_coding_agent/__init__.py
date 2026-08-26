@@ -1,0 +1,1 @@
+"""my_coding_agent 公共 API（产品层：文件工具 + MCP + 薄装配）。"""
