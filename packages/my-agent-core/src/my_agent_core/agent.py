@@ -196,14 +196,19 @@ class Agent:
             if start_hook.block:
                 reason = f": {start_hook.reason}" if start_hook.reason else ""
                 return f"(blocked{reason})"
-            if (
-                start_hook.updated_system_prompt is not None
-                and self.messages
-                and self.messages[0].role == "system"
-            ):
-                self.messages[0] = Message(
-                    role="system", content=start_hook.updated_system_prompt
-                )
+            if start_hook.updated_system_prompt is not None:
+                if self.messages and self.messages[0].role == "system":
+                    self.messages[0] = Message(
+                        role="system", content=start_hook.updated_system_prompt
+                    )
+                else:
+                    self.messages.insert(
+                        0,
+                        Message(
+                            role="system",
+                            content=start_hook.updated_system_prompt,
+                        ),
+                    )
 
         user_msg = Message(role="user", content=user_input)
         self.messages.append(user_msg)

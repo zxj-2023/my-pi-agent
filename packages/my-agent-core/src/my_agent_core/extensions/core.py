@@ -12,7 +12,7 @@ import importlib.util
 import inspect
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 from my_agent_core.events import Event
 from my_agent_core.tools import Tool
@@ -33,11 +33,21 @@ class ExtensionAPI:
 
     # ── 事件订阅（类型化事件 + 双参 handler，复用 HookRegistry）────────
 
-    def on(self, event_cls: type[Event], handler=None):
+    @overload
+    def on(
+        self, event_cls: type[Event], handler: None = None
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+
+    @overload
+    def on(self, event_cls: type[Event], handler: Callable[..., Any]) -> None: ...
+
+    def on(
+        self, event_cls: type[Event], handler: Callable[..., Any] | None = None
+    ) -> Any:
         """注册事件 handler（可作装饰器）。handler 签名 (event, api)：
         返回 None=观察，返回 HookResult=干预（block/updated_args/updated_result）。"""
 
-        def _register(h):
+        def _register(h: Callable[..., Any]) -> Callable[..., Any]:
             def wrapped(event: Event):
                 return h(event, self)
 

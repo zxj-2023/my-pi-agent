@@ -5,6 +5,7 @@ from my_agent_core.context import ContextManager
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    BeforeModelCall,
     ContextCompacted,
     Event,
     HookResult,
@@ -18,6 +19,7 @@ from my_agent_core.events import (
     ToolsChanged,
     TurnEnd,
     TurnStart,
+    UserInput,
 )
 from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.registry import ToolRegistry
@@ -34,9 +36,11 @@ __all__ = [
     "HookResult",
     "Interceptable",
     "Event",
+    "UserInput",
     "AgentStart",
     "AgentEnd",
     "TurnStart",
+    "BeforeModelCall",
     "TurnEnd",
     "MessageStart",
     "MessageUpdate",

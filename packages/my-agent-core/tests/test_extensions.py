@@ -1,7 +1,7 @@
 """extension 机制离线测试（替身 Agent，不碰真网络）。"""
 
 import pytest
-from my_agent_llm import Response
+from my_agent_llm import Response  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
@@ -218,22 +218,22 @@ def extension(api):
 
 
 class _FakeLLM:
-    """替身：chat/achat 按脚本返回 Response，记录 tools。"""
+    """替身：chat/achat 按脚本返回 Response，记录 tools 和 messages。"""
 
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = []
 
     async def achat_stream(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"tools": tools})
+        self.calls.append({"messages": list(messages), "tools": tools})
         yield self.responses.pop(0)
 
     async def achat(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"tools": tools})
+        self.calls.append({"messages": list(messages), "tools": tools})
         return self.responses.pop(0)
 
     def chat(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"tools": tools})
+        self.calls.append({"messages": list(messages), "tools": tools})
         return self.responses.pop(0)
 
 
@@ -347,3 +347,55 @@ def extension(api):
     assert tool_entry is not None
     result = await tool_entry.execute({"x": 5})
     assert result.data == 500  # extension 版本 x*100，非用户 x*2
+
+
+@pytest.mark.anyio
+async def test_extension_decision_points_end_to_end(tmp_path):
+    """Extension 经 UserInput / AgentStart / BeforeModelCall 完整干预生命周期。"""
+    ext_dir = tmp_path / "exts"
+    ext_dir.mkdir()
+    (ext_dir / "lifecycle_guard.py").write_text(
+        """
+from my_agent_core.events import UserInput, AgentStart, BeforeModelCall, HookResult
+from my_agent_llm import Message
+
+def extension(api):
+    @api.on(UserInput)
+    def rewrite_input(event, api):
+        if "bad_word" in event.input_text:
+            return HookResult(updated_input=event.input_text.replace("bad_word", "good_word"))
+        return None
+
+    @api.on(AgentStart)
+    def rewrite_system(event, api):
+        return HookResult(updated_system_prompt="Guarded System Prompt")
+
+    @api.on(BeforeModelCall)
+    def inject_notice(event, api):
+        ephemeral = Message(role="user", content="[EPHEMERAL WARNING]")
+        return HookResult(updated_messages=list(event.messages) + [ephemeral])
+""",
+        encoding="utf-8",
+    )
+
+    llm = _FakeLLM([_resp(content="safe answer")])
+    agent = _make_agent(llm, tmp_path, extension_dirs=[ext_dir])
+
+    res = await agent.run("test bad_word")
+    assert res == "safe answer"
+
+    # 1. UserInput 改写生效：LLM 收到的 user prompt 中包含 good_word 而非 bad_word
+    last_user_msg = [m for m in llm.calls[0]["messages"] if m.role == "user" and "[EPHEMERAL" not in m.content][-1]
+    assert last_user_msg.content == "test good_word"
+
+    # 2. AgentStart 改写生效：LLM 收到的 system prompt 为 Guarded System Prompt
+    assert llm.calls[0]["messages"][0].content == "Guarded System Prompt"
+
+    # 3. BeforeModelCall 临时注入生效：LLM 视图中包含 [EPHEMERAL WARNING]
+    assert any("[EPHEMERAL WARNING]" in m.content for m in llm.calls[0]["messages"])
+
+    # 4. Session 保持零污染：Session 磁盘绝不包含 [EPHEMERAL WARNING]
+    session_contents = [e.content for e in agent.session.tree.entries.values()]
+    assert not any("[EPHEMERAL WARNING]" in c for c in session_contents)
+    assert any("test good_word" in c for c in session_contents)
+
