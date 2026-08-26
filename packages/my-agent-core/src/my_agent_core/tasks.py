@@ -57,8 +57,8 @@ def _system_for(sub: Subagent, parent: Agent) -> str:
 
 
 def _filter_tools(parent: Agent, sub: Subagent) -> list:
-    """父工具集按白/黑名单过滤；task 永不出现（防递归）。"""
-    tools = [t for t in parent.registry.list() if t.name != "task"]
+    """父工具集按白/黑名单过滤；task 与 memory 永不出现（防递归与隔离）。"""
+    tools = [t for t in parent.registry.list() if t.name not in ("task", "memory")]
     if sub.tools is not None:
         allowed = set(sub.tools)
         tools = [t for t in tools if t.name in allowed]
@@ -122,6 +122,7 @@ class TaskManager:
             else self._parent.max_iterations,
             skill_dirs=[],  # skill 清单已由 _system_for 拼入
             subagent_dirs=[],  # 防递归：禁用子代理再探测
+            memory_dir=False,  # 隔离：子代理禁用长期记忆探测与维护
         )
         try:
             return (await child.run(prompt)) or "(no summary)"

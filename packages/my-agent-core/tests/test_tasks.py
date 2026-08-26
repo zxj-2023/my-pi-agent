@@ -7,7 +7,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from my_agent_llm import Response, StreamChunk
+from my_agent_llm import (  # pyright: ignore[reportMissingImports]
+    Response,
+    StreamChunk,
+)
 
 from my_agent_core.agent import Agent
 from my_agent_core.session import Session
@@ -203,6 +206,7 @@ async def test_subagent_session_persists(tmp_path: Path):
 
 
 @pytest.mark.anyio
+@pytest.mark.anyio
 async def test_multiple_subagents_parallel_delegation(tmp_path: Path):
     """验证同时派发两个子 Agent 并发并行作业。"""
     _write_agent(tmp_path, "reviewer", description="review", content="Reviewer prompt")
@@ -259,3 +263,56 @@ async def test_multiple_subagents_parallel_delegation(tmp_path: Path):
     answer = await agent.run("coordinate")
     assert answer == "All subtasks finished"
     assert len(list((tmp_path / "subagents").glob("agent-*.jsonl"))) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.anyio
+async def test_subagent_delegation_with_parent_memory_enabled(tmp_path: Path):
+    """验证父 Agent 启用 memory 且存在 memory_dir 时，子 Agent 委派不会产生工具碰撞。"""
+    _write_agent(tmp_path, "worker", description="worker", content="Worker prompt")
+    mem_dir = tmp_path / ".my_agent_core" / "memory"
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    (mem_dir / "MEMORY.md").write_text("Parent memory fact", encoding="utf-8")
+
+    parent_session = Session(path=tmp_path / "parent.jsonl")
+    llm = FakeLLM(
+        [
+            # 1. 父 Agent 发起 task 委派
+            _response(
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "task",
+                            "arguments": json.dumps(
+                                {
+                                    "prompt": "do child work",
+                                    "agent_type": "worker",
+                                }
+                            ),
+                        },
+                    }
+                ]
+            ),
+            # 2. 子 Agent 回答
+            _response(content="Child work completed"),
+            # 3. 父 Agent 最终总结
+            _response(content="All done"),
+        ]
+    )
+
+    agent = Agent(
+        llm=llm,
+        tools=[],
+        session=parent_session,
+        subagent_dirs=[tmp_path],
+        memory_dir=mem_dir,
+    )
+
+    assert agent.registry.get("memory") is not None
+    assert "<MEMORY_CONTEXT>" in agent.messages[0].content
+
+    answer = await agent.run("start")
+    assert answer == "All done"
+
