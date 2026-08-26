@@ -360,6 +360,25 @@ my-pi-agent/
   - 依赖版本漂移：`mcp>=2.0.0` 在全新 uv 项目里意外解析到 2.1.1（框架层锁 2.0.0），导致「原样迁入」的 MCP 测试红 1 例；锁 `<2.1` 守住「移动不改逻辑」原则，而非去适配新版本行为。
 - **验证**：三包离线测试全绿，总计 **235 个测试**（my-agent-core 181 + my-agent-llm 36 + my-coding-agent 18）。
 
+### 阶段 12：Extension 五大决策点与生命周期拦截体系（2026-08-26）
+
+**目标**：对标 Pi 源码讲解第 7 章，补齐扩展系统的 5 大生命周期决策拦截点（`input / before_agent_start / context / tool_call / tool_result`），使 Extension 具备全生命周期的双向干预与安全防护能力，同时坚守「不引入 UI 概念」、「保持真实 Session 零污染」的设计原则。
+
+- 提交：`6f31e33` `b596d50` `302eac9`
+- **改了什么**：
+  - `events.py`：新增 `UserInput(Event, Interceptable)`、`BeforeModelCall(Event, Interceptable)`，升级 `AgentStart(Event, Interceptable)`（携带 `system_prompt` 与 `user_input` 字段）；`HookResult` 扩充 `updated_input`、`updated_system_prompt`、`updated_messages` 字段。
+  - `agent.py`：在 `run()` 执行流中织入三大新拦截点：
+    1. **决策点 1 (`UserInput`)**：在输入写入 Session 前触发，支持 `block=True` 拦截（不写历史）或 `updated_input` 改写输入；
+    2. **决策点 2 (`AgentStart`)**：在准备好系统消息后触发，支持 `updated_system_prompt` 动态更新首条 system 消息；
+    3. **决策点 3 (`BeforeModelCall`)**：在 `_ctx.prepare()` 产出 `view` 后、调用大模型前触发，支持 `updated_messages` 临时改写送给大模型的视图（`self.messages` 与 Session 磁盘保持绝对纯净）；
+    4. **决策点 4 (`ToolExecutionStart`)** 与 **决策点 5 (`ToolExecutionEnd`)** 继续保持对工具的入参拦截与出参改写。
+  - `extensions/core.py`：`ExtensionAPI.on` 补充 `@overload` 类型注解，保证 IDE 与类型检查器对装饰器语法的精准识别。
+  - `__init__.py`：导出 `UserInput` 与 `BeforeModelCall`。
+- **过程中的关键教训**：
+  - 临时视图隔离（No Session Pollution）：扩展在 `BeforeModelCall` 中注入的临时提醒（如 `[EPHEMERAL WARNING]`）只作用于当前的 `view` 变量，绝不能追加进 `self.messages` 或 Session JSONL 磁盘文件，保证会话历史的真实确定性。
+  - 缺省 System Prompt 兼容：当 Agent 构造时未传入 `system_prompt`（且无 skills/subagents 清单）时，`self.messages` 首条无 system 消息；当扩展返回 `updated_system_prompt` 时，自动在 `self.messages[0]` 处插入新的 system 消息。
+- **验证**：三包离线测试全绿，总计 **241 个测试**（my-agent-core 187 + my-agent-llm 36 + my-coding-agent 18）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
@@ -372,14 +391,10 @@ my-pi-agent/
 - Task 委派系统 + 四个文件工具（已完成，文件工具已归位产品层）
 - 阶段 9：extension 机制与 MCP 客户端扩展（9.1/9.2/9.3 已全部完成）
 - 阶段 10：框架层原生异步架构升级（已完成）
-- 阶段 11：my-coding-agent 产品层（已完成，18 + 181 + 36 测试全绿）——新建
-  `packages/my-coding-agent`（src 布局 `src/my_coding_agent/`，对应 pig-coding-agent）；
-  文件工具（`tools.py` read/write/edit/bash 四工厂 + `_safe_path` 路径逃逸防护）与
-  MCP（`mcp.py` 三件套 `MCPServerConfig`/`MCPConnection`/`MCPClientManager`）从框架层
-  迁入；`agent.py` 薄装配（`build_coding_tools(workspace)` + `CodingAgent`，构造自动注册
-  文件工具并委托框架 `Agent.run`）
+- 阶段 11：my-coding-agent 产品层（已完成，18 + 181 + 36 测试全绿）
+- 阶段 12：Extension 五大决策点与生命周期拦截体系（已完成，187 + 36 + 18 测试全绿）
 - 阶段 6：动态工具（未做）
-- 阶段 7：memory 记忆系统（未做）
+- 阶段 7：memory 记忆系统（已完成设计，待实现）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
 - plugin 分发（前置 subagent/skills/extension/MCP 已就绪，未做）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
