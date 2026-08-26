@@ -331,7 +331,9 @@ async def test_agent_memory_dir_detection_and_prompt_injection():
         (mem_dir / "MEMORY.md").write_text("Project uses Python 3.11", encoding="utf-8")
 
         session = Session(path=workspace / "session.jsonl")
-        llm = FakeMemoryLLM([Response(content="I know the project uses Python 3.11", model="test")])
+        llm = FakeMemoryLLM(
+            [Response(content="I know the project uses Python 3.11", model="test")]
+        )
 
         agent = Agent(
             llm=llm,
@@ -445,7 +447,9 @@ async def test_agent_cross_session_memory_e2e():
 
         # Session B: 全新 Agent 实例加载同一 memory_dir
         session_b = Session(path=Path(tmpdir) / "session_b.jsonl")
-        llm_b = FakeMemoryLLM([Response(content="You prefer async code.", model="test")])
+        llm_b = FakeMemoryLLM(
+            [Response(content="You prefer async code.", model="test")]
+        )
         agent_b = Agent(llm=llm_b, tools=[], session=session_b, memory_dir=mem_dir)
 
         # Session B 的 System Prompt 自动包含 Session A 写入的记忆
@@ -453,4 +457,3 @@ async def test_agent_cross_session_memory_e2e():
         assert "User prefers async code" in agent_b.messages[0].content
         res = await agent_b.run("What coding style do I prefer?")
         assert res is not None and "async" in res
-
