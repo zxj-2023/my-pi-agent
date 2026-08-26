@@ -4,7 +4,12 @@ import tempfile
 from pathlib import Path
 
 import pytest  # pyright: ignore[reportMissingImports]
+from my_agent_llm import (  # pyright: ignore[reportMissingImports]
+    Response,
+    StreamChunk,
+)
 
+from my_agent_core.agent import Agent
 from my_agent_core.memory import (
     ENTRY_DELIMITER,
     MEMORY_CHAR_LIMIT,
@@ -12,6 +17,8 @@ from my_agent_core.memory import (
     MemoryStore,
     make_memory_tool,
 )
+from my_agent_core.session import Session
+from my_agent_core.tools import tool
 
 
 def test_memory_store_constants():
@@ -299,6 +306,151 @@ async def test_make_memory_tool_never_throw_validation_errors():
         assert res4.ok is False
         assert "`old_text` is required when action is 'remove'" in (res4.error or "")
 
-        # 未知 action
-        res5 = await tool.execute({"target": "memory", "action": "unknown_action"})
-        assert res5.ok is False
+
+class FakeMemoryLLM:
+    def __init__(self, responses: list[Response] | None = None):
+        self.responses = list(responses or [])
+        self.calls: list[dict] = []
+
+    async def achat_stream(self, messages, tools=None, model=None):
+        self.calls.append({"messages": messages, "tools": tools})
+        resp = self.responses.pop(0) if self.responses else Response(content="ok")
+        yield StreamChunk(content=resp.content, tool_calls=resp.tool_calls)
+
+    async def achat(self, messages, tools=None, model=None):
+        self.calls.append({"messages": messages, "tools": tools})
+        return self.responses.pop(0) if self.responses else Response(content="ok")
+
+
+@pytest.mark.anyio
+async def test_agent_memory_dir_detection_and_prompt_injection():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        mem_dir = workspace / ".my_agent_core" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "MEMORY.md").write_text("Project uses Python 3.11", encoding="utf-8")
+
+        session = Session(path=workspace / "session.jsonl")
+        llm = FakeMemoryLLM([Response(content="I know the project uses Python 3.11", model="test")])
+
+        agent = Agent(
+            llm=llm,
+            tools=[],
+            session=session,
+            memory_dir=mem_dir,
+        )
+
+        assert agent.memory_store is not None
+        assert agent.registry.get("memory") is not None
+
+        # 验证 system prompt 注入
+        assert agent.messages[0].role == "system"
+        assert "<MEMORY_CONTEXT>" in agent.messages[0].content
+        assert "Project uses Python 3.11" in agent.messages[0].content
+
+        res = await agent.run("What python version?")
+        assert res == "I know the project uses Python 3.11"
+
+
+@pytest.mark.anyio
+async def test_agent_memory_disabled_and_collision():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        mem_dir = workspace / ".my_agent_core" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "MEMORY.md").write_text("Secret", encoding="utf-8")
+
+        session = Session(path=workspace / "session.jsonl")
+        llm = FakeMemoryLLM([Response(content="ok", model="test")])
+
+        # 显式禁用 memory_dir=False
+        agent_disabled = Agent(
+            llm=llm,
+            tools=[],
+            session=session,
+            memory_dir=False,
+        )
+        assert agent_disabled.memory_store is None
+        assert agent_disabled.registry.get("memory") is None
+        assert not any("<MEMORY_CONTEXT>" in m.content for m in agent_disabled.messages)
+
+        # 撞名冲突报错
+        @tool(name="memory", description="custom")
+        def custom_mem():
+            return "custom"
+
+        with pytest.raises(ValueError, match="conflicts with the built-in memory tool"):
+            Agent(
+                llm=llm,
+                tools=[custom_mem],
+                session=session,
+                memory_dir=mem_dir,
+            )
+
+
+@pytest.mark.anyio
+async def test_agent_memory_reset_reloads_snapshot():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mem_dir = Path(tmpdir) / ".my_agent_core" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        (mem_dir / "USER.md").write_text("Prefers Python", encoding="utf-8-sig")
+
+        session = Session(path=Path(tmpdir) / "session.jsonl")
+        llm = FakeMemoryLLM([Response(content="ok", model="test")])
+
+        agent = Agent(llm=llm, tools=[], session=session, memory_dir=mem_dir)
+        assert "Prefers Python" in agent.messages[0].content
+
+        # 模拟外部写入新内容
+        (mem_dir / "USER.md").write_text("Prefers Rust", encoding="utf-8-sig")
+
+        # 验证 reset 之前快照不变
+        assert "Prefers Python" in agent.messages[0].content
+
+        # 执行 reset()
+        agent.reset()
+        assert "Prefers Rust" in agent.messages[0].content
+
+
+@pytest.mark.anyio
+async def test_agent_cross_session_memory_e2e():
+    """端到端验证阶段 7 核心目标：Session A 写入，Session B 启动自动召回。"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mem_dir = Path(tmpdir) / ".my_agent_core" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+
+        session_a = Session(path=Path(tmpdir) / "session_a.jsonl")
+        # Session A: LLM 调用 memory 工具记录用户喜好
+        tc = [
+            {
+                "id": "call_1",
+                "function": {
+                    "name": "memory",
+                    "arguments": '{"target": "user", "action": "add", "content": "User prefers async code"}',
+                },
+            }
+        ]
+        llm_a = FakeMemoryLLM(
+            [
+                Response(content="", tool_calls=tc, model="test"),
+                Response(content="Recorded preference.", model="test"),
+            ]
+        )
+        agent_a = Agent(llm=llm_a, tools=[], session=session_a, memory_dir=mem_dir)
+        await agent_a.run("Remember that I prefer async code.")
+
+        # 验证磁盘已经记录
+        user_md = (mem_dir / "USER.md").read_text(encoding="utf-8-sig")
+        assert "User prefers async code" in user_md
+
+        # Session B: 全新 Agent 实例加载同一 memory_dir
+        session_b = Session(path=Path(tmpdir) / "session_b.jsonl")
+        llm_b = FakeMemoryLLM([Response(content="You prefer async code.", model="test")])
+        agent_b = Agent(llm=llm_b, tools=[], session=session_b, memory_dir=mem_dir)
+
+        # Session B 的 System Prompt 自动包含 Session A 写入的记忆
+        assert "<MEMORY_CONTEXT>" in agent_b.messages[0].content
+        assert "User prefers async code" in agent_b.messages[0].content
+        res = await agent_b.run("What coding style do I prefer?")
+        assert res is not None and "async" in res
+

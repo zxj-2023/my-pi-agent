@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from my_agent_llm import LLM, Message  # pyright: ignore[reportMissingImports]
 
@@ -34,6 +34,7 @@ from my_agent_core.events import (
     UserInput,
 )
 from my_agent_core.extensions import ExtensionManager
+from my_agent_core.memory import MemoryStore, make_memory_tool
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
@@ -61,6 +62,7 @@ class Agent:
         model: str | None = None,
         subagent_dirs: list[str | Path] | None = None,
         extension_dirs: list[str | Path] | None = None,
+        memory_dir: str | Path | None | Literal[False] = None,
         hooks: list[tuple[type[Event], Callable]] | None = None,
     ):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
@@ -79,6 +81,9 @@ class Agent:
         [] → 禁用；非空 → 只扫这些目录。extension 在 _register_tools 之后加载，注册的工具可覆盖
         内置工具（对齐 pi）；hook 注册进 hooks（先于构造参数 hooks 触发）；命令存 extension_manager，
         上层 CLI 调 handle_command 派发。
+        memory_dir 为持久化记忆存储目录：None → 探测 <cwd>/.my_agent_core/memory（存在才启用）；
+        False → 显式禁用；str | Path → 显式指定目录。启用时构造 MemoryStore 并冻结快照，
+        自动注入 <MEMORY_CONTEXT> 块进 system，并自动注册 memory 工具（add/replace/remove）。
         """
         self.llm = llm
         self.model = model  # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
@@ -94,7 +99,9 @@ class Agent:
         self.skills: list[Skill] = self.skill_manager.list()  # 兼容代理
         self.subagent_manager = SubagentManager(subagent_dirs)  # 三态同 skill_dirs
 
-        self._register_tools(tools)  # ① 工具注册统一（用户 + 内置 task）
+        self.memory_store = self._init_memory_store(memory_dir)  # memory 装配与快照冻结
+
+        self._register_tools(tools)  # ① 工具注册统一（用户 + 内置 task + 内置 memory）
         self.extension_manager = ExtensionManager(
             self, extension_dirs
         )  # extension 装配
@@ -107,8 +114,29 @@ class Agent:
         )  # ③ context 装配
         self._register_hooks(hooks)  # ④ hooks 批量注册
 
+    def _init_memory_store(
+        self, memory_dir: str | Path | None | Literal[False]
+    ) -> MemoryStore | None:
+        """解析 memory_dir 三态并初始化 MemoryStore：
+        False → 显式禁用；
+        None → 探测 <cwd>/.my_agent_core/memory（存在才启用）；
+        str | Path → 显式指定目录。
+        """
+        if memory_dir is False:
+            return None
+        if memory_dir is not None:
+            store = MemoryStore(memory_dir)
+            store.load_from_disk()
+            return store
+        default_dir = Path.cwd() / ".my_agent_core" / "memory"
+        if default_dir.exists() and default_dir.is_dir():
+            store = MemoryStore(default_dir)
+            store.load_from_disk()
+            return store
+        return None
+
     def _register_tools(self, tools: list[Tool]) -> None:
-        """注册用户工具 + 内置 task 工具（撞名 ValueError）。"""
+        """注册用户工具 + 内置 task 工具 + 内置 memory 工具（撞名 ValueError）。"""
         for t in tools:
             self.registry.register(t)
         if self.subagent_manager:
@@ -117,17 +145,29 @@ class Agent:
                     "Tool name 'task' conflicts with the built-in subagent delegation tool"
                 )
             self.registry.register(make_task_tool(self.subagent_manager, self))
+        if self.memory_store:
+            if self.registry.get("memory") is not None:
+                raise ValueError(
+                    "Tool name 'memory' conflicts with the built-in memory tool"
+                )
+            self.registry.register(make_memory_tool(self.memory_store))
 
     def _init_messages(
         self, session: Session, system_prompt: str | None
     ) -> list[Message]:
         """拼 system（Agent 配置）+ 恢复 session 纯对话，合成初始 messages。"""
+        mem_prompt = (
+            self.memory_store.format_all_for_system_prompt()
+            if self.memory_store
+            else None
+        )
         parts = [
             p
             for p in (
                 system_prompt or "",
                 self.skill_manager.format_prompt(),
                 self.subagent_manager.format_prompt(),
+                mem_prompt,
             )
             if p
         ]
@@ -410,8 +450,10 @@ class Agent:
         return await self.run(self.skill_manager.format_invocation(name, instructions))
 
     def reset(self) -> None:
-        """清空对话（保留 system）。session 树清空 + 重拼 system。"""
+        """清空对话（保留 system）。session 树清空 + 重载 memory 快照并重拼 system。"""
         self.session.reset()
+        if self.memory_store:
+            self.memory_store.load_from_disk()
         self.messages = self._init_messages(self.session, self._system_prompt)
         self._ctx.reset()
 
