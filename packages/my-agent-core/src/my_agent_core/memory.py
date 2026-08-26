@@ -239,4 +239,3 @@ def make_memory_tool(store: MemoryStore) -> Tool:
             )
 
     return memory
-

@@ -283,9 +283,7 @@ async def test_make_memory_tool_never_throw_validation_errors():
             {"target": "memory", "action": "replace", "new_content": "new"}
         )
         assert res2.ok is False
-        assert "`old_text` is required when action is 'replace'" in (
-            res2.error or ""
-        )
+        assert "`old_text` is required when action is 'replace'" in (res2.error or "")
 
         # replace 缺少 new_content 和 content
         res3 = await tool.execute(
@@ -299,13 +297,8 @@ async def test_make_memory_tool_never_throw_validation_errors():
         # remove 缺少 old_text
         res4 = await tool.execute({"target": "memory", "action": "remove"})
         assert res4.ok is False
-        assert "`old_text` is required when action is 'remove'" in (
-            res4.error or ""
-        )
+        assert "`old_text` is required when action is 'remove'" in (res4.error or "")
 
         # 未知 action
-        res5 = await tool.execute(
-            {"target": "memory", "action": "unknown_action"}
-        )
+        res5 = await tool.execute({"target": "memory", "action": "unknown_action"})
         assert res5.ok is False
-
