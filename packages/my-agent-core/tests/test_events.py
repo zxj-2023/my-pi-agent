@@ -218,7 +218,10 @@ def test_interceptable_events():
     assert isinstance(AgentStart(), Interceptable)
     assert isinstance(BeforeModelCall(messages=[], iteration=1), Interceptable)
     assert not isinstance(TurnStart(iteration=1), Interceptable)
-    assert not isinstance(AgentEnd(messages=[], final_text=None, iterations=1, stop_reason="end_turn"), Interceptable)
+    assert not isinstance(
+        AgentEnd(messages=[], final_text=None, iterations=1, stop_reason="end_turn"),
+        Interceptable,
+    )
 
 
 def test_extension_decision_point_events():

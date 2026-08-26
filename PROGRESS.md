@@ -398,4 +398,3 @@ my-pi-agent/
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
 - plugin 分发（前置 subagent/skills/extension/MCP 已就绪，未做）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
-

@@ -4,6 +4,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from my_agent_llm import (  # pyright: ignore[reportMissingImports]
+    Message,
+    Response,
+    StreamChunk,
+)
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
@@ -22,7 +27,6 @@ from my_agent_core.events import (
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
-from my_agent_llm import Message, Response, StreamChunk  # pyright: ignore[reportMissingImports]
 
 
 class FakeLLM:
@@ -590,12 +594,15 @@ async def test_agent_before_model_call_hook_temporary_view_rewrite():
 
     # 1. LLM 接收到的 view 中包含 ephemeral reminder
     last_call_messages = llm.calls[0]["messages"]
-    assert any("[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in last_call_messages)
+    assert any(
+        "[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in last_call_messages
+    )
 
     # 2. agent.messages 中绝不包含 ephemeral reminder
-    assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in agent.messages)
+    assert not any(
+        "[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in agent.messages
+    )
 
     # 3. session 磁盘中绝不包含 ephemeral reminder
     session_contents = [e.content for e in session.tree.entries.values()]
     assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in c for c in session_contents)
-
