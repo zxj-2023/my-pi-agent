@@ -2,7 +2,7 @@
 
 import pytest
 
-from my_agent_core.tools.builtin import (
+from my_coding_agent.tools import (
     make_bash_tool,
     make_edit_tool,
     make_read_tool,
@@ -102,7 +102,7 @@ async def test_bash_dangerous(tmp_path):
 @pytest.mark.anyio
 async def test_bash_timeout(tmp_path, monkeypatch):
     """超时 → 'Timeout'（#7）。用 monkeypatch 缩短超时避免等 120s。"""
-    from my_agent_core.tools.builtin import files
+    import my_coding_agent.tools as files
 
     monkeypatch.setattr(files, "_TIMEOUT_SECONDS", 1)
     bash = make_bash_tool(tmp_path)

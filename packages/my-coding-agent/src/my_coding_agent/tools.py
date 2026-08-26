@@ -1,4 +1,4 @@
-"""内置工具：四个文件工具（read/edit/write/bash）工厂 + 路径逃逸防护。"""
+"""文件工具：四个工厂（read/edit/write/bash）+ 路径逃逸防护（产品层）。"""
 
 from __future__ import annotations
 
