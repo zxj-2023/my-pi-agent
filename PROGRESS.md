@@ -349,6 +349,12 @@ my-pi-agent/
 - Task 委派系统 + 四个文件工具（已完成）
 - 阶段 9：extension 机制与 MCP 客户端扩展（9.1/9.2/9.3 已全部完成）
 - 阶段 10：框架层原生异步架构升级（已完成）
+- 阶段 11：my-coding-agent 产品层（已完成，18 + 181 测试全绿）——新建
+  `packages/my-coding-agent`（src 布局 `src/my_coding_agent/`，对应 pig-coding-agent）；
+  文件工具（`tools.py` read/write/edit/bash 四工厂 + `_safe_path` 路径逃逸防护）与
+  MCP（`mcp.py` 三件套 `MCPServerConfig`/`MCPConnection`/`MCPClientManager`）从框架层
+  迁入；`agent.py` 薄装配（`build_coding_tools(workspace)` + `CodingAgent`，构造自动注册
+  文件工具并委托框架 `Agent.run`）
 - 阶段 6：动态工具（未做）
 - 阶段 7：memory 记忆系统（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）

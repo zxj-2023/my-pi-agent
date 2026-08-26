@@ -269,6 +269,11 @@ answer = agent.run(question)
 > 分发）还缺 **subagent 机制**（它带出的 agents 依赖 subagent）前置，拆出本阶段，
 > 待 subagent 完成后另排（见未来路线图）。
 
+> **2026-08-26 修订**：MCP 已迁产品层 `my-coding-agent`（`mcp.py`：
+> `MCPServerConfig` / `MCPConnection` / `MCPClientManager`）；框架层
+> `extensions/builtin/`（原 MCP）已删除、extension 机制本身保留；
+> `mcp>=2.0.0` 依赖已随之从 `my-agent-core` 迁出。
+
 - [x] 9.1 `extensions.py`：extension 机制（pi extensions 的 Python 版）——
       `ExtensionAPI`（on 事件 / tool / command 三件套）+ `ExtensionManager`
       （约定 `def extension(api): ...` + importlib 按文件加载 + 目录发现，失败跳过）
@@ -289,7 +294,7 @@ answer = agent.run(question)
 - [ ] **coding agent 层**（新主线，独立包 `my_coding_agent`，基于 my_agent_core
       框架，对应 `pig-coding-agent`；待专门设计）：CLI 入口、coding 系统
       提示、权限门控（落点 `ToolExecutionStart` hook）、**内置工具组装（read /
-      write / edit / bash 四个文件工具——归属本层，2026-08-13 决策；不含
+      write / edit / bash 四个文件工具——2026-08-26 已迁产品层 `my-coding-agent` 并实现；不含
       read_skill，框架层不预置文件工具）**、**plan 模式**（进入 plan → 只读调研 →
       产出计划 → 用户批准 → 执行；基于阶段 8 的 TaskStore，交互层在本包）
 - [ ] **Prompt 管理**（**做在 `my_coding_agent` 层**，对应 pig-mono `prompts.py` +
