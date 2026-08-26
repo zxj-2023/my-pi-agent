@@ -4,12 +4,12 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from my_agent_llm import Message, Response, StreamChunk
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    BeforeModelCall,
     HookResult,
     MessageEnd,
     MessageStart,
@@ -18,9 +18,11 @@ from my_agent_core.events import (
     ToolExecutionStart,
     TurnEnd,
     TurnStart,
+    UserInput,
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
+from my_agent_llm import Message, Response, StreamChunk  # pyright: ignore[reportMissingImports]
 
 
 class FakeLLM:
@@ -506,3 +508,94 @@ async def test_message_update_hook_interception():
     assert result == "(cancelled)"
     # 半截文本被丢弃，Session 纯净
     assert not any(e.role == "assistant" for e in session.tree.entries.values())
+
+
+@pytest.mark.anyio
+async def test_agent_user_input_hook_block():
+    """UserInput Hook 返回 block=True 阻断输入，不写 Session 且不调大模型。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM([_response(content="should not be called")])
+    agent = _agent(llm, session=session)
+
+    def guard_input(event: UserInput):
+        if "drop database" in event.input_text:
+            return HookResult(block=True, reason="SQL injection detected")
+        return None
+
+    agent.hooks.register(UserInput, guard_input)
+
+    result = await agent.run("drop database now")
+    assert result == "(blocked: SQL injection detected)"
+    # LLM 未被调用
+    assert len(llm.calls) == 0
+    # Session 纯净，没有任何 entry
+    assert len(session.tree.entries) == 0
+
+
+@pytest.mark.anyio
+async def test_agent_user_input_hook_rewrite():
+    """UserInput Hook 返回 updated_input 改写用户输入文本。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM([_response(content="echo answer")])
+    agent = _agent(llm, session=session)
+
+    def rewrite_input(event: UserInput):
+        if "foo" in event.input_text:
+            return HookResult(updated_input=event.input_text.replace("foo", "bar"))
+        return None
+
+    agent.hooks.register(UserInput, rewrite_input)
+
+    result = await agent.run("hello foo")
+    assert result == "echo answer"
+    # LLM 收到的 user 消息为改写后的文本
+    assert llm.calls[0]["messages"][-1].content == "hello bar"
+    # Session 记录的也是改写后的文本
+    assert list(session.tree.entries.values())[0].content == "hello bar"
+
+
+@pytest.mark.anyio
+async def test_agent_agent_start_hook_rewrite_system_prompt():
+    """AgentStart Hook 返回 updated_system_prompt 动态修改首条 system 消息。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM([_response(content="persona answer")])
+    agent = _agent(llm, session=session, system_prompt="Original Persona")
+
+    def customize_system(event: AgentStart):
+        return HookResult(updated_system_prompt="Customized Super Persona")
+
+    agent.hooks.register(AgentStart, customize_system)
+
+    result = await agent.run("who are you")
+    assert result == "persona answer"
+    # LLM 接收到的首条 system 消息已替换
+    assert llm.calls[0]["messages"][0].content == "Customized Super Persona"
+
+
+@pytest.mark.anyio
+async def test_agent_before_model_call_hook_temporary_view_rewrite():
+    """BeforeModelCall Hook 临时向 view 注入提醒，但 self.messages 与 Session 保持零污染。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM([_response(content="model response")])
+    agent = _agent(llm, session=session)
+
+    def inject_ephemeral(event: BeforeModelCall):
+        ephemeral = Message(role="user", content="[EPHEMERAL REMINDER: BE CONCISE]")
+        return HookResult(updated_messages=list(event.messages) + [ephemeral])
+
+    agent.hooks.register(BeforeModelCall, inject_ephemeral)
+
+    result = await agent.run("do something")
+    assert result == "model response"
+
+    # 1. LLM 接收到的 view 中包含 ephemeral reminder
+    last_call_messages = llm.calls[0]["messages"]
+    assert any("[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in last_call_messages)
+
+    # 2. agent.messages 中绝不包含 ephemeral reminder
+    assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in agent.messages)
+
+    # 3. session 磁盘中绝不包含 ephemeral reminder
+    session_contents = [e.content for e in session.tree.entries.values()]
+    assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in c for c in session_contents)
+

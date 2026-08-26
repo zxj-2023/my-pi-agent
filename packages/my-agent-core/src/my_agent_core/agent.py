@@ -19,6 +19,7 @@ from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    BeforeModelCall,
     ContextCompacted,
     Event,
     HookRegistry,
@@ -30,6 +31,7 @@ from my_agent_core.events import (
     ToolExecutionStart,
     TurnEnd,
     TurnStart,
+    UserInput,
 )
 from my_agent_core.extensions import ExtensionManager
 from my_agent_core.registry import ToolRegistry
@@ -157,6 +159,11 @@ class Agent:
 
     # ── 公共 API ────────────────────────────────────────────
 
+    @property
+    def system_prompt(self) -> str | None:
+        """Agent 配置的初始系统提示词。"""
+        return self._system_prompt
+
     def abort(self) -> None:
         """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本）。"""
         self._aborted = True
@@ -167,13 +174,40 @@ class Agent:
         if not self._extensions_loaded:
             await self.extension_manager.load()
             self._extensions_loaded = True
+
+        # ── 决策点 1: UserInput 拦截与改写（在进入 Session 和消息历史之前触发）
+        input_hook = await self._emit(UserInput(input_text=user_input))
+        if isinstance(input_hook, HookResult):
+            if input_hook.block:
+                reason = f": {input_hook.reason}" if input_hook.reason else ""
+                return f"(blocked{reason})"
+            if input_hook.updated_input is not None:
+                user_input = input_hook.updated_input
+
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
         self.messages = system + self.session.get_current_path_messages()
+
+        # ── 决策点 2: AgentStart 拦截与动态 System Prompt 改写
+        start_hook = await self._emit(
+            AgentStart(system_prompt=self.system_prompt or "", user_input=user_input)
+        )
+        if isinstance(start_hook, HookResult):
+            if start_hook.block:
+                reason = f": {start_hook.reason}" if start_hook.reason else ""
+                return f"(blocked{reason})"
+            if (
+                start_hook.updated_system_prompt is not None
+                and self.messages
+                and self.messages[0].role == "system"
+            ):
+                self.messages[0] = Message(
+                    role="system", content=start_hook.updated_system_prompt
+                )
+
         user_msg = Message(role="user", content=user_input)
         self.messages.append(user_msg)
         self.session.add_message("user", user_input)
-        await self._emit(AgentStart())
         await self._emit(MessageStart(user_msg))
         await self._emit(MessageEnd(user_msg))
 
@@ -196,6 +230,25 @@ class Agent:
             # ── Reason：准备上下文视图 + 异步流式调大模型
             tools = self.registry.get_schemas()
             view = await self._ctx.prepare(self.messages)
+
+            # ── 决策点 3: BeforeModelCall 临时视图改写（self.messages 与 Session 零污染）
+            ctx_hook = await self._emit(
+                BeforeModelCall(messages=list(view), iteration=iteration)
+            )
+            if isinstance(ctx_hook, HookResult):
+                if ctx_hook.block:
+                    reason = ctx_hook.reason or "blocked"
+                    await self._emit(
+                        AgentEnd(
+                            messages=list(self.messages),
+                            final_text=None,
+                            iterations=iteration,
+                            stop_reason="blocked",
+                        )
+                    )
+                    return f"(blocked: {reason})"
+                if ctx_hook.updated_messages is not None:
+                    view = ctx_hook.updated_messages
 
             content_acc = ""
             final_tool_calls = None
