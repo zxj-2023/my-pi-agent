@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
+from my_agent_core.tools import Tool, tool
+
 ENTRY_DELIMITER = "\n§\n"
 MEMORY_CHAR_LIMIT = 2200
 USER_CHAR_LIMIT = 1375
@@ -195,3 +197,46 @@ class MemoryStore:
             f"{joined}\n"
             "</MEMORY_CONTEXT>"
         )
+
+
+def make_memory_tool(store: MemoryStore) -> Tool:
+    """生成受控的 memory 工具，供 Agent 维护长期记忆（add/replace/remove）。"""
+
+    @tool(
+        name="memory",
+        description=(
+            "Manage long-term memory across sessions. "
+            "Target 'memory' for agent knowledge/notes, 'user' for user preferences/profile. "
+            "Keep entries concise, high-signal, and consolidate when approaching limits."
+        ),
+    )
+    def memory(
+        target: Literal["memory", "user"],
+        action: Literal["add", "replace", "remove"],
+        content: str | None = None,
+        old_text: str | None = None,
+        new_content: str | None = None,
+    ) -> str:
+        """执行记忆的增删改操作。"""
+        if action == "add":
+            if not content:
+                raise ValueError("`content` is required when action is 'add'.")
+            return store.add(target, content)
+        elif action == "replace":
+            if not old_text:
+                raise ValueError("`old_text` is required when action is 'replace'.")
+            effective_new = new_content or content
+            if not effective_new:
+                raise ValueError("`new_content` is required when action is 'replace'.")
+            return store.replace(target, old_text, effective_new)
+        elif action == "remove":
+            if not old_text:
+                raise ValueError("`old_text` is required when action is 'remove'.")
+            return store.remove(target, old_text)
+        else:
+            raise ValueError(
+                f"Unknown action '{action}'. Must be 'add', 'replace', or 'remove'."
+            )
+
+    return memory
+

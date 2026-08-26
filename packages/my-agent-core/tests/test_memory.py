@@ -3,11 +3,14 @@
 import tempfile
 from pathlib import Path
 
+import pytest  # pyright: ignore[reportMissingImports]
+
 from my_agent_core.memory import (
     ENTRY_DELIMITER,
     MEMORY_CHAR_LIMIT,
     USER_CHAR_LIMIT,
     MemoryStore,
+    make_memory_tool,
 )
 
 
@@ -72,7 +75,10 @@ def test_memory_store_deduplication_and_bom_tolerance():
         store = MemoryStore(mem_dir=mem_dir)
         store.load_from_disk()
 
-        assert store.format_for_system_prompt("memory") == "Entry A\n§\nEntry B\n§\nEntry C"
+        assert (
+            store.format_for_system_prompt("memory")
+            == "Entry A\n§\nEntry B\n§\nEntry C"
+        )
 
 
 def test_memory_store_add_validation_and_limits():
@@ -97,7 +103,10 @@ def test_memory_store_add_validation_and_limits():
         # 超限拒绝（50 字符上限，当前 10 字符 + "\n§\n" 3 字符 + 40 字符 = 53 字符 > 50）
         overflow_content = "X" * 40
         res_overflow = store.add("memory", overflow_content)
-        assert "Cannot add: total length (53) exceeds limit (50) for memory" in res_overflow
+        assert (
+            "Cannot add: total length (53) exceeds limit (50) for memory"
+            in res_overflow
+        )
         assert "Please consolidate or remove older entries first." in res_overflow
         assert "Current entries:\nShort fact" in res_overflow
 
@@ -105,7 +114,9 @@ def test_memory_store_add_validation_and_limits():
 def test_memory_store_replace():
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir)
-        (mem_dir / "MEMORY.md").write_text("First item\n§\nSecond item\n§\nSecond duplicate key", encoding="utf-8")
+        (mem_dir / "MEMORY.md").write_text(
+            "First item\n§\nSecond item\n§\nSecond duplicate key", encoding="utf-8"
+        )
         store = MemoryStore(mem_dir=mem_dir, memory_char_limit=100)
         store.load_from_disk()
 
@@ -121,11 +132,16 @@ def test_memory_store_replace():
         assert "Replaced in memory" in res
 
         # 未命中报错
-        assert "Text 'NonExistent' not found in memory" in store.replace("memory", "NonExistent", "New")
+        assert "Text 'NonExistent' not found in memory" in store.replace(
+            "memory", "NonExistent", "New"
+        )
 
         # 歧义多处命中报错
         res_ambiguous = store.replace("memory", "Second", "New second")
-        assert "Ambiguous match: found 2 entries matching 'Second' in memory" in res_ambiguous
+        assert (
+            "Ambiguous match: found 2 entries matching 'Second' in memory"
+            in res_ambiguous
+        )
         assert "Second item" in res_ambiguous
         assert "Second duplicate key" in res_ambiguous
 
@@ -136,13 +152,18 @@ def test_memory_store_replace():
 
         # 验证磁盘状态
         disk_content = (mem_dir / "MEMORY.md").read_text(encoding="utf-8-sig")
-        assert disk_content == "Updated first item\n§\nSecond item\n§\nSecond duplicate key"
+        assert (
+            disk_content
+            == "Updated first item\n§\nSecond item\n§\nSecond duplicate key"
+        )
 
 
 def test_memory_store_remove():
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir)
-        (mem_dir / "USER.md").write_text("Prefers concise code\n§\nPrefers async\n§\nPrefers tabs", encoding="utf-8")
+        (mem_dir / "USER.md").write_text(
+            "Prefers concise code\n§\nPrefers async\n§\nPrefers tabs", encoding="utf-8"
+        )
         store = MemoryStore(mem_dir=mem_dir)
         store.load_from_disk()
 
@@ -157,7 +178,10 @@ def test_memory_store_remove():
 
         # 歧义匹配（"Prefers" 命中全部 3 条）
         res_ambiguous = store.remove("user", "Prefers")
-        assert "Ambiguous match: found 3 entries matching 'Prefers' in user" in res_ambiguous
+        assert (
+            "Ambiguous match: found 3 entries matching 'Prefers' in user"
+            in res_ambiguous
+        )
 
         # 唯原子串删除
         res_del = store.remove("user", "async")
@@ -179,3 +203,109 @@ def test_format_all_for_system_prompt_partial():
         assert xml is not None
         assert "## USER.md (User Profile)\nPrefers dark mode" in xml
         assert "## MEMORY.md" not in xml
+
+
+@pytest.mark.anyio
+async def test_make_memory_tool_schema_and_execution():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mem_dir = Path(tmpdir)
+        store = MemoryStore(mem_dir=mem_dir)
+        store.load_from_disk()
+
+        tool = make_memory_tool(store)
+        assert tool.name == "memory"
+        assert "Manage long-term memory across sessions" in tool.description
+
+        # 检查 Function Calling Schema
+        schema = tool.to_openai_schema()
+        assert schema["function"]["name"] == "memory"
+        props = schema["function"]["parameters"]["properties"]
+        assert "target" in props
+        assert "action" in props
+        assert "content" in props
+        assert "old_text" in props
+        assert "new_content" in props
+
+        # 1. 测试 execute add
+        res_add = await tool.execute(
+            {"target": "user", "action": "add", "content": "User likes concise code"}
+        )
+        assert res_add.ok is True
+        assert "Added to user" in str(res_add.data)
+        assert (mem_dir / "USER.md").exists()
+
+        # 2. 测试 execute replace (使用 new_content)
+        res_rep = await tool.execute(
+            {
+                "target": "user",
+                "action": "replace",
+                "old_text": "concise",
+                "new_content": "User likes async and concise code",
+            }
+        )
+        assert res_rep.ok is True
+        assert "Replaced in user" in str(res_rep.data)
+
+        # 3. 测试 execute replace (回退使用 content 作为 new_content)
+        res_rep_fallback = await tool.execute(
+            {
+                "target": "user",
+                "action": "replace",
+                "old_text": "async and ",
+                "content": "User likes ultra-concise code",
+            }
+        )
+        assert res_rep_fallback.ok is True
+        assert "Replaced in user" in str(res_rep_fallback.data)
+
+        # 4. 测试 execute remove
+        res_rem = await tool.execute(
+            {"target": "user", "action": "remove", "old_text": "ultra-concise"}
+        )
+        assert res_rem.ok is True
+        assert "Removed from user" in str(res_rem.data)
+
+
+@pytest.mark.anyio
+async def test_make_memory_tool_never_throw_validation_errors():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = MemoryStore(mem_dir=tmpdir)
+        store.load_from_disk()
+        tool = make_memory_tool(store)
+
+        # add 缺少 content
+        res1 = await tool.execute({"target": "memory", "action": "add"})
+        assert res1.ok is False
+        assert "`content` is required when action is 'add'" in (res1.error or "")
+
+        # replace 缺少 old_text
+        res2 = await tool.execute(
+            {"target": "memory", "action": "replace", "new_content": "new"}
+        )
+        assert res2.ok is False
+        assert "`old_text` is required when action is 'replace'" in (
+            res2.error or ""
+        )
+
+        # replace 缺少 new_content 和 content
+        res3 = await tool.execute(
+            {"target": "memory", "action": "replace", "old_text": "old"}
+        )
+        assert res3.ok is False
+        assert "`new_content` is required when action is 'replace'" in (
+            res3.error or ""
+        )
+
+        # remove 缺少 old_text
+        res4 = await tool.execute({"target": "memory", "action": "remove"})
+        assert res4.ok is False
+        assert "`old_text` is required when action is 'remove'" in (
+            res4.error or ""
+        )
+
+        # 未知 action
+        res5 = await tool.execute(
+            {"target": "memory", "action": "unknown_action"}
+        )
+        assert res5.ok is False
+
