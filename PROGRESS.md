@@ -9,25 +9,32 @@
 my-pi-agent/
 ├── packages/
 │   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
-│   │   ├── agent.py       # Agent（单层循环 + hook 注册表 + extension 装配）
-│   │   ├── registry.py    # ToolRegistry（注册表）
-│   │   ├── events.py      # 事件 dataclass + HookResult + HookRegistry
-│   │   ├── tools/         # 工具包（原 tools.py 升级）
-│   │   │   ├── __init__.py  # Tool / ToolResult / tool() 装饰器
-│   │   │   └── builtin/     # task.py（委派工具）+ files.py（read/edit/write/bash）
+│   │   ├── agent.py       # Agent（单层异步循环 + hook 注册表 + extension 装配 + abort 取消）
+│   │   ├── registry.py    # ToolRegistry（工具注册表，读写分流并发 + 保序回填）
+│   │   ├── events.py      # 事件 dataclass + HookResult + HookRegistry（异步 emit + 流式 Interceptable）
+│   │   ├── tools/         # 工具包（Tool / ToolResult / @tool / make_task_tool）
+│   │   │   ├── __init__.py  # 核心符号统一导出
+│   │   │   ├── core.py      # Tool / ToolResult / @tool 装饰器实现
+│   │   │   └── builtin/     # task.py（子代理委派工具）
 │   │   ├── session.py     # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
-│   │   ├── context.py     # ContextManager + ContextSessionBridge（四层压缩管线）
+│   │   ├── context.py     # ContextManager + ContextSessionBridge（四层异步压缩管线）
 │   │   ├── skills.py      # Skill + SkillManager（Repository：发现/清单/调用）
 │   │   ├── subagents.py   # Subagent + SubagentManager（agents/*.md 发现）
-│   │   ├── tasks.py       # Task + TaskStatus + TaskManager（委派生命周期）
-│   │   ├── extensions.py  # ExtensionAPI + ExtensionManager（on/tool/command）
-│   │   └── main.py        # demo
-│   └── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
-│       ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
-│       ├── config.py      # Config
-│       ├── models.py      # Message / Response / StreamChunk
-│       └── providers/     # openai / deepseek / anthropic
+│   │   ├── tasks.py       # Task + TaskStatus + TaskManager（委派生命周期，并发派发）
+│   │   ├── extensions/    # 扩展机制包（ExtensionAPI + ExtensionManager）
+│   │   │   ├── __init__.py  # 符号导出
+│   │   │   └── core.py      # 核心扩展管理器实现
+│   │   └── main.py        # 异步流式打字机 demo
+│   ├── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
+│   │   ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
+│   │   ├── config.py      # Config（pydantic frozen）
+│   │   ├── models.py      # Message / Response / StreamChunk
+│   │   └── providers/     # openai / deepseek / anthropic + 注册表
+│   └── my-coding-agent/   # 产品层（src 布局，Python 包 my_coding_agent）
+│       ├── agent.py       # CodingAgent（自动装配文件工具与 extra_tools，委托框架 Agent）
+│       ├── tools.py       # 4 个文件工具（read/write/edit/bash 工厂 + _safe_path 逃逸防护）
+│       └── mcp.py         # MCP 客户端与扩展（MCPServerConfig/MCPConnection/MCPClientManager + extension 入口）
 ```
 
 ---
@@ -327,7 +334,7 @@ my-pi-agent/
   - `events.py`：`HookRegistry.emit(event)` 异步化（支持 `async def` 协程与同步 `def` 回调混合注册与短路拦截）；`MessageUpdate` 继承 `Interceptable` 并增加 `chunk` 字段，支持流式 Token 生成过程中的 Hook 实时熔断。
   - `tools/core.py` & `registry.py`：`Tool` 增加 `is_parallel_safe: bool = False`；`Tool.execute` 支持原生协程并用 `asyncio.to_thread` 自动桥接同步函数；`ToolRegistry.execute_batch` 实现**只读并发（`asyncio.gather`）+ 写入按序串行 + 严格保序回填**。
   - `context.py`：`prepare`、`force_compact`、`_do_summarize`、`_call_summarizer` 四层压缩管线异步化，使用 `await self.llm.achat` 生成 L4 摘要。
-  - `agent.py`：核心 ReAct 循环重构为原生异步 `async def run(prompt)`，接入 `llm.achat_stream` 流式迭代；实现 `agent.abort()` 叫停机制（叫停时丢弃未完成半截内容，不写入 Session，发射 `AgentEnd(stop_reason="cancelled")`）；提供 `run_sync` 向前兼容入口。
+  - `agent.py`：核心 ReAct 循环重构为原生异步 `async def run(prompt)`，接入 `llm.achat_stream` 流式迭代；实现 `agent.abort()` 叫停机制（叫停时丢弃未完成半截内容，不写入 Session，发射 `AgentEnd(stop_reason="cancelled")`）；移除冗余同步入口 `run_sync`（提交 `6d20c1a`），保持纯粹原生异步 API。
   - `tasks.py` & `task.py`：`TaskManager.start_task` 与工具桥 `task` 异步化，标记 `is_parallel_safe=True`，支持父 Agent 一次性派发多个子代理并发并行执行。
   - `files.py` & `mcp.py`：`read` 标记为并发安全，`write/edit/bash` 标记为写入串行；MCP 客户端基于 `AsyncExitStack` 重写，彻底移除所有 `threading.Thread`、`threading.Event`、`run_coroutine_threadsafe` 等多线程代码（~60% 代码量缩减）。
   - `main.py`：升级为 `asyncio.run(amain())`，展示流式 Token 打字机打印与工具并发调用效果。
@@ -335,7 +342,23 @@ my-pi-agent/
   - 优雅叫停与脏上下文隔离：Cancel 发生时必须直接丢弃未完成的累积文本，不向持久化 Session 与上下文注入残缺内容，避免模型在下一轮对话中产生“续写断句”幻觉。
   - 并发执行与上下文严格保序：只读工具并发启动（如并发读取多个文件），写入工具串行；但最终回填给 `messages` 和 `session` 时按大模型原始 `tool_calls` 索引预分配插槽回填，确保历史记录严格确定性。
   - MCP 原生异步：基于 `AsyncExitStack` 进入 `stdio_client` 与 `ClientSession` 上下文，彻底消除了后台守护线程与跨线程事件循环的复杂性。
-- **验证**：全量 232 个离线测试全部 100% 绿灯通过（196 个 core 测试 + 36 个 llm 测试）。
+  - 接口纯粹性：砍掉容易滋生隐蔽死锁与线程池复杂性的 `run_sync` 同步桥接，全面拥抱 100% 原生异步协程。
+- **验证**：全量 231 个离线测试全部 100% 绿灯通过（195 个 core 测试 + 36 个 llm 测试）。
+
+### 阶段 11：my-coding-agent 产品层（2026-08-26）
+
+**目标**：分层纠偏——新建 `my-coding-agent` 产品层（对应 pig-mono `pig-coding-agent`），把此前误放框架层的文件工具（read/write/edit/bash）与 MCP 从 `my-agent-core` 迁出，落到产品层并完成薄装配（`build_coding_tools` + `CodingAgent`）；subagent 机制保留框架层。
+
+- 提交：`1663c63` `48d834f` `d66cb4b` `b681b8b` `d9d1134` `faa64ae`
+- **改了什么**：
+  - 新建 `packages/my-coding-agent`（src 布局）：`tools.py`（文件工具四工厂 + `_safe_path` 路径逃逸 + bash 黑名单，原样迁自 files.py）、`mcp.py`（`MCPServerConfig`/`MCPConnection`/`MCPClientManager` + `extension(api)` 入口，原样迁自 extensions/builtin/mcp.py，保持 extension 形态）、`agent.py`（`build_coding_tools(workspace)` 返 4 工具 + `CodingAgent` 薄封装，构造自动装配文件工具并委托框架 `Agent.run`）、`__init__.py`、`pyproject.toml`（依赖 my-agent-core / my-agent-llm / mcp）。
+  - 框架层瘦身：`my-agent-core` 删 `tools/builtin/files.py`（builtin 只留 `task` 委派工具）、删 `extensions/builtin/`（原 MCP 整个子包）、顶层 `__init__.py` 删 MCP 三件套导出、`pyproject.toml` 删 `mcp>=2.0.0` 依赖。
+  - mcp 版本对齐：my-coding-agent 的 mcp 约束锁 `>=2.0.0,<2.1`，与框架层此前锁的 2.0.0 一致。
+  - 测试：新增 `tests/test_tools.py`（文件工具 10，迁自 test_files）、`test_mcp.py` + `test_mcp_extension_e2e.py`（MCP 4，迁入）、`test_agent.py`（产品层装配 4）。
+- **过程中的关键教训**：
+  - 分层边界（判据「去掉业务后这能力还有没有独立意义」）：文件工具是编码专属 → 产品层；subagent 委派是通用协作机制 → 框架层。此前 2026-08-16 把文件工具反转放框架层是「夹生态」，本次归位。
+  - 依赖版本漂移：`mcp>=2.0.0` 在全新 uv 项目里意外解析到 2.1.1（框架层锁 2.0.0），导致「原样迁入」的 MCP 测试红 1 例；锁 `<2.1` 守住「移动不改逻辑」原则，而非去适配新版本行为。
+- **验证**：三包离线测试全绿，总计 **235 个测试**（my-agent-core 181 + my-agent-llm 36 + my-coding-agent 18）。
 
 ---
 
@@ -346,10 +369,10 @@ my-pi-agent/
 - 阶段 4：context 管理（已完成）
 - 阶段 5：skill 机制（已完成）
 - subagent 机制（已完成，另列）
-- Task 委派系统 + 四个文件工具（已完成）
+- Task 委派系统 + 四个文件工具（已完成，文件工具已归位产品层）
 - 阶段 9：extension 机制与 MCP 客户端扩展（9.1/9.2/9.3 已全部完成）
 - 阶段 10：框架层原生异步架构升级（已完成）
-- 阶段 11：my-coding-agent 产品层（已完成，18 + 181 测试全绿）——新建
+- 阶段 11：my-coding-agent 产品层（已完成，18 + 181 + 36 测试全绿）——新建
   `packages/my-coding-agent`（src 布局 `src/my_coding_agent/`，对应 pig-coding-agent）；
   文件工具（`tools.py` read/write/edit/bash 四工厂 + `_safe_path` 路径逃逸防护）与
   MCP（`mcp.py` 三件套 `MCPServerConfig`/`MCPConnection`/`MCPClientManager`）从框架层
@@ -359,4 +382,5 @@ my-pi-agent/
 - 阶段 7：memory 记忆系统（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
 - plugin 分发（前置 subagent/skills/extension/MCP 已就绪，未做）
-- coding agent 层（`my_coding_agent`）——框架层完成后（含 plan 模式交互层）
+- coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
+
