@@ -9,6 +9,7 @@ from my_agent_llm import Message, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    BeforeModelCall,
     ContextCompacted,
     Event,
     HookRegistry,
@@ -23,6 +24,7 @@ from my_agent_core.events import (
     ToolsChanged,
     TurnEnd,
     TurnStart,
+    UserInput,
 )
 
 
@@ -105,9 +107,12 @@ def test_tools_changed_fields():
 
 
 def test_all_events_frozen_and_dataclass():
-    """全部事件都是 frozen dataclass，非空 fields（AgentStart 无字段跳过）。"""
-    with_fields = (
+    """全部事件都是 frozen dataclass，非空 fields。"""
+    all_events = (
+        UserInput,
+        AgentStart,
         TurnStart,
+        BeforeModelCall,
         TurnEnd,
         MessageStart,
         MessageUpdate,
@@ -119,11 +124,9 @@ def test_all_events_frozen_and_dataclass():
         ContextCompacted,
         ToolsChanged,
     )
-    no_fields = (AgentStart,)
-    for cls in (*with_fields, *no_fields):
+    for cls in all_events:
         assert is_dataclass(cls)
-        assert cls.__dataclass_params__.frozen
-    for cls in with_fields:
+        assert cls.__dataclass_params__.frozen  # type: ignore[attr-defined]
         assert fields(cls)
 
 
@@ -134,17 +137,21 @@ def test_event_has_timestamp():
     before = time.time()
     e = TurnStart(iteration=1)
     after = time.time()
-    assert before <= e.timestamp <= after
+    assert before <= e.timestamp <= after  # type: ignore[attr-defined]
 
 
 def test_all_events_have_timestamp():
     """全部事件实例都有 timestamp（继承自 Event 基类）。"""
 
     def make(cls):
+        if cls is UserInput:
+            return cls(input_text="hi")
         if cls is AgentStart:
             return cls()
         if cls is TurnStart:
             return cls(iteration=1)
+        if cls is BeforeModelCall:
+            return cls(messages=[], iteration=1)
         if cls in (MessageStart, MessageEnd):
             return cls(message=Message(role="assistant", content="hi"))
         if cls is ToolExecutionStart:
@@ -162,8 +169,10 @@ def test_all_events_have_timestamp():
         raise AssertionError(f"no constructor for {cls.__name__}")
 
     for cls in (
+        UserInput,
         AgentStart,
         TurnStart,
+        BeforeModelCall,
         MessageStart,
         MessageEnd,
         ToolExecutionStart,
@@ -174,7 +183,7 @@ def test_all_events_have_timestamp():
     ):
         e = make(cls)
         assert hasattr(e, "timestamp")
-        assert isinstance(e.timestamp, float)
+        assert isinstance(e.timestamp, float)  # type: ignore[attr-defined]
 
 
 def test_hook_result_fields():
@@ -194,7 +203,7 @@ def test_hook_result_fields():
 
 
 def test_interceptable_events():
-    """ToolExecutionStart/End 与 MessageUpdate 继承 Interceptable，其余事件不继承。"""
+    """ToolExecutionStart/End、MessageUpdate、UserInput、AgentStart、BeforeModelCall 继承 Interceptable。"""
     assert isinstance(
         ToolExecutionStart(tool_call_id="1", tool_name="f", args={}), Interceptable
     )
@@ -205,14 +214,52 @@ def test_interceptable_events():
     assert isinstance(
         MessageUpdate(message=Message(role="assistant", content="hi")), Interceptable
     )
+    assert isinstance(UserInput(input_text="hello"), Interceptable)
+    assert isinstance(AgentStart(), Interceptable)
+    assert isinstance(BeforeModelCall(messages=[], iteration=1), Interceptable)
     assert not isinstance(TurnStart(iteration=1), Interceptable)
-    assert not isinstance(AgentStart(), Interceptable)
+    assert not isinstance(AgentEnd(messages=[], final_text=None, iterations=1, stop_reason="end_turn"), Interceptable)
+
+
+def test_extension_decision_point_events():
+    """测试五大决策点相关的事件与 HookResult 扩充字段。"""
+    # 1. UserInput
+    e_input = UserInput(input_text="hello world")
+    assert isinstance(e_input, Interceptable)
+    assert e_input.input_text == "hello world"
+
+    # 2. AgentStart (Interceptable with system_prompt & user_input)
+    e_start = AgentStart(system_prompt="system prompt", user_input="user prompt")
+    assert isinstance(e_start, Interceptable)
+    assert e_start.system_prompt == "system prompt"
+    assert e_start.user_input == "user prompt"
+
+    # 3. BeforeModelCall
+    msg = Message(role="user", content="hi")
+    e_ctx = BeforeModelCall(messages=[msg], iteration=1)
+    assert isinstance(e_ctx, Interceptable)
+    assert e_ctx.messages == [msg]
+    assert e_ctx.iteration == 1
+
+    # 4. HookResult 扩充字段
+    res = HookResult(
+        block=True,
+        reason="blocked",
+        updated_input="new input",
+        updated_system_prompt="new system",
+        updated_messages=[msg],
+        updated_args={"a": 1},
+        updated_result="res",
+    )
+    assert res.updated_input == "new input"
+    assert res.updated_system_prompt == "new system"
+    assert res.updated_messages == [msg]
 
 
 def test_hook_result_frozen():
     """HookResult 是 frozen dataclass。"""
     assert is_dataclass(HookResult)
-    assert HookResult.__dataclass_params__.frozen
+    assert HookResult.__dataclass_params__.frozen  # type: ignore[attr-defined]
 
 
 @pytest.mark.anyio

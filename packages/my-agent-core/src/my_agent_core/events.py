@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from my_agent_llm import Message
+from my_agent_llm import Message  # pyright: ignore[reportMissingImports]
 
 
 @dataclass(frozen=True)
@@ -33,10 +33,21 @@ class Interceptable:
     """标记：该事件可被 hook 干预（回调返回值生效）。"""
 
 
+# ── 用户输入到达（进入 Session 和消息历史前）
+@dataclass(frozen=True)
+class UserInput(Event, Interceptable):
+    """用户原始输入到达（在进入 Session 和消息历史之前触发，可被拦截或改写）。"""
+
+    input_text: str
+
+
 # ── Agent 生命周期
 @dataclass(frozen=True)
-class AgentStart(Event):
-    """run() 开始。"""
+class AgentStart(Event, Interceptable):
+    """run() 开始（可被 hook 拦截/改写 system prompt）。"""
+
+    system_prompt: str = ""
+    user_input: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,6 +65,14 @@ class AgentEnd(Event):
 class TurnStart(Event):
     """一轮 LLM 调用开始。"""
 
+    iteration: int
+
+
+@dataclass(frozen=True)
+class BeforeModelCall(Event, Interceptable):
+    """每次调用 LLM 前触发（携带已完成压缩的当前上下文 view 副本，可临时注入/过滤消息）。"""
+
+    messages: list[Message]
     iteration: int
 
 
@@ -140,13 +159,19 @@ class ToolsChanged(Event):
 class HookResult:
     """hook 回调的干预结果。返回 None = 纯观察，返回 HookResult = 干预。
 
-    - ToolExecutionStart 用 block / updated_args（拦截 / 改参数）
+    - UserInput 用 block / reason / updated_input（拦截 / 改写用户输入）
+    - AgentStart 用 block / reason / updated_system_prompt（拦截 / 改写 system prompt）
+    - BeforeModelCall 用 block / reason / updated_messages（拦截 / 临时改写送给 LLM 的 messages 视图）
+    - ToolExecutionStart 用 block / reason / updated_args（拦截 / 改参数）
     - ToolExecutionEnd 用 updated_result（改结果）
     - MessageUpdate 用 block / reason（中途中止流式生成并丢弃半截产物）
     """
 
     block: bool = False
     reason: str | None = None
+    updated_input: str | None = None
+    updated_system_prompt: str | None = None
+    updated_messages: list[Message] | None = None
     updated_args: dict | None = None
     updated_result: str | None = None
 
