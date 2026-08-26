@@ -59,6 +59,10 @@
   - rewind 护栏（`compaction_floor`：压缩后只能回压缩点之后，缓存永不失效）
   - 摘要提示词：防注入 + 先分析再总结（`<analysis>`/`<summary>` 剥离）
   - `ContextCompacted` 事件、`ContextSessionBridge`（Context↔Session 桥）
+- **[记忆系统（memory）](https://zxj-2023.github.io/2026/08/26/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/)**：`MemoryStore` + 受控 `memory` 维护工具（文件注入式）
+  - 双 Markdown 存储（`MEMORY.md` 2200 字符 / `USER.md` 1375 字符），`\n§\n` 条目切分、唯原子串定位增删改与原子落盘
+  - Frozen Snapshot 机制：构造时冻结为 `<MEMORY_CONTEXT>` 注入 System Prompt，会话中途写入只落盘不动快照，保 prefix cache 稳定；`reset()` 时重载
+  - `make_memory_tool` 受控维护工具（`add/replace/remove`，never-throw 防护）在 `Agent` 启用时自动注册，支持跨 Session 长期记忆召回
 
 ## 未来计划
 
@@ -66,7 +70,7 @@
 
 - **skills 机制**：SKILL.md 发现 + 清单拼 system + `read_skill` 工具
 - **动态工具**：运行中 `register_tool` / `unregister_tool` + `ToolsChanged` 事件
-- **memory**：记忆模型 + `MemoryStore`（跨 session 持久化）+ `remember`/`recall` 内置工具
+- **memory**：`MemoryStore` + `memory` 工具（跨 session 持久化与 Frozen Snapshot 注入，已实现）
 - **task 系统**：`TaskStore` + `todo_write` 工具（plan 模式的交互层在 coding agent 层做）
 - **MCP 与 plugin**：MCP server 加载器（工具动态注册进 `ToolRegistry`）+
   插件机制（tools / skills / hooks 扩展）
@@ -123,6 +127,7 @@ my-pi-agent/
 │       │   ├── session.py          # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │       │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
 │       │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
+│       │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │       │   └── main.py             # demo 入口
 │       └── tests/                  # 离线测试（7 个文件，详见包内 README）
 ├── PROGRESS.md                     # 项目进度记录

@@ -19,6 +19,7 @@ my-pi-agent/
 │   │   ├── session.py     # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
 │   │   ├── context.py     # ContextManager + ContextSessionBridge（四层异步压缩管线）
+│   │   ├── memory.py      # MemoryStore + make_memory_tool（长期记忆存储与快照管理）
 │   │   ├── skills.py      # Skill + SkillManager（Repository：发现/清单/调用）
 │   │   ├── subagents.py   # Subagent + SubagentManager（agents/*.md 发现）
 │   │   ├── tasks.py       # Task + TaskStatus + TaskManager（委派生命周期，并发派发）
@@ -379,6 +380,28 @@ my-pi-agent/
   - 缺省 System Prompt 兼容：当 Agent 构造时未传入 `system_prompt`（且无 skills/subagents 清单）时，`self.messages` 首条无 system 消息；当扩展返回 `updated_system_prompt` 时，自动在 `self.messages[0]` 处插入新的 system 消息。
 - **验证**：三包离线测试全绿，总计 **241 个测试**（my-agent-core 187 + my-agent-llm 36 + my-coding-agent 18）。
 
+### 阶段 7：memory 记忆系统（2026-08-26）
+
+**目标**：实现文件注入式 + 受控条目化长期记忆系统（对标 hermes-agent 精简版），让 Agent 拥有跨 Session 的持久化记忆能力。通过 `MEMORY.md`（Agent 笔记，2200 字符限制）与 `USER.md`（用户画像，1375 字符限制）双文件存储，启动时捕获 Frozen Snapshot 冻结注入 System Prompt 保证 Prefix Cache 稳定，并提供结构化的 `memory` 维护工具（`add/replace/remove`）防止模型裸写 Markdown 膨胀写乱。
+
+- 提交：`80e0d60` `8fb8910` `6bb6239` `5bfca61` `b9a54f0`
+- **改了什么**：
+  - `memory.py`（新增）：
+    - `MemoryStore`：管理 `MEMORY.md` 与 `USER.md`，使用 `\n§\n` 条目切分与 `utf-8-sig`（容忍 Windows BOM）；启动时 `load_from_disk()` 捕获冻结快照 `_snapshot`；`add` 增量追加、`replace` / `remove` 唯原子串匹配定位；支持精确去重、超限拦截与提示、临时文件原子落盘（`tempfile.mkstemp` + `os.fsync` + `os.replace`）；`format_all_for_system_prompt()` 格式化为 `<MEMORY_CONTEXT>` 提示词块。
+    - `make_memory_tool(store)`：使用 `@tool` 生成受控维护工具，接收 `target: Literal["memory", "user"]` 与 `action: Literal["add", "replace", "remove"]`，内部完成严格参数校验与分发，遵循 Never-Throw Guarantee。
+  - `agent.py`：
+    - `__init__` 新增 `memory_dir: str | Path | None | Literal[False] = None`（`None` 自动探测 `<cwd>/.my_agent_core/memory`，`False` 显式禁用，`str|Path` 指定目录）；
+    - 在 `_register_tools` 前初始化 `MemoryStore` 并立即调用 `load_from_disk()` 冻结快照；
+    - 在 `_register_tools` 中自动注册 `make_memory_tool(self.memory_store)`，用户传同名工具时抛 `ValueError` 防撞名；
+    - 在 `_init_messages` 中将冻结快照拼入首条 system message；
+    - 在 `reset()` 中调用 `self.memory_store.load_from_disk()` 重载磁盘并重拼 system 消息。
+  - `__init__.py`：导出 `MemoryStore` 与 `make_memory_tool`。
+  - 测试：新增 `tests/test_memory.py`（14 个测试用例，覆盖条目切分、BOM 读取、快照冻结不变性、唯原子串匹配与歧义检测、超限防护、工具 schema 与执行、Agent 自动探测与注入、禁用与冲突保护、端到端跨 Session 持久化与召回）。
+- **过程中的关键教训**：
+  - Frozen Snapshot 不变性：会话运行中大模型调用 `memory` 工具写入新条目时，只落盘更新磁盘与 live 数据，绝不修改当前会话的 System Prompt 内存快照，以此保持 LLM 提示词前缀哈希（Prefix Cache）的高度稳定，仅在下个 Session 启动或显式 `reset()` 时重载生效。
+  - 唯原子串定位与歧义防护：在 `replace` 和 `remove` 操作中，要求 `old_text` 必须在当前 store 中唯一命中某一条目；若未命中或匹配到多条不同条目，返回清晰的匹配列表错误提示引导大模型提供更具体的文本。
+- **验证**：三包全量 255 个离线测试全部 100% 绿灯通过（my-agent-core 201 + my-agent-llm 36 + my-coding-agent 18）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
@@ -393,8 +416,8 @@ my-pi-agent/
 - 阶段 10：框架层原生异步架构升级（已完成）
 - 阶段 11：my-coding-agent 产品层（已完成，18 + 181 + 36 测试全绿）
 - 阶段 12：Extension 五大决策点与生命周期拦截体系（已完成，187 + 36 + 18 测试全绿）
+- 阶段 7：memory 记忆系统（已完成，201 + 36 + 18 测试全绿）
 - 阶段 6：动态工具（未做）
-- 阶段 7：memory 记忆系统（已完成设计，待实现）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
 - plugin 分发（前置 subagent/skills/extension/MCP 已就绪，未做）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

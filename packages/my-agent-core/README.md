@@ -65,6 +65,7 @@ my-agent-core/           # 独立 uv 项目（本包根）
 │       ├── session.py   # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │       ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
 │       ├── context.py   # ContextManager（四层压缩管线）+ ContextSessionBridge
+│       ├── memory.py    # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 └── tests/
     ├── test_tools.py    # Tool/ToolResult/tool() 离线测试
@@ -239,14 +240,13 @@ answer = agent.run(question)
 
 ### 阶段 7：memory 记忆系统
 
-- [ ] 7.1 `memory.py`：记忆模型 + `MemoryStore`（按命名空间持久化到 workspace，跨 session 存活）
-      → 验证：离线测试
-- [ ] 7.2 内置工具暴露：`remember(key, content)` / `recall(query)`（模型自主读写记忆）
-      → 验证：离线测试（FakeLLM 驱动）
-- [ ] 7.3 `Agent` 集成：`memory=` 参数（有则注入记忆上下文 + 记忆工具）
-      → 验证：离线测试
-- **阶段验证**：`uv run pytest -q` 全绿；真实 demo：session A 写入记忆
-  → 新 session B `recall` 到并据此作答（对标 pi `packages/pi/src/tool/memory/`）
+- [x] 7.1 `memory.py`：`MemoryStore`（管理 `MEMORY.md` 2200 字符与 `USER.md` 1375 字符，`\n§\n` 条目分隔、`utf-8-sig` 编码、唯原子串定位增删改、精确去重、超限防护与原子落盘，启动捕获 Frozen Snapshot 冻结快照）
+      → 验证：离线测试（`tests/test_memory.py`）
+- [x] 7.2 `memory.py`：`make_memory_tool(store)`（受控 `memory` 维护工具，`Literal["memory", "user"]` + `Literal["add", "replace", "remove"]`，Never-throw 异常防护）
+      → 验证：离线测试（`tests/test_memory.py`）
+- [x] 7.3 `Agent` 集成：`memory_dir=` 三态参数（`None` 自动探测 / `False` 显式禁用 / 显式路径），`_init_messages` 注入 `<MEMORY_CONTEXT>` 冻结快照，`_register_tools` 自动注册 `memory` 工具（防撞名），`reset()` 重载快照
+      → 验证：离线测试（`tests/test_memory.py`）
+- **阶段验证**：三包离线测试全绿（总计 255 个测试）；端到端测试验证通过（Session A 写入用户画像 → 新 Session B 自动召回记忆并据此作答）
 
 ### 阶段 8：task 系统（todo + plan 核心）
 
