@@ -93,11 +93,11 @@
     1. `@api.on(Event)`：订阅 12 个生命周期事件，支持 `@overload` 类型推导与五大决策点拦截干预；
     2. `@api.tool(...)` / `api.register_tool(tool)`：注册业务工具（后加载静默覆盖机制，赋能安全沙箱替换）；
     3. `@api.command("name")`：注册斜杠命令，CLI 前置反射分发（0 Token 消耗，不污染历史）。
-- **[记忆系统（memory）](https://zxj-2023.github.io/2026/08/26/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/)**：
+- **[记忆系统（memory）](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/)**：
   - `MemoryStore` 条目化存储：管理 `MEMORY.md`（上限 2200 字符）与 `USER.md`（上限 1375 字符），使用 `\n§\n` 条目切分与原子落盘
   - **Frozen Snapshot（冻结快照）机制**：构造时冻结为 `<MEMORY_CONTEXT>` 注入 System Prompt；运行时写入只落盘不动快照，保护大模型 Prefix Cache 稳定；`reset()` 时重载
   - `make_memory_tool` 受控维护工具：提供 `memory(target, action, content, old_text, new_content)` 工具（支持 `add/replace/remove`、唯原子串定位匹配、歧义防误删、超限引导整理），支持跨 Session 长期记忆持久化与召回
-- **[Plugin 插件分发系统（plugins）](docs/superpowers/specs/2026-08-26-plugin-system-design.md)**：
+- **[Plugin 插件分发系统（plugins）](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/)**：
   - **100% 对齐 Claude Code 官方插件规范**：自包含 `.claude-plugin/plugin.json`（或 `.plugin/plugin.json`）、`skills/`、`agents/`、`.mcp.json`，以及根级单 `SKILL.md` 简写支持
   - `PluginManager` 统一管理：负责插件发现、Manifest 容错解析与目录名智能推断兜底（无清单时自动以目录名生成默认元数据）
   - **无缝解构与分发**：在 `Agent.__init__` 装配时自动提取插件内的 `skills/` 注入 `SkillManager`、`agents/` 注入 `SubagentManager`，子代理派发时自动进行递归探测隔离保护
@@ -188,7 +188,6 @@ my-pi-agent/
 │       │   └── agent.py            # CodingAgent 组装门面
 │       └── tests/                  # 离线测试
 │
-├── docs/                           # 架构设计规范 (specs/) 与实施计划 (plans/)
 ├── PROGRESS.md                     # 项目进度复盘与详细演进记录
 └── README.md                       # 仓库级总览（本文件）
 ```
@@ -209,5 +208,5 @@ my-pi-agent/
 | **Skills 机制** | `my_agent_core/skills.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
 | **Subagents 委派** | `my_agent_core/tasks.py` | [my-pi-agent--subagent与task委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) |
 | **Extension 与 MCP** | `my_agent_core/extensions/`, `mcp.py` | [my-pi-agent--extension机制与mcp](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) |
-| **Memory 记忆系统** | `my_agent_core/memory.py` | [设计文档与技术规范](docs/superpowers/specs/2026-08-26-my-agent-memory-design.md) |
-| **Plugin 插件系统** | `my_agent_core/plugins.py` | [设计文档与技术规范](docs/superpowers/specs/2026-08-26-plugin-system-design.md) |
+| **Memory 记忆系统** | `my_agent_core/memory.py` | [my-pi-agent--memory系统](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/) |
+| **Plugin 插件系统** | `my_agent_core/plugins.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
