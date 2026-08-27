@@ -5,6 +5,7 @@ SubagentManager 为 Repository 形态（对标 SkillManager）：构造即发现
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -65,14 +66,21 @@ def _parse_max_turns(value: object) -> int | None:
 class SubagentManager:
     """subagent 仓储：发现 agents/*.md + 按名索引 + 清单格式化。"""
 
-    def __init__(self, dirs: list[str | Path] | None = None):
+    def __init__(
+        self,
+        dirs: Sequence[str | Path] | None = None,
+        extra_dirs: Sequence[str | Path] | None = None,
+    ):
         """构造即发现：None → 探测 <cwd>/.agents/agents（不存在 → 空，静默）；
-        [] → 显式禁用；非空 → 只扫这些目录。"""
+        [] → 显式禁用；非空 → 只扫这些目录。extra_dirs 追加额外发现目录（如 Plugin 解构子代理目录）。"""
         self.subagents: dict[str, Subagent] = {}
         if dirs is None:
             dirs = [Path.cwd() / ".agents" / "agents"]
         for root in dirs:
             self._discover_dir(Path(root))
+        if extra_dirs:
+            for root in extra_dirs:
+                self._discover_dir(Path(root))
 
     def _discover_dir(self, root: Path) -> None:
         """扫一层 *.md（不递归、不认子目录、跳过 README/隐藏文件）。同名后覆盖。"""

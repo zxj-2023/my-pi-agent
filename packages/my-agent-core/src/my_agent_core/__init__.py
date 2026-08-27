@@ -23,6 +23,12 @@ from my_agent_core.events import (
 )
 from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.memory import MemoryStore, make_memory_tool
+from my_agent_core.plugins import (
+    Plugin,
+    PluginAuthor,
+    PluginManifest,
+    PluginManager,
+)
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session, SessionTree
 from my_agent_core.session_store import SessionStore
@@ -57,6 +63,10 @@ __all__ = [
     "ExtensionManager",
     "MemoryStore",
     "make_memory_tool",
+    "Plugin",
+    "PluginAuthor",
+    "PluginManifest",
+    "PluginManager",
     "ContextCompacted",
     "ToolsChanged",
 ]

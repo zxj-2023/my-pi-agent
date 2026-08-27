@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -143,7 +144,7 @@ class Plugin:
 class PluginManager:
     """管理 Claude Code 格式插件的发现、解析与子资源目录解构提取。"""
 
-    def __init__(self, dirs: list[str | Path] | None = None) -> None:
+    def __init__(self, dirs: Sequence[str | Path] | None = None) -> None:
         """构造即发现：None → 探测 <cwd>/.agents/plugins；[] → 禁用；非空 → 显式目录。"""
         self.plugins: dict[str, Plugin] = {}
         if dirs is None:

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -35,6 +35,7 @@ from my_agent_core.events import (
 )
 from my_agent_core.extensions import ExtensionManager
 from my_agent_core.memory import MemoryStore, make_memory_tool
+from my_agent_core.plugins import PluginManager
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
@@ -58,10 +59,11 @@ class Agent:
         max_iterations: int | None = None,
         context_budget: int | None = None,
         keep_recent_tokens: int | None = None,
-        skill_dirs: list[str | Path] | None = None,
+        skill_dirs: Sequence[str | Path] | None = None,
         model: str | None = None,
-        subagent_dirs: list[str | Path] | None = None,
-        extension_dirs: list[str | Path] | None = None,
+        subagent_dirs: Sequence[str | Path] | None = None,
+        extension_dirs: Sequence[str | Path] | None = None,
+        plugin_dirs: Sequence[str | Path] | None = None,
         memory_dir: str | Path | None | Literal[False] = None,
         hooks: list[tuple[type[Event], Callable]] | None = None,
     ):
@@ -81,6 +83,8 @@ class Agent:
         [] → 禁用；非空 → 只扫这些目录。extension 在 _register_tools 之后加载，注册的工具可覆盖
         内置工具（对齐 pi）；hook 注册进 hooks（先于构造参数 hooks 触发）；命令存 extension_manager，
         上层 CLI 调 handle_command 派发。
+        plugin_dirs 为 Claude Code 格式插件目录：None → 探测 <cwd>/.agents/plugins；
+        [] → 显式禁用；非空 list → 扫各插件目录并自动解构其 skills/、agents/ 注入对应管理器。
         memory_dir 为持久化记忆存储目录：None → 探测 <cwd>/.my_agent_core/memory（存在才启用）；
         False → 显式禁用；str | Path → 显式指定目录。启用时构造 MemoryStore 并冻结快照，
         自动注入 <MEMORY_CONTEXT> 块进 system，并自动注册 memory 工具（add/replace/remove）。
@@ -93,11 +97,14 @@ class Agent:
         self._aborted = False  # 中止状态标记
         self.hooks = HookRegistry()
         self.registry = ToolRegistry()
+        self.plugin_manager = PluginManager(plugin_dirs)
         self.skill_manager = SkillManager(
-            skill_dirs
+            skill_dirs, extra_dirs=self.plugin_manager.get_skill_dirs()
         )  # None→探测默认 / []→禁用 / 显式→目录
         self.skills: list[Skill] = self.skill_manager.list()  # 兼容代理
-        self.subagent_manager = SubagentManager(subagent_dirs)  # 三态同 skill_dirs
+        self.subagent_manager = SubagentManager(
+            subagent_dirs, extra_dirs=self.plugin_manager.get_subagent_dirs()
+        )  # 三态同 skill_dirs
 
         self.memory_store = self._init_memory_store(memory_dir)  # memory 装配与快照冻结
 

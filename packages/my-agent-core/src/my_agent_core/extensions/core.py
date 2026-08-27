@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, overload
 
@@ -102,15 +102,19 @@ class ExtensionManager:
 
     DEFAULT_DIR_NAME = "extensions"  # <cwd>/.agents/extensions
 
-    def __init__(self, agent: Agent, extension_dirs: list[str | Path] | None = None):
+    def __init__(
+        self, agent: Agent, extension_dirs: Sequence[str | Path] | None = None
+    ):
         """解析目录（三态同 skill_dirs）：None → 探测 <cwd>/.agents/extensions；
         [] → 禁用；非空 → 只扫这些目录。load() 显式加载（有副作用）。"""
         self.agent = agent
         self.api = ExtensionAPI(agent)
         self.extensions: dict[str, Any] = {}
         if extension_dirs is None:
-            extension_dirs = [Path.cwd() / ".agents" / self.DEFAULT_DIR_NAME]
-        self._dirs: list[Path] = [Path(d) for d in extension_dirs]
+            dirs = [Path.cwd() / ".agents" / self.DEFAULT_DIR_NAME]
+        else:
+            dirs = list(extension_dirs)
+        self._dirs: list[Path] = [Path(d) for d in dirs]
 
     def discover(self, directory: Path | str) -> list[Path]:
         """扫目录下 **/*.py（递归），跳过 _ 开头私有文件；目录不存在 → []。"""

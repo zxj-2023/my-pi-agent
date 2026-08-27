@@ -51,19 +51,34 @@ class SkillManager:
     隐藏目录（. 开头）跳过。目录不存在 → 静默跳过。容错全静默，不抛不告警。
     """
 
-    def __init__(self, dirs: list[str | Path] | None = None):
+    def __init__(
+        self,
+        dirs: Sequence[str | Path] | None = None,
+        extra_dirs: Sequence[str | Path] | None = None,
+    ):
         """构造即发现：None → 探测 <cwd>/.agents/skills（不存在 → 空，静默）；
-        [] → 显式禁用；非空 list → 只扫这些目录。"""
+        [] → 显式禁用；非空 list → 只扫这些目录。extra_dirs 追加额外发现目录（如 Plugin 解构技能目录）。"""
         self.skills: dict[str, Skill] = {}
         if dirs is None:
             dirs = [Path.cwd() / ".agents" / "skills"]
         for root in dirs:
             self._discover_dir(Path(root))
+        if extra_dirs:
+            for root in extra_dirs:
+                self._discover_dir(Path(root))
 
     def _discover_dir(self, root: Path) -> None:
-        """扫单一来源目录的一层子目录（不递归、不认根级 .md、跳过隐藏目录）。"""
+        """扫单一来源目录的一层子目录（认 <name>/SKILL.md，或根级 SKILL.md 单技能简写）。"""
         if not root.is_dir():
             return
+        # 1. 根级单 SKILL.md 简写支持
+        root_skill = root / "SKILL.md"
+        if root_skill.is_file():
+            skill = self._load_one(root_skill)
+            if skill is not None:
+                self.skills[skill.name] = skill
+
+        # 2. 一层子目录 <child>/SKILL.md 扫描
         for child in sorted(root.iterdir()):
             if not child.is_dir() or child.name.startswith("."):
                 continue
@@ -84,8 +99,9 @@ class SkillManager:
         description = meta.get("description")
         if not description:
             return None
+        name = (meta.get("name") or "").strip() or path.parent.name
         return Skill(
-            name=path.parent.name, description=description, content=body, file_path=path
+            name=name, description=description, content=body, file_path=path
         )
 
     def get(self, name: str) -> Skill | None:

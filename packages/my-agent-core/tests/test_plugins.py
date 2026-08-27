@@ -6,11 +6,39 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest  # pyright: ignore[reportMissingImports]
+from my_agent_llm import (  # pyright: ignore[reportMissingImports]
+    Response,
+    StreamChunk,
+)
+
+from my_agent_core.agent import Agent
 from my_agent_core.plugins import (
     Plugin,
     PluginAuthor,
     PluginManager,
 )
+from my_agent_core.session import Session
+
+
+class FakePluginLLM:
+    def __init__(self, responses: list[Response] | None = None):
+        self.responses = list(responses or [])
+        self.calls: list[dict] = []
+
+    async def achat_stream(self, messages, tools=None, model=None):
+        self.calls.append({"messages": messages, "tools": tools})
+        resp = (
+            self.responses.pop(0)
+            if self.responses
+            else Response(content="ok", model="test")
+        )
+        yield StreamChunk(
+            content=resp.content,
+            tool_calls=resp.tool_calls,
+            usage=resp.usage,
+            finish_reason=resp.finish_reason,
+        )
 
 
 def test_plugin_author_parsing():
@@ -181,3 +209,121 @@ def test_plugin_manager_direct_plugin_dir_and_disabled():
         manager_disabled = PluginManager(dirs=[])
         assert len(manager_disabled.plugins) == 0
         assert manager_disabled.get_skill_dirs() == []
+
+
+@pytest.mark.anyio
+async def test_agent_plugin_integration_end_to_end():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        plugin_dir = root / "code-assistant"
+
+        # 1. Plugin 包含 .claude-plugin/plugin.json
+        (plugin_dir / ".claude-plugin").mkdir(parents=True)
+        (plugin_dir / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": "code-assistant", "version": "1.0.0"}),
+            encoding="utf-8",
+        )
+
+        # 2. Plugin 包含 skills/
+        skill_dir = plugin_dir / "skills" / "git-commit-helper"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\ndescription: Helps format git commits\n---\n\nFormat rules here.",
+            encoding="utf-8",
+        )
+
+        # 3. Plugin 包含 agents/
+        agent_dir = plugin_dir / "agents"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "commit-reviewer.md").write_text(
+            "---\ndescription: Review commit messages\n---\n\nReview instructions.",
+            encoding="utf-8",
+        )
+
+        session = Session(path=root / "session.jsonl")
+        llm = FakePluginLLM(
+            [
+                Response(
+                    content="I have git-commit-helper skill and commit-reviewer agent available.",
+                    model="test",
+                )
+            ]
+        )
+
+        agent = Agent(
+            llm=llm,
+            tools=[],
+            session=session,
+            plugin_dirs=[plugin_dir],
+        )
+
+        assert agent.plugin_manager is not None
+        assert "code-assistant" in agent.plugin_manager.plugins
+
+        # 验证 Plugin 中的 Skill 自动注入进了 SkillManager 和 System Prompt
+        assert agent.skill_manager.get("git-commit-helper") is not None
+        assert "git-commit-helper" in agent.messages[0].content
+
+        # 验证 Plugin 中的 Subagent 自动注入进了 SubagentManager 和 task 工具
+        assert agent.subagent_manager.get("commit-reviewer") is not None
+        assert agent.registry.get("task") is not None
+        assert "commit-reviewer" in agent.messages[0].content
+
+        res = await agent.run("Check available tools")
+        assert res is not None and "git-commit-helper" in res
+
+
+@pytest.mark.anyio
+async def test_agent_plugin_single_skill_shorthand():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        plugin_dir = root / "quick-linter"
+        plugin_dir.mkdir(parents=True)
+
+        # 根目录直接放置 SKILL.md
+        (plugin_dir / "SKILL.md").write_text(
+            "---\nname: linter\ndescription: Fast code linter\n---\n\nLinting rules.",
+            encoding="utf-8",
+        )
+
+        session = Session(path=root / "session.jsonl")
+        llm = FakePluginLLM([Response(content="Linter ready", model="test")])
+
+        agent = Agent(
+            llm=llm,
+            tools=[],
+            session=session,
+            plugin_dirs=[plugin_dir],
+        )
+
+        # 根目录单 skill 被正确识别并注入
+        assert (
+            agent.skill_manager.get("linter") is not None
+            or agent.skill_manager.get("quick-linter") is not None
+        )
+        assert "<available_skills>" in agent.messages[0].content
+
+
+@pytest.mark.anyio
+async def test_agent_plugin_disabled():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        plugin_dir = root / "plugin-disabled"
+        (plugin_dir / "skills" / "my-skill").mkdir(parents=True)
+        (plugin_dir / "skills" / "my-skill" / "SKILL.md").write_text(
+            "---\ndescription: my skill\n---\n\nBody", encoding="utf-8"
+        )
+
+        session = Session(path=root / "session.jsonl")
+        llm = FakePluginLLM([Response(content="ok", model="test")])
+
+        # 显式禁用 plugin_dirs=[]
+        agent = Agent(
+            llm=llm,
+            tools=[],
+            session=session,
+            plugin_dirs=[],
+        )
+        assert agent.plugin_manager is not None
+        assert len(agent.plugin_manager.plugins) == 0
+        assert agent.skill_manager.get("my-skill") is None
