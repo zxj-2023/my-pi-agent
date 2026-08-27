@@ -97,6 +97,10 @@
   - `MemoryStore` 条目化存储：管理 `MEMORY.md`（上限 2200 字符）与 `USER.md`（上限 1375 字符），使用 `\n§\n` 条目切分与原子落盘
   - **Frozen Snapshot（冻结快照）机制**：构造时冻结为 `<MEMORY_CONTEXT>` 注入 System Prompt；运行时写入只落盘不动快照，保护大模型 Prefix Cache 稳定；`reset()` 时重载
   - `make_memory_tool` 受控维护工具：提供 `memory(target, action, content, old_text, new_content)` 工具（支持 `add/replace/remove`、唯原子串定位匹配、歧义防误删、超限引导整理），支持跨 Session 长期记忆持久化与召回
+- **[Plugin 插件分发系统（plugins）](docs/superpowers/specs/2026-08-26-plugin-system-design.md)**：
+  - **100% 对齐 Claude Code 官方插件规范**：自包含 `.claude-plugin/plugin.json`（或 `.plugin/plugin.json`）、`skills/`、`agents/`、`.mcp.json`，以及根级单 `SKILL.md` 简写支持
+  - `PluginManager` 统一管理：负责插件发现、Manifest 容错解析与目录名智能推断兜底（无清单时自动以目录名生成默认元数据）
+  - **无缝解构与分发**：在 `Agent.__init__` 装配时自动提取插件内的 `skills/` 注入 `SkillManager`、`agents/` 注入 `SubagentManager`，子代理派发时自动进行递归探测隔离保护
 
 ### 3. 产品层 `my-coding-agent`
 
@@ -136,7 +140,7 @@ uv run python -m my_coding_agent.agent
 本项目所有单元测试均严格使用 FakeLLM 与模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```powershell
-# 运行全部三个包的单元测试（256 tests）
+# 运行全部三个包的单元测试（266 tests）
 cd packages/my-agent-core && uv run python -m pytest -q
 cd ../my-agent-llm && uv run python -m pytest -q
 cd ../my-coding-agent && uv run python -m pytest -q
@@ -158,7 +162,7 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (202 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (212 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
 │   │   │   ├── agent.py            # Agent 类（单层：异步 ReAct 循环 + 五大决策拦截点）
@@ -172,6 +176,7 @@ my-pi-agent/
 │   │   │   ├── tasks.py            # Task / TaskManager（子代理生命周期与独立会话隔离）
 │   │   │   ├── extensions/         # ExtensionAPI + ExtensionManager（扩展加载与命令路由）
 │   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
+│   │   │   ├── plugins.py          # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   │   │   └── main.py             # 核心层 demo 入口
 │   │   └── tests/                  # 离线测试
 │   │
@@ -205,3 +210,4 @@ my-pi-agent/
 | **Subagents 委派** | `my_agent_core/tasks.py` | [my-pi-agent--subagent与task委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) |
 | **Extension 与 MCP** | `my_agent_core/extensions/`, `mcp.py` | [my-pi-agent--extension机制与mcp](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) |
 | **Memory 记忆系统** | `my_agent_core/memory.py` | [设计文档与技术规范](docs/superpowers/specs/2026-08-26-my-agent-memory-design.md) |
+| **Plugin 插件系统** | `my_agent_core/plugins.py` | [设计文档与技术规范](docs/superpowers/specs/2026-08-26-plugin-system-design.md) |

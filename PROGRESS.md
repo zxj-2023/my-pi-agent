@@ -26,6 +26,7 @@ my-pi-agent/
 │   │   ├── extensions/    # 扩展机制包（ExtensionAPI + ExtensionManager）
 │   │   │   ├── __init__.py  # 符号导出
 │   │   │   └── core.py      # 核心扩展管理器实现
+│   │   ├── plugins.py     # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   │   └── main.py        # 异步流式打字机 demo
 │   ├── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
 │   │   ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
@@ -402,6 +403,29 @@ my-pi-agent/
   - 唯原子串定位与歧义防护：在 `replace` 和 `remove` 操作中，要求 `old_text` 必须在当前 store 中唯一命中某一条目；若未命中或匹配到多条不同条目，返回清晰的匹配列表错误提示引导大模型提供更具体的文本。
 - **验证**：三包全量 255 个离线测试全部 100% 绿灯通过（my-agent-core 201 + my-agent-llm 36 + my-coding-agent 18）。
 
+### 阶段 13：Claude Code 风格 Plugin 插件系统（2026-08-26）
+
+**目标**：实现 100% 对齐 Claude Code 官方规范与 OpenHands 实践的 Plugin 插件聚合分发系统（`PluginManifest` + `Plugin` + `PluginManager`）。支持自包含插件包（`.claude-plugin/plugin.json`、`skills/`、`agents/`、`.mcp.json`、`commands/` 兼容）以及根级单 `SKILL.md` 简写插件，由 `PluginManager` 统一扫描、Manifest 容错解析与子资源解构，并自动注入框架各底层 Manager（`SkillManager`、`SubagentManager`）。
+
+- 提交：`9ad7b20` `2ceab5b` `6df9aa4` `be06008` `7995440`
+- **改了什么**：
+  - `plugins.py`（新增）：
+    - `PluginAuthor` & `PluginManifest`：解析 Claude Code 官方 `plugin.json` 元数据，支持 `author` 字符串 `"Name <email>"` 与字典格式兼容；
+    - `Plugin.from_directory()`：按顺序查找 `.claude-plugin/plugin.json` ➔ `.plugin/plugin.json` ➔ `plugin.json`；若无 manifest 或 JSON 损坏，自动以目录名推断默认 `PluginManifest(name=dir.name)`（智能兜底）；
+    - 组件目录解构：`skills_dir`（优先 `skills/`，次选 `commands/`，根目录单 `SKILL.md` 时返回插件根）、`agents_dir`（`agents/`）、`mcp_config_path`（`.mcp.json`）；
+    - `PluginManager`：支持三态目录扫描（`dirs=None` 探测 `.agents/plugins`，`dirs=[]` 禁用，`dirs=[Path]` 显式指定），识别单个插件目录或插件集合父目录，提供 `get_skill_dirs()`、`get_subagent_dirs()`、`get_mcp_config_paths()`。
+  - `skills.py` & `subagents.py`：
+    - `SkillManager` 与 `SubagentManager` 新增 `extra_dirs` 参数支持，无缝吸收 PluginManager 解构出的子目录路径；`SkillManager` 增强对根目录直接存在 `SKILL.md` 插件的识别加载。
+  - `agent.py` & `tasks.py`：
+    - `Agent.__init__` 新增 `plugin_dirs: Sequence[str | Path] | None = None` 参数并装配 `self.plugin_manager`，自动将插件技能与子代理注入 `SkillManager` 与 `SubagentManager`；
+    - `TaskManager._run` 在派发子代理时显式配置 `plugin_dirs=[]`，确保子代理沙箱隔离，防止递归探测产生工具冲突。
+  - `__init__.py`：导出 `Plugin`、`PluginAuthor`、`PluginManifest`、`PluginManager`。
+  - 测试：新增 `tests/test_plugins.py`（10 个测试用例，覆盖 Author 解析、Manifest 加载与多路径查找、损坏 JSON 降级推断、根级单 SKILL.md 简写、组件目录映射、PluginManager 扫描提取、Agent 自动集成与端到端 run、禁用控制、子代理派发隔离保护）。
+- **过程中的关键教训**：
+  - 规范严格性与轻量化：对标 Claude Code 官方与 OpenHands 实践，插件定位是“聚合分发包”，不额外引入重型概念；`PluginManager` 仅专注做自包含资源解构与分发，底层执行 100% 复用已有的 Skills/Subagents/MCP 机制。
+  - 递归探测防护：父 Agent 加载插件中的 `agents/*.md` 并派发子代理时，子 Agent 必须同时设置 `plugin_dirs=[]`、`subagent_dirs=[]`、`memory_dir=False`，严防子代理重新探测插件导致 `task` / `memory` 工具冲突。
+- **验证**：三包全量 **266 个离线测试** 全部 100% 绿灯通过（my-agent-core 212 + my-agent-llm 36 + my-coding-agent 18）。
+
 ---
 
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
@@ -417,7 +441,7 @@ my-pi-agent/
 - 阶段 11：my-coding-agent 产品层（已完成，18 + 181 + 36 测试全绿）
 - 阶段 12：Extension 五大决策点与生命周期拦截体系（已完成，187 + 36 + 18 测试全绿）
 - 阶段 7：memory 记忆系统（已完成，201 + 36 + 18 测试全绿）
+- 阶段 13：Claude Code 风格 Plugin 插件系统（已完成，212 + 36 + 18 测试全绿）
 - 阶段 6：动态工具（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
-- plugin 分发（前置 subagent/skills/extension/MCP 已就绪，未做）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

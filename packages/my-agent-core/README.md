@@ -66,6 +66,7 @@ my-agent-core/           # 独立 uv 项目（本包根）
 │       ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
 │       ├── context.py   # ContextManager（四层压缩管线）+ ContextSessionBridge
 │       ├── memory.py    # MemoryStore + make_memory_tool（长期记忆与快照管理）
+│       ├── plugins.py   # Plugin + PluginManager（Claude Code 插件聚合分发）
 │       └── main.py      # demo 入口：三个示例工具 + 三个示例问题
 └── tests/
     ├── test_tools.py    # Tool/ToolResult/tool() 离线测试
@@ -338,9 +339,9 @@ answer = agent.run(question)
       `Task`/`TaskStatus`/`TaskManager` 结构（`tasks.py`），`make_task_tool` 工具桥化。
       `effort`/`memory`/`background`/`isolation` 四项 deferred（字段位预留，端到端留后续）。
       （对标 Claude Code sub-agents 生态；**plugin 的 agents 前置已就绪**）
-- [ ] **plugin 分发**（Claude Code 式；前置：subagent 机制 + skills + extension）：
-      目录 + manifest（plugin.json），声明带出 skills / agents / MCP servers /
-      hooks，宿主展开加载
+- [x] **plugin 分发**（2026-08-26 实现，Claude Code 官方标准；前置：subagent 机制 + skills + extension）：
+      目录 + manifest（.claude-plugin/plugin.json 或 .plugin/plugin.json，支持目录名智能推断兜底），
+      声明带出 skills / agents / .mcp.json，由 `PluginManager` 统一聚合解构并无缝注入各底层 Manager。
 - [x] 内置工具模块（`my_agent_core.tools.builtin`）——已建，含 `task` 委派工具工厂
       + 四个文件工具 `read`/`edit`/`write`/`bash`（路径逃逸防护 `_safe_path` + bash
       危险命令黑名单 + 120s 超时）。**2026-08-16 反转 2026-08-13 决策**：通用文件工具
