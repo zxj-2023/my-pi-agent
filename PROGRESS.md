@@ -385,7 +385,7 @@ my-pi-agent/
 
 **目标**：实现文件注入式 + 受控条目化长期记忆系统（对标 hermes-agent 精简版），让 Agent 拥有跨 Session 的持久化记忆能力。通过 `MEMORY.md`（Agent 笔记，2200 字符限制）与 `USER.md`（用户画像，1375 字符限制）双文件存储，启动时捕获 Frozen Snapshot 冻结注入 System Prompt 保证 Prefix Cache 稳定，并提供结构化的 `memory` 维护工具（`add/replace/remove`）防止模型裸写 Markdown 膨胀写乱。
 
-- 提交：`80e0d60` `8fb8910` `6bb6239` `5bfca61` `b9a54f0`
+- 提交：`80e0d60` `8fb8910` `6bb6239` `5bfca61` `b9a54f0` `9945fb0`
 - **改了什么**：
   - `memory.py`（新增）：
     - `MemoryStore`：管理 `MEMORY.md` 与 `USER.md`，使用 `\n§\n` 条目切分与 `utf-8-sig`（容忍 Windows BOM）；启动时 `load_from_disk()` 捕获冻结快照 `_snapshot`；`add` 增量追加、`replace` / `remove` 唯原子串匹配定位；支持精确去重、超限拦截与提示、临时文件原子落盘（`tempfile.mkstemp` + `os.fsync` + `os.replace`）；`format_all_for_system_prompt()` 格式化为 `<MEMORY_CONTEXT>` 提示词块。
@@ -407,7 +407,7 @@ my-pi-agent/
 
 **目标**：实现 100% 对齐 Claude Code 官方规范与 OpenHands 实践的 Plugin 插件聚合分发系统（`PluginManifest` + `Plugin` + `PluginManager`）。支持自包含插件包（`.claude-plugin/plugin.json`、`skills/`、`agents/`、`.mcp.json`、`commands/` 兼容）以及根级单 `SKILL.md` 简写插件，由 `PluginManager` 统一扫描、Manifest 容错解析与子资源解构，并自动注入框架各底层 Manager（`SkillManager`、`SubagentManager`）。
 
-- 提交：`9ad7b20` `2ceab5b` `6df9aa4` `be06008` `7995440`
+- 提交：`9ad7b20` `2ceab5b` `6df9aa4` `be06008` `7995440` `ebf4a3a` `1d9a282`
 - **改了什么**：
   - `plugins.py`（新增）：
     - `PluginAuthor` & `PluginManifest`：解析 Claude Code 官方 `plugin.json` 元数据，支持 `author` 字符串 `"Name <email>"` 与字典格式兼容；
