@@ -88,7 +88,7 @@ class Plugin:
 
         if manifest_path:
             try:
-                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
                 author = None
                 if "author" in data:
                     author = PluginAuthor.from_value(data["author"])

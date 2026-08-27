@@ -139,6 +139,15 @@ def test_plugin_manifest_loading_and_fallback():
         plugin5 = Plugin.from_directory(p5)
         assert plugin5.name == "broken-json-plugin"
 
+        # 6. 带 Windows UTF-8-SIG BOM 头的 plugin.json
+        p6 = Path(tmpdir) / "bom-plugin"
+        (p6 / ".claude-plugin").mkdir(parents=True)
+        bom_bytes = "\ufeff" + json.dumps({"name": "bom-plugin-name", "version": "2.0.0"})
+        (p6 / ".claude-plugin" / "plugin.json").write_text(bom_bytes, encoding="utf-8")
+        plugin6 = Plugin.from_directory(p6)
+        assert plugin6.name == "bom-plugin-name"
+        assert plugin6.manifest.version == "2.0.0"
+
 
 def test_plugin_resource_directories():
     with tempfile.TemporaryDirectory() as tmpdir:
