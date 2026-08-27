@@ -327,3 +327,62 @@ async def test_agent_plugin_disabled():
         assert agent.plugin_manager is not None
         assert len(agent.plugin_manager.plugins) == 0
         assert agent.skill_manager.get("my-skill") is None
+
+
+@pytest.mark.anyio
+async def test_subagent_delegation_with_plugin_agents_isolation():
+    """验证父 Agent 从 Plugin 加载 subagents 时，子 Agent 派发不会发生递归探测或工具冲突。"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        plugin_dir = root / "review-plugin"
+        agent_dir = plugin_dir / "agents"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "plugin-reviewer.md").write_text(
+            "---\ndescription: Plugin reviewer\n---\n\nReview instructions.",
+            encoding="utf-8",
+        )
+
+        session = Session(path=root / "session.jsonl")
+
+        llm = FakePluginLLM(
+            [
+                # 1. 父 Agent 发起 task 委派调用 plugin-reviewer
+                Response(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {
+                                "name": "task",
+                                "arguments": json.dumps(
+                                    {
+                                        "prompt": "review code",
+                                        "agent_type": "plugin-reviewer",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                    model="test",
+                ),
+                # 2. 子 Agent 执行返回
+                Response(content="Review clean", model="test"),
+                # 3. 父 Agent 最终总结
+                Response(content="Done", model="test"),
+            ]
+        )
+
+        agent = Agent(
+            llm=llm,
+            tools=[],
+            session=session,
+            plugin_dirs=[plugin_dir],
+        )
+
+        assert agent.subagent_manager.get("plugin-reviewer") is not None
+        assert agent.registry.get("task") is not None
+
+        res = await agent.run("start")
+        assert res == "Done"
+

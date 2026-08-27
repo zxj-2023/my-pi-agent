@@ -123,6 +123,7 @@ class TaskManager:
             skill_dirs=[],  # skill 清单已由 _system_for 拼入
             subagent_dirs=[],  # 防递归：禁用子代理再探测
             memory_dir=False,  # 隔离：子代理禁用长期记忆探测与维护
+            plugin_dirs=[],  # 隔离：子代理禁用插件再探测（防递归注册 task 工具）
         )
         try:
             return (await child.run(prompt)) or "(no summary)"
