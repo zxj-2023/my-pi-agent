@@ -105,7 +105,9 @@ def test_plugin_manifest_loading_and_fallback():
         # 5. 损坏的 JSON 语法错误，降级为目录名兜底推断
         p5 = Path(tmpdir) / "broken-json-plugin"
         (p5 / ".claude-plugin").mkdir(parents=True)
-        (p5 / ".claude-plugin" / "plugin.json").write_text("{broken json", encoding="utf-8")
+        (p5 / ".claude-plugin" / "plugin.json").write_text(
+            "{broken json", encoding="utf-8"
+        )
         plugin5 = Plugin.from_directory(p5)
         assert plugin5.name == "broken-json-plugin"
 
