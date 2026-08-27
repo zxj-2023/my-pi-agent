@@ -26,8 +26,8 @@ from my_agent_core.memory import MemoryStore, make_memory_tool
 from my_agent_core.plugins import (
     Plugin,
     PluginAuthor,
-    PluginManifest,
     PluginManager,
+    PluginManifest,
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session, SessionTree

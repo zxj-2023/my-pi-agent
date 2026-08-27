@@ -100,9 +100,7 @@ class SkillManager:
         if not description:
             return None
         name = (meta.get("name") or "").strip() or path.parent.name
-        return Skill(
-            name=name, description=description, content=body, file_path=path
-        )
+        return Skill(name=name, description=description, content=body, file_path=path)
 
     def get(self, name: str) -> Skill | None:
         """按名查询（Repository 主查询）。"""

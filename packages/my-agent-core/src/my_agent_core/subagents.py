@@ -3,6 +3,7 @@
 SubagentManager 为 Repository 形态（对标 SkillManager）：构造即发现 agents/*.md，
 按名索引，清单格式化进 system prompt。
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -21,12 +22,14 @@ class Subagent:
     description: str
     content: str
     file_path: Path
-    model: str | None = None              # 缺省 inherit = 继承父模型
-    effort: str | None = None            # v1 解析但不消费（SDK 无统一 effort 参数，端到端映射留 LLM 层演进）
-    max_turns: int | None = None         # maxTurns（缺省继承父 max_iterations）
-    tools: tuple[str, ...] | None = None       # 白名单；None=继承父全部
-    disallowed_tools: tuple[str, ...] = ()     # 黑名单
-    skills: tuple[str, ...] | None = None      # 子代理 skill 名（清单拼 system）
+    model: str | None = None  # 缺省 inherit = 继承父模型
+    effort: str | None = (
+        None  # v1 解析但不消费（SDK 无统一 effort 参数，端到端映射留 LLM 层演进）
+    )
+    max_turns: int | None = None  # maxTurns（缺省继承父 max_iterations）
+    tools: tuple[str, ...] | None = None  # 白名单；None=继承父全部
+    disallowed_tools: tuple[str, ...] = ()  # 黑名单
+    skills: tuple[str, ...] | None = None  # 子代理 skill 名（清单拼 system）
 
 
 DEFAULT_SUBAGENT_SYSTEM = (
