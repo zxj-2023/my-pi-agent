@@ -74,6 +74,23 @@ class TaskManager:
         self._manager = manager  # 查 agent 定义
         self._parent = parent  # 供 llm/工具集/skill_manager/max_iterations
         self._counter = 0
+        self._active_agents: dict[str, Agent] = {}  # 追踪运行中的子代理实例 (task_id -> Agent)
+
+    def steer_task(self, task_id: str, message: str) -> bool:
+        """向指定运行中的子代理发送 Steer 转向指令。"""
+        agent = self._active_agents.get(task_id)
+        if agent is not None:
+            agent.steer(message)
+            return True
+        return False
+
+    def follow_up_task(self, task_id: str, message: str) -> bool:
+        """向指定运行中的子代理发送 Follow-up 追问指令。"""
+        agent = self._active_agents.get(task_id)
+        if agent is not None:
+            agent.follow_up(message)
+            return True
+        return False
 
     async def start_task(self, prompt: str, subagent_type: str = "default") -> Task:
         """异步：建 Task(RUNNING) → spawn → run → 更新状态 → 返回。"""
@@ -125,7 +142,10 @@ class TaskManager:
             memory_dir=False,  # 隔离：子代理禁用长期记忆探测与维护
             plugin_dirs=[],  # 隔离：子代理禁用插件再探测（防递归注册 task 工具）
         )
+        self._active_agents[task_id] = child
         try:
             return (await child.run(prompt)) or "(no summary)"
         except Exception as exc:
             raise RuntimeError(f"Subagent '{subagent_type}' failed: {exc}") from exc
+        finally:
+            self._active_agents.pop(task_id, None)

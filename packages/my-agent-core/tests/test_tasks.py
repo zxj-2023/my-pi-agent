@@ -1,16 +1,11 @@
 """subagent 委派任务生命周期测试（Task/TaskStatus/TaskManager/工具桥）。"""
 
-from __future__ import annotations
-
 import json
 import tempfile
 from pathlib import Path
 
-import pytest
-from my_agent_llm import (  # pyright: ignore[reportMissingImports]
-    Response,
-    StreamChunk,
-)
+import pytest  # pyright: ignore[reportMissingImports]
+from my_agent_llm import Response, StreamChunk  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
 from my_agent_core.session import Session
@@ -315,4 +310,61 @@ async def test_subagent_delegation_with_parent_memory_enabled(tmp_path: Path):
 
     answer = await agent.run("start")
     assert answer == "All done"
+
+
+@pytest.mark.anyio
+async def test_task_manager_steer_and_followup_task(tmp_path: Path):
+    """验证 TaskManager 支持按 task_id 动态干预与转向运行中的子代理。"""
+    _write_agent(tmp_path, "worker", description="worker", content="Worker prompt")
+    manager = SubagentManager([tmp_path])
+    parent_session = Session(path=tmp_path / "parent.jsonl")
+
+    # 创建一个在执行中会调用 steer_task / follow_up_task 的 LLM
+    tm_holder = {}
+    observed_active = {}
+
+    class InterceptingLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def achat_stream(self, *, messages, tools=None, **kwargs):
+            self.calls += 1
+            tm: TaskManager = tm_holder["tm"]
+            active_ids = list(tm._active_agents.keys())
+            if active_ids and self.calls == 1:
+                tid = active_ids[0]
+                child_agent = tm._active_agents[tid]
+                observed_active["task_id"] = tid
+                # 在子代理运行期间只在第 1 轮尝试 steer 和 follow_up
+                s_ok = tm.steer_task(tid, "child steer msg")
+                f_ok = tm.follow_up_task(tid, "child followup msg")
+                observed_active["steer_ok"] = s_ok
+                observed_active["follow_ok"] = f_ok
+                observed_active["has_steering"] = child_agent.message_queue.has_steering()
+                observed_active["has_followup"] = child_agent.message_queue.has_followup()
+
+            yield StreamChunk(content=f"Child answer {self.calls}", model="fake")
+
+    llm = InterceptingLLM()
+    parent = Agent(llm=llm, tools=[], session=parent_session)
+    tm = TaskManager(manager, parent)
+    tm_holder["tm"] = tm
+
+    # 测试未运行或不存在的 task_id
+    assert tm.steer_task("non_existent", "msg") is False
+    assert tm.follow_up_task("non_existent", "msg") is False
+
+    task = await tm.start_task("do work", "worker")
+    assert task.status is TaskStatus.COMPLETED
+    assert task.result == "Child answer 3"
+
+    assert observed_active.get("steer_ok") is True
+    assert observed_active.get("follow_ok") is True
+    assert observed_active.get("has_steering") is True
+    assert observed_active.get("has_followup") is True
+
+    # 任务结束后，_active_agents 必须已被注销清理
+    assert len(tm._active_agents) == 0
+    assert tm.steer_task(task.id, "after finish") is False
+
 
