@@ -135,7 +135,7 @@ class Agent:
         None → 探测 <cwd>/.my_agent_core/memory（存在才启用）；
         str | Path → 显式指定目录。
         """
-        if memory_dir is False:
+        if isinstance(memory_dir, bool) and not memory_dir:
             return None
         if memory_dir is not None:
             store = MemoryStore(memory_dir)
