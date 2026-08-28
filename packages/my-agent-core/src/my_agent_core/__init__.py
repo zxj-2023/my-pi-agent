@@ -23,6 +23,7 @@ from my_agent_core.events import (
 )
 from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.memory import MemoryStore, make_memory_tool
+from my_agent_core.message_queue import MessageQueue, MessageType, QueuedMessage
 from my_agent_core.plugins import (
     Plugin,
     PluginAuthor,
@@ -63,6 +64,9 @@ __all__ = [
     "ExtensionManager",
     "MemoryStore",
     "make_memory_tool",
+    "MessageQueue",
+    "MessageType",
+    "QueuedMessage",
     "Plugin",
     "PluginAuthor",
     "PluginManifest",
