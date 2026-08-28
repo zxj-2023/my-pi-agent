@@ -154,6 +154,12 @@ cd ../my-coding-agent && uv run python -m pytest -q
 
 ```text
 my-pi-agent/
+├── docs/                           # 全套技术设计规范文档库 (13 篇模块规范 + 全景导航)
+│   ├── README.md                   # 架构全景与文档索引
+│   ├── llm/                        # 模型边界层规范 (01-llm-boundary.md)
+│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 10-plugins.md)
+│   └── coding/                     # 产品与编码层规范 (01-file-tools.md, 02-mcp-client.md)
+│
 ├── packages/
 │   ├── my-agent-llm/               # 模型边界层独立 uv 项目 (36 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
@@ -213,3 +219,23 @@ my-pi-agent/
 | **Extension 与 MCP** | `my_agent_core/extensions/`, `mcp.py` | [my-pi-agent--extension机制与mcp](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) |
 | **Memory 记忆系统** | `my_agent_core/memory.py` | [my-pi-agent--memory系统](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/) |
 | **Plugin 插件系统** | `my_agent_core/plugins.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
+
+---
+
+## 未来演进路线 (Roadmap)
+
+项目按阶段对标业界标杆机制持续迭代演进：
+
+1. **Pi 风格的 Steer 与 Follow-up 动态干预机制（进行中）**：
+   - **`steer`（动态转向与即时纠偏）**：在 ReAct 循环执行过程中（如工具执行间隙、下一轮大模型推理前等安全点），支持上层宿主或子代理调度器注入转向指令，使 Agent 实时调整执行方向，而无需中断会话或丢失已产生的上下文；
+   - **`follow_up`（轮次边界任务追加）**：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务，保持单会话连贯性；
+   - **安全点确认与交付模式**：支持 `steer`（安全点即时打断）、`follow_up`（等待轮次结束）、`auto`（自动判别）三种交付模式，并具备状态机恢复与未送达重试保护。
+2. **Task / Todo 系统（Phase 8）**：
+   - 实现 `todo_write` 工具与 `TaskStore`，支持任务多层级拆解、实时状态机推进（`todo` ➔ `in_progress` ➔ `completed`）与悬浮看板投影。
+3. **Coding Agent CLI 交互层（`packages/my-coding-agent`）**：
+   - 基于 `prompt_toolkit` 与 `rich` 的现代化终端交互 REPL；
+   - 权限确认门控（落地于 `ToolExecutionStart` 拦截点）；
+   - Plan 模式（只读调研 ➔ 方案批准 ➔ 执行落地）与 `AGENTS.md` 提示词自动注入。
+4. **底层可靠性与网络弹性**：
+   - 流式中断与 429 / 5xx 指数退避重试；
+   - 大模型 `stop_reason` 细粒度归一化处理。
