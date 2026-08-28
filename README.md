@@ -103,6 +103,11 @@
   - **100% 对齐 Claude Code 官方插件规范**：自包含 `.claude-plugin/plugin.json`（或 `.plugin/plugin.json`）、`skills/`、`agents/`、`.mcp.json`，以及根级单 `SKILL.md` 简写支持
   - `PluginManager` 统一管理：负责插件发现、Manifest 容错解析与目录名智能推断兜底（无清单时自动以目录名生成默认元数据）
   - **无缝解构与分发**：在 `Agent.__init__` 装配时自动提取插件内的 `skills/` 注入 `SkillManager`、`agents/` 注入 `SubagentManager`，子代理派发时自动进行递归探测隔离保护
+- **[动态干预机制与两层循环（message_queue & steering）](docs/core/11-dynamic-steering.md)**：
+  - `MessageQueue` 动态干预队列：支持 `STEERING`（内层安全点转向）与 `FOLLOWUP`（外层排队追问）双类型消息
+  - **经典两层循环架构（Two-Level Loop）**：外层处理 Follow-up 宏观任务流转，内层处理 ReAct 微观步骤与 Steer 转向
+  - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退
+  - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问
 
 ### 3. 产品层 `my-coding-agent`
 
@@ -142,7 +147,7 @@ uv run python -m my_coding_agent.agent
 本项目所有单元测试均严格使用 FakeLLM 与模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```powershell
-# 运行全部三个包的单元测试（266 tests）
+# 运行全部三个包的单元测试（277 tests）
 cd packages/my-agent-core && uv run python -m pytest -q
 cd ../my-agent-llm && uv run python -m pytest -q
 cd ../my-coding-agent && uv run python -m pytest -q
@@ -219,6 +224,7 @@ my-pi-agent/
 | **Extension 与 MCP** | `my_agent_core/extensions/`, `mcp.py` | [my-pi-agent--extension机制与mcp](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) |
 | **Memory 记忆系统** | `my_agent_core/memory.py` | [my-pi-agent--memory系统](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/) |
 | **Plugin 插件系统** | `my_agent_core/plugins.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
+| **动态干预与两层循环** | `my_agent_core/message_queue.py` | [docs/core/11-dynamic-steering.md](docs/core/11-dynamic-steering.md) |
 
 ---
 
@@ -226,16 +232,16 @@ my-pi-agent/
 
 项目按阶段对标业界标杆机制持续迭代演进：
 
-1. **Pi 风格的 Steer 与 Follow-up 动态干预机制（进行中）**：
-   - **`steer`（动态转向与即时纠偏）**：在 ReAct 循环执行过程中（如工具执行间隙、下一轮大模型推理前等安全点），支持上层宿主或子代理调度器注入转向指令，使 Agent 实时调整执行方向，而无需中断会话或丢失已产生的上下文；
-   - **`follow_up`（轮次边界任务追加）**：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务，保持单会话连贯性；
-   - **安全点确认与交付模式**：支持 `steer`（安全点即时打断）、`follow_up`（等待轮次结束）、`auto`（自动判别）三种交付模式，并具备状态机恢复与未送达重试保护。
-2. **Task / Todo 系统（Phase 8）**：
-   - 实现 `todo_write` 工具与 `TaskStore`，支持任务多层级拆解、实时状态机推进（`todo` ➔ `in_progress` ➔ `completed`）与悬浮看板投影。
-3. **Coding Agent CLI 交互层（`packages/my-coding-agent`）**：
-   - 基于 `prompt_toolkit` 与 `rich` 的现代化终端交互 REPL；
-   - 权限确认门控（落地于 `ToolExecutionStart` 拦截点）；
-   - Plan 模式（只读调研 ➔ 方案批准 ➔ 执行落地）与 `AGENTS.md` 提示词自动注入。
-4. **底层可靠性与网络弹性**：
-   - 流式中断与 429 / 5xx 指数退避重试；
-   - 大模型 `stop_reason` 细粒度归一化处理。
+- [x] **Pi 风格的 Steer 与 Follow-up 动态干预机制**：
+  - **`steer`（动态转向与即时纠偏）**：在 ReAct 循环执行过程中（工具执行间隙、无工具文本输出期等安全点），支持上层宿主或子代理调度器注入转向指令，使 Agent 实时调整执行方向，而无需中断会话或丢失已产生的上下文；
+  - **`follow_up`（轮次边界任务追加）**：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务，保持单会话连贯性；
+  - **经典两层循环与交付模式**：支持 `one-at-a-time`（单步纠偏）与 `all`（批注入）消费模式，并在 `TaskManager` 中提供子代理定向干预（`steer_task` / `follow_up_task`）。
+- [ ] **Task / Todo 系统（Phase 8）**：
+  - 实现 `todo_write` 工具与 `TaskStore`，支持任务多层级拆解、实时状态机推进（`todo` ➔ `in_progress` ➔ `completed`）与悬浮看板投影。
+- [ ] **Coding Agent CLI 交互层（`packages/my-coding-agent`）**：
+  - 基于 `prompt_toolkit` 与 `rich` 的现代化终端交互 REPL；
+  - 权限确认门控（落地于 `ToolExecutionStart` 拦截点）；
+  - Plan 模式（只读调研 ➔ 方案批准 ➔ 执行落地）与 `AGENTS.md` 提示词自动注入。
+- [ ] **底层可靠性与网络弹性**：
+  - 流式中断与 429 / 5xx 指数退避重试；
+  - 大模型 `stop_reason` 细粒度归一化处理。

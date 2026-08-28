@@ -76,7 +76,7 @@ uv run python -m my_agent_core.main # 运行流式打字机 demo
 
 ```powershell
 uv run python -m pytest -q
-# 输出: 212 passed in ~4s
+# 输出: 223 passed in ~4s
 ```
 
 ---
@@ -107,8 +107,10 @@ packages/my-agent-core/
 │   │   └── core.py           # ExtensionAPI + ExtensionManager 核心实现
 │   ├── plugins.py            # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   └── main.py               # 异步流式打字机 demo
-└── tests/                    # 100% 离线单元测试 (212 tests)
+└── tests/                    # 100% 离线单元测试 (223 tests)
     ├── test_agent.py         # Agent 循环、状态与 5 大决策点拦截测试
+    ├── test_agent_steering.py # Steer 即时转向与 Follow-up 追问两层循环测试
+    ├── test_message_queue.py # MessageQueue 动态干预队列单测
     ├── test_tools.py         # Tool / ToolResult / @tool 测试
     ├── test_registry.py      # ToolRegistry 并发分流与保序回填测试
     ├── test_events.py        # 事件 dataclass 与 HookRegistry 测试
@@ -117,7 +119,7 @@ packages/my-agent-core/
     ├── test_context.py       # 四层压缩管线与 retainedTail 缓存测试
     ├── test_skills.py        # Skills 发现、清单注入与显式调用测试
     ├── test_subagents.py     # Subagent 发现与 frontmatter 测试
-    ├── test_tasks.py         # Task 任务委派与独立子会话沙箱测试
+    ├── test_tasks.py         # Task 任务委派与独立子会话沙箱测试 (含子代理 steer/followup)
     ├── test_extensions.py    # Extension 加载、覆盖与命令路由测试
     ├── test_memory.py        # MemoryStore、快照冻结与受控工具测试
     └── test_plugins.py       # Plugin 发现、Manifest 容错与解构测试
@@ -209,9 +211,9 @@ def extension(api: ExtensionAPI):
 - [x] **阶段 11：产品与框架分层**（文件工具与 MCP 迁出至 `my-coding-agent`，框架保持纯粹通用）
 - [x] **阶段 7：Memory 长期记忆系统**（`MemoryStore` 双 Markdown 存储 + Frozen Snapshot 冻结快照 + `make_memory_tool` 受控维护工具）
 - [x] **阶段 13：Claude Code 风格 Plugin 插件系统**（Manifest 弹性解析 + 目录名推断兜底 + 技能/子代理/MCP 自动解构分发）
-- [ ] **Pi 风格的 Steer 与 Follow-up 动态干预机制（进行中）**：
-  - `steer` 动态转向：在 ReAct 循环或子代理运行中途（如工具执行间隙、下一轮大模型推理前等安全点）注入转向指令，使 Agent 实时调整执行方向，无需中断会话；
+- [x] **阶段 14：Pi 风格的 Steer 与 Follow-up 动态干预机制**：
+  - `steer` 动态转向：在 ReAct 循环或子代理运行中途（工具执行间隙、无工具文本输出期）注入转向指令，使 Agent 实时调整执行方向，无需中断会话；
   - `follow_up` 轮次边界追加：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务；
-  - 交付模式分流（`steer` / `follow_up` / `auto`）与安全点确认。
+  - 双层循环拓扑（外层任务流转 + 内层 ReAct 迭代）、交付模式分流（`one-at-a-time` / `all`）与子代理 `steer_task` 支持。
 - [ ] **Task / Todo 系统（阶段 8）**：`todo_write` 工具与 `TaskStore`，支持任务多层级拆解与实时状态看板投影。
 - [ ] **可靠性增强**：网络异常重试、429 指数退避、`stop_reason` 细粒度归一化。

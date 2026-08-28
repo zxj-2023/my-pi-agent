@@ -428,6 +428,24 @@ my-pi-agent/
 
 ---
 
+### 阶段 14：Pi 风格动态干预机制（Steer 与 Follow-up）（2026-08-27）
+
+**目标**：对标 Pi 与 pig-mono，实现 `MessageQueue` 动态干预消息队列与单层 Agent 的「两层循环架构（Two-Level Loop）」，支持任务中途安全点即时转向（Steer）、最终答复期防止早退继续 ReAct、任务完成后无缝自动衔接排队追问（Follow-up），并在 `TaskManager` 中支持对运行中子代理实例的动态定向纠偏（`steer_task` / `follow_up_task`）。
+
+- 提交：`314bec1` `931cf24` `59fa538`
+- **改了什么**：
+  - `message_queue.py`（新增）：定义 `MessageType` (`STEERING`, `FOLLOWUP`)、`QueuedMessage`、`MessageQueue`，支持 `one-at-a-time`（单步推进）与 `all`（批注入）消费模式。
+  - `agent.py`：重构 `run()` 为两层循环；外层 `while True:` 驱动 Follow-up 队列与宏观任务流转，内层 `while has_more_tool_calls or len(pending_messages) > 0:` 驱动 ReAct 微观步骤与 Steer 转向；实现三大安全点（Turn 起点原子落盘、工具批执行后 Steer 检查、无工具输出期 Steer 拦截防止早退）；暴露 `steer()` / `follow_up()` / `clear_queue()` / `get_queue_status()`，`abort()` 清空队列。
+  - `tasks.py`：`TaskManager` 内部维护 `_active_agents: dict[str, Agent]`，提供 `steer_task(task_id, msg)` 与 `follow_up_task(task_id, msg)`。
+  - `__init__.py`：导出 `MessageQueue`、`MessageType`、`QueuedMessage`。
+  - 测试：新增 `tests/test_message_queue.py`（5 项单测）与 `tests/test_agent_steering.py`（5 项单测），`tests/test_tasks.py` 扩充 1 项。
+- **过程中的关键教训**：
+  - 循环无限递归防范：在单测模拟 LLM 时，若流式回调在每一轮无条件调用 `steer_task` 会导致内层循环死循环；必须精准在指定轮次注入以验证多轮自动解套。
+  - 安全点落盘一致性：所有注入的 user 消息统一在内层循环起始处经由 `session.add_message("user", ...)` 原子落盘，保证了 Session 树状拓扑对干预消息的 100% 确定性可回溯。
+- **验证**：三包全量 **277 个离线测试** 全部 100% 绿灯通过（my-agent-core 223 + my-agent-llm 36 + my-coding-agent 18）。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
@@ -442,6 +460,7 @@ my-pi-agent/
 - 阶段 12：Extension 五大决策点与生命周期拦截体系（已完成，187 + 36 + 18 测试全绿）
 - 阶段 7：memory 记忆系统（已完成，201 + 36 + 18 测试全绿）
 - 阶段 13：Claude Code 风格 Plugin 插件系统（已完成，212 + 36 + 18 测试全绿）
+- 阶段 14：Pi 风格动态干预机制 Steer 与 Follow-up（已完成，223 + 36 + 18 测试全绿）
 - 阶段 6：动态工具（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
