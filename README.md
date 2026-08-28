@@ -29,8 +29,10 @@
 
 功能实现整合参考 **pi**（[earendil-works/pi](https://github.com/earendil-works/pi)）、
 **pig-mono**（[kangkona/pig-mono](https://github.com/kangkona/pig-mono)）、
-**learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)）
-三者的架构思路。
+**learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)）、
+**Hermes Agent**（[hermes-agent](https://github.com/NousResearch/Hermes-Agent)）与
+**OpenHands**（[software-agent-sdk](https://github.com/All-Hands-AI/OpenHands)）等标杆项目的架构思路。
+详细的技术设计参考、源码映射与裁剪对比见根目录的 **[REFERENCES.md](REFERENCES.md)**。
 
 ---
 
@@ -188,6 +190,7 @@ my-pi-agent/
 │       │   └── agent.py            # CodingAgent 组装门面
 │       └── tests/                  # 离线测试
 │
+├── REFERENCES.md                   # 全模块架构设计参考溯源与工程复盘
 ├── PROGRESS.md                     # 项目进度复盘与详细演进记录
 └── README.md                       # 仓库级总览（本文件）
 ```
