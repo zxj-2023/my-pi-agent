@@ -159,10 +159,10 @@ cd ../my-coding-agent && uv run python -m pytest -q
 
 ```text
 my-pi-agent/
-├── docs/                           # 全套技术设计规范文档库 (13 篇模块规范 + 全景导航)
+├── docs/                           # 全套技术设计规范文档库 (14 篇模块规范 + 全景导航)
 │   ├── README.md                   # 架构全景与文档索引
 │   ├── llm/                        # 模型边界层规范 (01-llm-boundary.md)
-│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 10-plugins.md)
+│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 11-dynamic-steering.md)
 │   └── coding/                     # 产品与编码层规范 (01-file-tools.md, 02-mcp-client.md)
 │
 ├── packages/
@@ -175,20 +175,21 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (212 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (223 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
-│   │   │   ├── agent.py            # Agent 类（单层：异步 ReAct 循环 + 五大决策拦截点）
+│   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点）
+│   │   │   ├── message_queue.py    # MessageQueue 动态干预队列（Steer & Follow-up）
 │   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult）
 │   │   │   ├── events.py           # 12 个生命周期事件 + HookResult 统一干预模型
 │   │   │   ├── session.py          # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │   │   │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
 │   │   │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
+│   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │   │   │   ├── skills.py           # Skill / SkillManager（.agents/skills 发现与提示词注入）
 │   │   │   ├── subagents.py        # Subagent / SubagentManager（.agents/agents 发现）
 │   │   │   ├── tasks.py            # Task / TaskManager（子代理生命周期与独立会话隔离）
 │   │   │   ├── extensions/         # ExtensionAPI + ExtensionManager（扩展加载与命令路由）
-│   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │   │   │   ├── plugins.py          # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   │   │   └── main.py             # 核心层 demo 入口
 │   │   └── tests/                  # 离线测试

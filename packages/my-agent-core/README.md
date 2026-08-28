@@ -57,6 +57,11 @@
 - **Claude Code 风格 Plugin 插件分发系统（`plugins`）**：
   - 100% 对齐 Claude Code 官方规范（`.claude-plugin/plugin.json`、`skills/`、`agents/`、`.mcp.json`）；
   - `PluginManager` 统一聚合解构，自动分发注入 `SkillManager` 与 `SubagentManager`。
+- **Pi 风格动态干预机制与两层循环（`message_queue` & `steering`）**：
+  - `MessageQueue` 动态干预队列：支持 `STEERING`（内层即时转向）与 `FOLLOWUP`（外层排队追问）双类型消息；
+  - **经典两层循环拓扑（Two-Level Loop）**：外层处理 Follow-up 宏观任务流转，内层处理 ReAct 微观步骤与 Steer 转向；
+  - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退；
+  - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问。
 
 ---
 
@@ -88,7 +93,8 @@ packages/my-agent-core/
 ├── pyproject.toml            # 包名 my-agent-core，src 布局 + hatchling 构建
 ├── .env.example              # 环境变量模板
 ├── src/my_agent_core/        # 核心源码包
-│   ├── agent.py              # Agent 实体（状态机 + 异步 ReAct 循环 + 五大拦截点）
+│   ├── agent.py              # Agent 实体（状态机 + 异步两层循环 + 五大拦截点）
+│   ├── message_queue.py      # MessageQueue 动态干预队列（Steering / Follow-up）
 │   ├── registry.py           # ToolRegistry（工具注册表，并发分流与保序回填）
 │   ├── events.py             # 12 大生命周期事件 + HookResult 统一干预模型
 │   ├── tools/                # 工具系统
