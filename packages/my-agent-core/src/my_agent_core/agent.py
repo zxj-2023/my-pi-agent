@@ -35,6 +35,7 @@ from my_agent_core.events import (
 )
 from my_agent_core.extensions import ExtensionManager
 from my_agent_core.memory import MemoryStore, make_memory_tool
+from my_agent_core.message_queue import MessageQueue, QueuedMessage
 from my_agent_core.plugins import PluginManager
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
@@ -65,6 +66,8 @@ class Agent:
         extension_dirs: Sequence[str | Path] | None = None,
         plugin_dirs: Sequence[str | Path] | None = None,
         memory_dir: str | Path | None | Literal[False] = None,
+        steering_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
+        followup_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         hooks: list[tuple[type[Event], Callable]] | None = None,
     ):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
@@ -107,6 +110,9 @@ class Agent:
         )  # 三态同 skill_dirs
 
         self.memory_store = self._init_memory_store(memory_dir)  # memory 装配与快照冻结
+        self.message_queue = MessageQueue(
+            steering_mode=steering_mode, followup_mode=followup_mode
+        )  # 动态干预消息队列 (Pi-style steer & followup)
 
         self._register_tools(tools)  # ① 工具注册统一（用户 + 内置 task + 内置 memory）
         self.extension_manager = ExtensionManager(
@@ -212,11 +218,28 @@ class Agent:
         return self._system_prompt
 
     def abort(self) -> None:
-        """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本）。"""
+        """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本并清空干预队列）。"""
         self._aborted = True
+        self.message_queue.clear()
+
+    def steer(self, message: str) -> None:
+        """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
+        self.message_queue.add_steering(message)
+
+    def follow_up(self, message: str) -> None:
+        """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
+        self.message_queue.add_followup(message)
+
+    def clear_queue(self) -> list[QueuedMessage]:
+        """清空未消费的消息队列。"""
+        return self.message_queue.clear()
+
+    def get_queue_status(self) -> str:
+        """返回当前消息队列排队状态。"""
+        return self.message_queue.get_status()
 
     async def run(self, user_input: str) -> str | None:
-        """追加 user 消息 → 异步内联循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
+        """追加 user 消息 → 异步内联双层循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
         self._aborted = False
         if not self._extensions_loaded:
             await self.extension_manager.load()
@@ -263,193 +286,255 @@ class Agent:
         await self._emit(MessageStart(user_msg))
         await self._emit(MessageEnd(user_msg))
 
-        iteration = 0
-        while self.max_iterations is None or iteration < self.max_iterations:
-            iteration += 1
-            if self._aborted:
-                await self._emit(
-                    AgentEnd(
-                        messages=list(self.messages),
-                        final_text=None,
-                        iterations=iteration,
-                        stop_reason="cancelled",
-                    )
-                )
-                return "(cancelled)"
-
-            await self._emit(TurnStart(iteration))
-
-            # ── Reason：准备上下文视图 + 异步流式调大模型
-            tools = self.registry.get_schemas()
-            view = await self._ctx.prepare(self.messages)
-
-            # ── 决策点 3: BeforeModelCall 临时视图改写（self.messages 与 Session 零污染）
-            ctx_hook = await self._emit(
-                BeforeModelCall(messages=list(view), iteration=iteration)
+        pending_messages: list[str] = []
+        if self.message_queue.has_steering():
+            pending_messages.extend(
+                [m.content for m in self.message_queue.get_steering_messages()]
             )
-            if isinstance(ctx_hook, HookResult):
-                if ctx_hook.block:
-                    reason = ctx_hook.reason or "blocked"
+
+        iteration = 0
+        final_text: str | None = None
+
+        # ══════════════════════════════════════════════════════════════
+        # 【外层循环】：处理 Follow-up 宏观任务衔接
+        # ══════════════════════════════════════════════════════════════
+        while True:
+            has_more_tool_calls = True
+
+            # ──────────────────────────────────────────────────────────
+            # 【内层循环】：处理单任务的 ReAct 迭代与 Steer 即时转向
+            # ──────────────────────────────────────────────────────────
+            while has_more_tool_calls or len(pending_messages) > 0:
+                iteration += 1
+                if self._aborted:
                     await self._emit(
                         AgentEnd(
                             messages=list(self.messages),
                             final_text=None,
                             iterations=iteration,
-                            stop_reason="blocked",
+                            stop_reason="cancelled",
                         )
                     )
-                    return f"(blocked: {reason})"
-                if ctx_hook.updated_messages is not None:
-                    view = ctx_hook.updated_messages
+                    return "(cancelled)"
 
-            content_acc = ""
-            final_tool_calls = None
-            last_usage = None
-            cancelled = False
-
-            if hasattr(self.llm, "achat_stream"):
-                stream = self.llm.achat_stream(
-                    messages=view, tools=tools, model=self.model
-                )
-                async for chunk in stream:
-                    if self._aborted:
-                        cancelled = True
-                        break
-
-                    if chunk.content:
-                        content_acc += chunk.content
-                    if getattr(chunk, "tool_calls", None):
-                        final_tool_calls = chunk.tool_calls
-                    if getattr(chunk, "usage", None):
-                        last_usage = chunk.usage
-
-                    hook = await self._emit(
-                        MessageUpdate(
-                            message=Message(role="assistant", content=content_acc),
-                            chunk=chunk,
+                if self.max_iterations is not None and iteration > self.max_iterations:
+                    await self._emit(
+                        AgentEnd(
+                            messages=list(self.messages),
+                            final_text=final_text,
+                            iterations=iteration,
+                            stop_reason="max_iterations",
                         )
                     )
-                    if isinstance(hook, HookResult) and hook.block:
-                        self._aborted = True
-                        cancelled = True
-                        break
-            elif hasattr(self.llm, "achat"):
-                resp = await self.llm.achat(
-                    messages=view, tools=tools, model=self.model
-                )
-                content_acc = resp.content or ""
-                final_tool_calls = resp.tool_calls
-                last_usage = resp.usage
-            else:
-                resp = self._llm_chat(view, tools)
-                content_acc = resp.content or ""
-                final_tool_calls = resp.tool_calls
-                last_usage = resp.usage
+                    return final_text
 
-            if cancelled or self._aborted:
-                await self._emit(
-                    AgentEnd(
-                        messages=list(self.messages),
-                        final_text=None,
-                        iterations=iteration,
-                        stop_reason="cancelled",
+                await self._emit(TurnStart(iteration))
+
+                # ① 安全点 1 (Turn 起始点注入 pending 消息并原子落盘)
+                if pending_messages:
+                    for text in pending_messages:
+                        msg = Message(role="user", content=text)
+                        self.messages.append(msg)
+                        self.session.add_message("user", text)
+                        await self._emit(MessageStart(msg))
+                        await self._emit(MessageEnd(msg))
+                    pending_messages = []
+
+                # ── Reason：准备上下文视图 + 异步流式调大模型
+                tools = self.registry.get_schemas()
+                view = await self._ctx.prepare(self.messages)
+
+                # ── 决策点 3: BeforeModelCall 临时视图改写（self.messages 与 Session 零污染）
+                ctx_hook = await self._emit(
+                    BeforeModelCall(messages=list(view), iteration=iteration)
+                )
+                if isinstance(ctx_hook, HookResult):
+                    if ctx_hook.block:
+                        reason = ctx_hook.reason or "blocked"
+                        await self._emit(
+                            AgentEnd(
+                                messages=list(self.messages),
+                                final_text=None,
+                                iterations=iteration,
+                                stop_reason="blocked",
+                            )
+                        )
+                        return f"(blocked: {reason})"
+                    if ctx_hook.updated_messages is not None:
+                        view = ctx_hook.updated_messages
+
+                content_acc = ""
+                final_tool_calls = None
+                last_usage = None
+                cancelled = False
+
+                if hasattr(self.llm, "achat_stream"):
+                    stream = self.llm.achat_stream(
+                        messages=view, tools=tools, model=self.model
                     )
-                )
-                return "(cancelled)"
+                    async for chunk in stream:
+                        if self._aborted:
+                            cancelled = True
+                            break
 
-            if last_usage:
-                self._ctx.record_usage(last_usage)
-            await self._handle_compaction()
+                        if chunk.content:
+                            content_acc += chunk.content
+                        if getattr(chunk, "tool_calls", None):
+                            final_tool_calls = chunk.tool_calls
+                        if getattr(chunk, "usage", None):
+                            last_usage = chunk.usage
 
-            assistant = Message(
-                role="assistant",
-                content=content_acc,
-                metadata={"tool_calls": final_tool_calls} if final_tool_calls else None,
-            )
-            self.messages.append(assistant)
-            self.session.add_message(
-                "assistant", assistant.content, **(assistant.metadata or {})
-            )
-            await self._emit(MessageStart(assistant))
-            await self._emit(MessageEnd(assistant))
-
-            # ── 经典退出条件：模型不再发起工具调用 → 结束。
-            if not final_tool_calls:
-                await self._emit(
-                    AgentEnd(
-                        messages=list(self.messages),
-                        final_text=content_acc,
-                        iterations=iteration,
-                        stop_reason="end_turn",
+                        hook = await self._emit(
+                            MessageUpdate(
+                                message=Message(role="assistant", content=content_acc),
+                                chunk=chunk,
+                            )
+                        )
+                        if isinstance(hook, HookResult) and hook.block:
+                            self._aborted = True
+                            cancelled = True
+                            break
+                elif hasattr(self.llm, "achat"):
+                    resp = await self.llm.achat(
+                        messages=view, tools=tools, model=self.model
                     )
-                )
-                return content_acc
-
-            # ── Act + Observe：异步并发/串行分流执行，严格保序回填
-            tool_call_dicts = final_tool_calls
-            prepared_calls: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
-            direct_observations: dict[int, ToolResult] = {}
-
-            for idx, tc in enumerate(tool_call_dicts):
-                name, args, err, _hook = await self._prepare_tool(tc)
-                if err is not None:
-                    direct_observations[idx] = ToolResult(ok=False, error=err)
+                    content_acc = resp.content or ""
+                    final_tool_calls = resp.tool_calls
+                    last_usage = resp.usage
                 else:
-                    prepared_calls.append((idx, tc, args))
+                    resp = self._llm_chat(view, tools)
+                    content_acc = resp.content or ""
+                    final_tool_calls = resp.tool_calls
+                    last_usage = resp.usage
 
-            if prepared_calls:
-                effective_calls = [
-                    (
-                        idx,
-                        {
-                            **tc,
-                            "function": {
-                                **tc["function"],
-                                "arguments": json.dumps(args),
-                            },
-                        },
+                if cancelled or self._aborted:
+                    await self._emit(
+                        AgentEnd(
+                            messages=list(self.messages),
+                            final_text=None,
+                            iterations=iteration,
+                            stop_reason="cancelled",
+                        )
                     )
-                    for idx, tc, args in prepared_calls
-                ]
-                call_dicts_to_run = [c[1] for c in effective_calls]
-                batch_results = await self.registry.execute_batch(call_dicts_to_run)
-                for (idx, _tc), res in zip(
-                    effective_calls, batch_results, strict=False
-                ):
-                    obs, is_err = await self._post_execute_hook(_tc, res)
-                    direct_observations[idx] = (
-                        ToolResult(ok=not is_err, data=obs)
-                        if not is_err
-                        else ToolResult(ok=False, error=obs)
-                    )
+                    return "(cancelled)"
 
-            # 保序写回 messages 和 session
-            tool_results: list[Message] = []
-            for idx, tc in enumerate(tool_call_dicts):
-                res = direct_observations[idx]
-                observation = res.serialize()
-                tool_msg = Message(
-                    role="tool",
-                    content=observation,
-                    metadata={"tool_call_id": tc["id"]},
+                if last_usage:
+                    self._ctx.record_usage(last_usage)
+                await self._handle_compaction()
+
+                assistant = Message(
+                    role="assistant",
+                    content=content_acc,
+                    metadata={"tool_calls": final_tool_calls}
+                    if final_tool_calls
+                    else None,
                 )
-                self.messages.append(tool_msg)
-                self.session.add_message("tool", observation, tool_call_id=tc["id"])
-                await self._emit(MessageStart(tool_msg))
-                await self._emit(MessageEnd(tool_msg))
-                tool_results.append(tool_msg)
+                self.messages.append(assistant)
+                self.session.add_message(
+                    "assistant", assistant.content, **(assistant.metadata or {})
+                )
+                await self._emit(MessageStart(assistant))
+                await self._emit(MessageEnd(assistant))
 
-            await self._emit(TurnEnd(message=assistant, tool_results=tool_results))
+                # ── 检查是否有工具调用
+                if final_tool_calls:
+                    tool_call_dicts = final_tool_calls
+                    prepared_calls: list[
+                        tuple[int, dict[str, Any], dict[str, Any]]
+                    ] = []
+                    direct_observations: dict[int, ToolResult] = {}
+
+                    for idx, tc in enumerate(tool_call_dicts):
+                        name, args, err, _hook = await self._prepare_tool(tc)
+                        if err is not None:
+                            direct_observations[idx] = ToolResult(ok=False, error=err)
+                        else:
+                            prepared_calls.append((idx, tc, args))
+
+                    if prepared_calls:
+                        effective_calls = [
+                            (
+                                idx,
+                                {
+                                    **tc,
+                                    "function": {
+                                        **tc["function"],
+                                        "arguments": json.dumps(args),
+                                    },
+                                },
+                            )
+                            for idx, tc, args in prepared_calls
+                        ]
+                        call_dicts_to_run = [c[1] for c in effective_calls]
+                        batch_results = await self.registry.execute_batch(
+                            call_dicts_to_run
+                        )
+                        for (idx, _tc), res in zip(
+                            effective_calls, batch_results, strict=False
+                        ):
+                            obs, is_err = await self._post_execute_hook(_tc, res)
+                            direct_observations[idx] = (
+                                ToolResult(ok=not is_err, data=obs)
+                                if not is_err
+                                else ToolResult(ok=False, error=obs)
+                            )
+
+                    # 保序写回 messages 和 session
+                    tool_results: list[Message] = []
+                    for idx, tc in enumerate(tool_call_dicts):
+                        res = direct_observations[idx]
+                        observation = res.serialize()
+                        tool_msg = Message(
+                            role="tool",
+                            content=observation,
+                            metadata={"tool_call_id": tc["id"]},
+                        )
+                        self.messages.append(tool_msg)
+                        self.session.add_message(
+                            "tool", observation, tool_call_id=tc["id"]
+                        )
+                        await self._emit(MessageStart(tool_msg))
+                        await self._emit(MessageEnd(tool_msg))
+                        tool_results.append(tool_msg)
+
+                    has_more_tool_calls = True
+                    await self._emit(
+                        TurnEnd(message=assistant, tool_results=tool_results)
+                    )
+
+                    # ② 安全点 2 (工具执行后的 Steer 拦截)
+                    if self.message_queue.has_steering():
+                        steer_msgs = self.message_queue.get_steering_messages()
+                        pending_messages = [m.content for m in steer_msgs]
+                else:
+                    has_more_tool_calls = False
+                    final_text = content_acc
+
+                    # ③ 安全点 3 (无工具文本输出时的 Steer 拦截，防止早退)
+                    if self.message_queue.has_steering():
+                        steer_msgs = self.message_queue.get_steering_messages()
+                        pending_messages = [m.content for m in steer_msgs]
+                        await self._emit(TurnEnd(message=assistant, tool_results=[]))
+
+            # ──────────────────────────────────────────────────────────
+            # 内层循环自然结束 (无 tool_calls 且无 steering)
+            # ──────────────────────────────────────────────────────────
+            if self.message_queue.has_followup():
+                followup_msgs = self.message_queue.get_followup_messages()
+                pending_messages = [m.content for m in followup_msgs]
+                continue  # 开启外层循环新一轮任务
+
+            break  # 队列全清空，任务彻底完成
 
         await self._emit(
             AgentEnd(
                 messages=list(self.messages),
-                final_text=None,
+                final_text=final_text,
                 iterations=iteration,
-                stop_reason="max_iterations",
+                stop_reason="end_turn",
             )
         )
-        return None
+        return final_text
 
     async def invoke_skill(self, name: str, instructions: str = "") -> str | None:
         """显式调用：skill_manager.format_invocation 包装（未知名 ValueError）→
@@ -457,7 +542,8 @@ class Agent:
         return await self.run(self.skill_manager.format_invocation(name, instructions))
 
     def reset(self) -> None:
-        """清空对话（保留 system）。session 树清空 + 重载 memory 快照并重拼 system。"""
+        """清空对话（保留 system）。session 树清空 + 重载 memory 快照并重拼 system，清空干预队列。"""
+        self.message_queue.clear()
         self.session.reset()
         if self.memory_store:
             self.memory_store.load_from_disk()
