@@ -64,9 +64,12 @@ class ToolResult:
 
 ---
 
-## 三、`ToolRegistry` 注册表调度
+## 三、`ToolRegistry` 注册表调度与因果时序保护
 
 - **注册与查表**：`register(tool)`、`unregister(name)`、`get(name)`、`get_schemas()`；
-- **批执行调度 (`execute_batch`)**：
-  - 自动识别批次中哪些工具是 `is_parallel_safe=True` 并行执行，哪些是串行执行；
-  - 执行完毕后，严格按照大模型最初发起 Tool Calls 的索引顺序重组回填进 Session 树，保证确定性。
+- **批执行调度与“一票否决”因果时序保护 (`execute_batch`)**：
+  - **因果时序一致性（Causal Consistency）**：当大模型在单轮中同时输出多个工具（如 `ToolCall 1 (write: 修改文件)` 与 `ToolCall 2 (read: 确认文件内容)`），绝不能盲目把只读工具提前并发执行，否则会导致 `read` 先于 `write` 读到旧数据（因果倒置）；
+  - **一票否决降级机制（Unanimous Parallel / Sequential Fallback）**：
+    - **全员只读并发**：当且仅当批次中的**每一个**工具均为 `is_parallel_safe=True` 时，才放行 `asyncio.gather` 并行执行；
+    - **含写严格串行**：只要批次中包含**任何一个**写操作（或未知工具），整批工具立即放弃并发，**严格按照大模型输出的原始先后顺序串行执行**，确保因果顺序绝对正确；
+  - **保序回填**：执行完毕后，返回的 `ToolResult` 列表严格与入参 `tool_calls` 的索引位置完全对齐，保序回填进 Session 树。

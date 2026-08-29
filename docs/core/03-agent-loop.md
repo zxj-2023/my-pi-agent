@@ -34,7 +34,7 @@
     │   4. 检查是否有 tool_calls:                                     │
     │      ├─ 无 ➔ 结束循环，发射 AgentEnd，返回最终回答文本           │
     │      └─ 有 ➔ 5. 批准备与 ToolExecutionStart 参数拦截/阻断       │
-    │              6. registry.execute_batch 异步并发/串行分流执行     │
+    │              6. registry.execute_batch (全只读并发/含写保序串行) │
     │              7. ToolExecutionEnd 篡改出参                       │
     │              8. 严格保序回填 Session 树与 messages              │
     └─────────────────────────────────────────────────────────────────┘
