@@ -3,7 +3,7 @@
 import tempfile
 from pathlib import Path
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 from my_agent_llm import (  # pyright: ignore[reportMissingImports]
     Message,
     Response,
@@ -222,6 +222,7 @@ async def test_event_sequence():
         "TurnStart",
         "MessageStart",
         "MessageEnd",
+        "TurnEnd",
         "AgentEnd",
     ]
     # AgentEnd 携带 messages 与 stop_reason

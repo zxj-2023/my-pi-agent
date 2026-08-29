@@ -498,23 +498,18 @@ class Agent:
                         tool_results.append(tool_msg)
 
                     has_more_tool_calls = True
-                    await self._emit(
-                        TurnEnd(message=assistant, tool_results=tool_results)
-                    )
-
-                    # ② 安全点 2 (工具执行后的 Steer 拦截)
-                    if self.message_queue.has_steering():
-                        steer_msgs = self.message_queue.get_steering_messages()
-                        pending_messages = [m.content for m in steer_msgs]
                 else:
+                    tool_results = []
                     has_more_tool_calls = False
                     final_text = content_acc
 
-                    # ③ 安全点 3 (无工具文本输出时的 Steer 拦截，防止早退)
-                    if self.message_queue.has_steering():
-                        steer_msgs = self.message_queue.get_steering_messages()
-                        pending_messages = [m.content for m in steer_msgs]
-                        await self._emit(TurnEnd(message=assistant, tool_results=[]))
+                # 每个 Turn 结束时统一派发 TurnEnd（对齐 Pi 标准生命周期：每轮必有配对的 TurnEnd）
+                await self._emit(TurnEnd(message=assistant, tool_results=tool_results))
+
+                # ② & ③ 安全点：在 Turn 结束时检查 Steer 转向
+                if self.message_queue.has_steering():
+                    steer_msgs = self.message_queue.get_steering_messages()
+                    pending_messages = [m.content for m in steer_msgs]
 
             # ──────────────────────────────────────────────────────────
             # 内层循环自然结束 (无 tool_calls 且无 steering)
