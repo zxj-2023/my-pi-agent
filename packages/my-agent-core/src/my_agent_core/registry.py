@@ -32,7 +32,7 @@ class ToolRegistry:
         """生成全部工具的 OpenAI tools 参数。"""
         return [t.to_openai_schema() for t in self._tools.values()]
 
-    async def execute(self, tool_call: dict) -> ToolResult:
+    async def execute_tool_call(self, tool_call: dict) -> ToolResult:
         """执行单个 tool_call（收协议 dict）。任何错误都转成 ToolResult，永不抛。"""
         name = tool_call.get("function", {}).get("name", "")
         raw_args = tool_call.get("function", {}).get("arguments", "{}")
@@ -55,32 +55,27 @@ class ToolRegistry:
             )
         return await target.execute(args)
 
+    async def execute(self, tool_call: dict) -> ToolResult:
+        """兼容别名：执行单个 tool_call。"""
+        return await self.execute_tool_call(tool_call)
+
     async def execute_batch(self, tool_calls: list[dict]) -> list[ToolResult]:
-        """批量执行工具调用（读写分离并发 + 预分配插槽严格保序回填）。"""
+        """批量执行工具调用（全员只读并发；只要包含一个写入则整批保序串行，防止因果时序倒置）。"""
         if not tool_calls:
             return []
 
-        results: list[ToolResult | None] = [None] * len(tool_calls)
-        parallel_indices: list[int] = []
-        sequential_indices: list[int] = []
+        # 检查这批工具中是否包含任何不安全的写工具（或未知工具）
+        has_sequential = any(
+            (t := self._tools.get(tc.get("function", {}).get("name", ""))) is None
+            or not t.is_parallel_safe
+            for tc in tool_calls
+        )
 
-        for i, tc in enumerate(tool_calls):
-            name = tc.get("function", {}).get("name", "")
-            target = self._tools.get(name)
-            if target and target.is_parallel_safe:
-                parallel_indices.append(i)
-            else:
-                sequential_indices.append(i)
+        if has_sequential:
+            # 只要包含一个写操作，整批严格按大模型输出的原始顺序串行执行，确保因果顺序绝对正确
+            return [await self.execute_tool_call(tc) for tc in tool_calls]
 
-        # 1. 并发只读安全工具
-        if parallel_indices:
-            parallel_tasks = [self.execute(tool_calls[i]) for i in parallel_indices]
-            parallel_results = await asyncio.gather(*parallel_tasks)
-            for idx, res in zip(parallel_indices, parallel_results, strict=False):
-                results[idx] = res
-
-        # 2. 串行写入有副作用工具
-        for idx in sequential_indices:
-            results[idx] = await self.execute(tool_calls[idx])
-
-        return [r for r in results if r is not None]
+        # 全部都是只读安全工具时，安全并发执行
+        return list(
+            await asyncio.gather(*(self.execute_tool_call(tc) for tc in tool_calls))
+        )

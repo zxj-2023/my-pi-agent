@@ -5,7 +5,7 @@
 
 import asyncio
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import tool
@@ -126,7 +126,9 @@ async def test_execute_invalid_json():
     """坏 JSON → ToolResult(ok=False)。"""
     result = await _registry(multiply).execute(make_tool_call("multiply", "{not json"))
     assert result.ok is False
-    assert result.error.startswith("Invalid JSON arguments for tool 'multiply':")
+    assert result.error is not None and result.error.startswith(
+        "Invalid JSON arguments for tool 'multiply':"
+    )
 
 
 @pytest.mark.anyio
@@ -160,8 +162,8 @@ async def test_execute_applies_defaults():
 
 
 @pytest.mark.anyio
-async def test_registry_execute_batch_parallel_and_order_preserving():
-    """execute_batch: 只读并发 + 写入串行 + 结果严格保序回填。"""
+async def test_registry_execute_batch_all_parallel():
+    """execute_batch: 当全部工具均为只读安全时，全员并发执行。"""
     registry = ToolRegistry()
     timeline = []
 
@@ -172,14 +174,47 @@ async def test_registry_execute_batch_parallel_and_order_preserving():
         timeline.append(f"end_read_{id}")
         return f"data_{id}"
 
+    registry.register(slow_read)
+
+    tool_calls = [
+        {"id": "c0", "function": {"name": "slow_read", "arguments": '{"id": 0}'}},
+        {"id": "c1", "function": {"name": "slow_read", "arguments": '{"id": 1}'}},
+    ]
+
+    results = await registry.execute_batch(tool_calls)
+
+    assert len(results) == 2
+    assert results[0].data == "data_0"
+    assert results[1].data == "data_1"
+    # 并发启动
+    assert timeline[0] == "start_read_0"
+    assert timeline[1] == "start_read_1"
+
+
+@pytest.mark.anyio
+async def test_registry_execute_batch_sequential_fallback_causal_ordering():
+    """execute_batch: 当批次包含写工具时，一票否决降级为严格保序串行，防止因果时序倒置。"""
+    registry = ToolRegistry()
+    timeline = []
+
+    @tool(is_parallel_safe=True)
+    async def slow_read(id: int) -> str:
+        timeline.append(f"start_read_{id}")
+        await asyncio.sleep(0.02)
+        timeline.append(f"end_read_{id}")
+        return f"data_{id}"
+
     @tool(is_parallel_safe=False)
     async def write_op(id: int) -> str:
-        timeline.append(f"write_{id}")
+        timeline.append(f"start_write_{id}")
+        await asyncio.sleep(0.02)
+        timeline.append(f"end_write_{id}")
         return f"written_{id}"
 
     registry.register(slow_read)
     registry.register(write_op)
 
+    # 模拟场景：先 read_0 ➔ 写入 write_1 ➔ 再读取 read_2
     tool_calls = [
         {"id": "c0", "function": {"name": "slow_read", "arguments": '{"id": 0}'}},
         {"id": "c1", "function": {"name": "write_op", "arguments": '{"id": 1}'}},
@@ -194,6 +229,12 @@ async def test_registry_execute_batch_parallel_and_order_preserving():
     assert results[1].data == "written_1"
     assert results[2].data == "data_2"
 
-    # 2. 验证只读工具并发启动 (start_read_0 与 start_read_2 都在前)
-    assert timeline[0] == "start_read_0"
-    assert timeline[1] == "start_read_2"
+    # 2. 验证严格按因果顺序执行：read_0 结束 ➔ write_1 开始与结束 ➔ read_2 开始与结束
+    assert timeline == [
+        "start_read_0",
+        "end_read_0",
+        "start_write_1",
+        "end_write_1",
+        "start_read_2",
+        "end_read_2",
+    ]
