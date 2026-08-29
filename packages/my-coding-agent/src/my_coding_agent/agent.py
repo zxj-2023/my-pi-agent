@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from my_agent_core import Agent
-from my_agent_core.tools import Tool
+from my_agent_core import Agent  # pyright: ignore[reportMissingImports]
+from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
 
 from my_coding_agent.tools import (
     make_bash_tool,
