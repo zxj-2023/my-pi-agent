@@ -67,6 +67,11 @@
 - [01-file-tools.md](coding/01-file-tools.md)：工作区编码文件工具集（`read` / `write` / `edit` / `bash`）与 `_safe_path` 路径穿越逃逸防御。
 - [02-mcp-client.md](coding/02-mcp-client.md)：原生异步 MCP 客户端扩展、`AsyncExitStack` 双扇门生命周期管理、JSON-RPC 2.0 转发与闭包工厂延迟绑定防护。
 
+### 4. 外部调研与对标分析 (`docs/references/`)
+
+- [tau-analysis.md](references/tau-analysis.md)：深度调研与剖析 `tau-ai`（Python 版 Pi Harness 框架）三层架构，横向对比 TUI 终端界面、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型库、会话历史自愈机制与演进路线图。
+
+
 ---
 
 ## 核心设计原则与架构不变式
