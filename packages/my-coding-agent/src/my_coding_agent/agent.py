@@ -40,7 +40,9 @@ class CodingAgent:
         **kw,
     ):
         tools = build_coding_tools(workspace) + list(extra_tools)
-        self.agent = Agent(llm=llm, tools=tools, session=session, system_prompt=system_prompt, **kw)
+        self.agent = Agent(
+            llm=llm, tools=tools, session=session, system_prompt=system_prompt, **kw
+        )
 
     async def run(self, user_input: str):
         return await self.agent.run(user_input)

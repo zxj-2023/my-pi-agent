@@ -50,7 +50,7 @@
 - **[工具系统（tools & registry）](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/)**：
   - `@tool` 装饰器：基于 Pydantic 动态提取函数签名生成 OpenAI/Anthropic 兼容的 JSON Schema
   - `Tool` 实体：支持 `raw_schema`（外部/远程 Schema 透传）与 `is_parallel_safe`（声明式并发标记）
-  - `ToolRegistry`：支持单查、批量获取 Schema、`execute_batch` 异步并发/串行智能分流执行与保序回填
+  - `ToolRegistry`：支持单查、批量获取 Schema、`execute_batch` 一票否决因果时序保护（全员只读并发放行，含写严格串行保序）
   - `ToolResult` 与 **Never-Throw 架构保证**：工具异常绝不向上抛崩 Agent，统一包装为结构化错误供大模型自愈
 - **[生命周期事件与五大决策拦截点（events & hooks）](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/)**：
   - 12 个生命周期事件 dataclass（涵盖 Agent、Turn、Message、Tool、Context 阶段）
@@ -111,7 +111,7 @@
 
 ### 3. 产品层 `my-coding-agent`
 
-- **内置 Coding 工具集**：`read`、`write`、`edit`、`bash`，包含 `_safe_path` 路径穿越安全防护
+- **内置 Coding 工具集与细粒度并发锁**：`read`、`write`、`edit`、`bash`，包含 `_safe_path` 路径逃逸安全防护、`FileMutationQueue` 单文件细粒度并发写锁与 Prompt-Quality 精细化纠错提示（带行数、未找到建议与超时日志捕获）
 - **MCP 客户端扩展（`mcp.py`）**：
   - 采用 Extension 插件形式实现，通过 `.mcp.json` 读取配置
   - `AsyncExitStack` 管理物理传输层（`stdio_client` 子进程）与协议层（`ClientSession`）的异步生命周期
@@ -120,6 +120,11 @@
   - 声明式 `is_parallel_safe=True` 赋予只读工具并发加速能力
   - `/mcp` 本地状态查看命令
 - **`CodingAgent`**：开箱即用的代码助手 Agent 门面（预装编码工具集 + 自动加载 MCP 扩展）
+
+### 4. 架构设计与外部对标分析
+
+- **[docs/ 技术设计文档库](docs/README.md)**：包含 14 篇模块级技术架构规范（模型层、核心层、产品层与 Tau 深度对标分析）。
+- **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**：深度解构 Python 版 Pi Harness 框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、会话历史自愈机制与演进路线。
 
 ---
 
@@ -175,7 +180,7 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (223 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (224 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
 │   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点）
@@ -194,10 +199,11 @@ my-pi-agent/
 │   │   │   └── main.py             # 核心层 demo 入口
 │   │   └── tests/                  # 离线测试
 │   │
-│   └── my-coding-agent/            # 产品层独立 uv 项目 (18 tests)
+│   └── my-coding-agent/            # 产品层独立 uv 项目 (21 tests)
 │       ├── pyproject.toml          # src 布局 + 依赖 core, llm, mcp
 │       ├── src/my_coding_agent/    # Python 包
-│       │   ├── tools.py            # 内置编码工具（read/write/edit/bash + _safe_path 沙箱）
+│       │   ├── tools.py            # 内置编码工具（read/write/edit/bash + _safe_path 沙箱 + 精细化报错）
+│       │   ├── mutation_queue.py   # FileMutationQueue 细粒度单文件并发互斥锁
 │       │   ├── mcp.py              # MCP 客户端扩展（AsyncExitStack + JSON-RPC 2.0 桥接）
 │       │   └── agent.py            # CodingAgent 组装门面
 │       └── tests/                  # 离线测试

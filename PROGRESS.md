@@ -446,6 +446,23 @@ my-pi-agent/
 
 ---
 
+### 阶段 15：工具系统深度优化、因果并发安全与 Tau 项目对标（2026-08-29）
+
+**目标**：对标 Pi 官方源码（第 3、5 章）与开源项目 Tau（`tau-ai`），修复 `ToolRegistry.execute_batch` 并发调度的因果时序倒置缺陷，在产品层引入 `FileMutationQueue` 细粒度单文件并发锁，全面精细化四大文件工具的错误提示与超时日志捕获，对齐每轮配对发射 `TurnEnd` 生命周期事件，并沉淀 Tau 架构深度对标报告。
+
+- **改了什么**：
+  - `registry.py`：修复 `execute_batch` 并发调度的因果时序倒置缺陷；对齐 Pi 官方的一票否决（Unanimous Parallel）机制——当且仅当整批工具均为 `is_parallel_safe=True` 时才放行 `asyncio.gather` 并发；一旦包含任何写操作，整批严格按大模型输出的原序保序串行执行，确保因果顺序绝对正确。
+  - `mutation_queue.py`（新增于 `my-coding-agent`）：引入 `FileMutationQueue`，按文件绝对路径（`path.resolve()`）管理 `asyncio.Lock` 异步互斥锁。
+  - `tools.py`（`my-coding-agent`）：
+    - `write` 和 `edit` 接入 `FileMutationQueue` 单文件锁保护，将外部并发声明提升为 `is_parallel_safe=True`（多文件并发修改耗时直降，同名文件自动保序排队）；
+    - 精细化错误文案（Prompt-Quality Errors）：`read` 增加行数统计与精准越界提示，`edit` 增加文件行数、未找到排查建议与多重匹配检测，`bash` 超时自动捕获并回显子进程已输出的最后 2000 字符日志。
+  - `agent.py`：对齐 Pi 规范，在每轮执行结束（包含纯文本答复轮）无条件成对发射 `TurnEnd(message, tool_results)` 事件，杜绝轮次悬空。
+  - `docs/references/tau-analysis.md`（新增）：深度调研与解构 Python 版 Pi Harness 开源框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、`repair_tool_history` 自愈等核心亮点与演进路线。
+  - 测试：更新 `test_registry.py`（验证并发因果时序与全员并发）、`test_agent.py`（严格断言配对 `TurnEnd`）、`test_tools.py`（扩充 5 项单测覆盖文件锁并发、越界行数提示、多重匹配与超时日志捕获）。
+- **验证**：三包全量 **281 个离线测试** 全部 100% 绿灯通过（my-agent-core 224 + my-agent-llm 36 + my-coding-agent 21）。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）

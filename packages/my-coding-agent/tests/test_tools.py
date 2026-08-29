@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest  # pyright: ignore[reportMissingImports]
+
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.tools import (
     make_bash_tool,
@@ -100,7 +101,9 @@ async def test_edit_multiple_matches(tmp_path):
     """old_text 命中多处 → 提示提供更多上下文。"""
     edit = make_edit_tool(tmp_path)
     (tmp_path / "a.txt").write_text("dup\ndup\n", encoding="utf-8")
-    result = await edit.execute({"path": "a.txt", "old_text": "dup", "new_text": "unique"})
+    result = await edit.execute(
+        {"path": "a.txt", "old_text": "dup", "new_text": "unique"}
+    )
     assert "old_text matched 2 locations" in result.data
     assert "Please provide more surrounding context lines" in result.data
 

@@ -81,7 +81,7 @@ uv run python -m my_agent_core.main # 运行流式打字机 demo
 
 ```powershell
 uv run python -m pytest -q
-# 输出: 223 passed in ~4s
+# 输出: 224 passed in ~4s
 ```
 
 ---
@@ -113,7 +113,7 @@ packages/my-agent-core/
 │   │   └── core.py           # ExtensionAPI + ExtensionManager 核心实现
 │   ├── plugins.py            # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   └── main.py               # 异步流式打字机 demo
-└── tests/                    # 100% 离线单元测试 (223 tests)
+└── tests/                    # 100% 离线单元测试 (224 tests)
     ├── test_agent.py         # Agent 循环、状态与 5 大决策点拦截测试
     ├── test_agent_steering.py # Steer 即时转向与 Follow-up 追问两层循环测试
     ├── test_message_queue.py # MessageQueue 动态干预队列单测
