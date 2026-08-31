@@ -1,8 +1,8 @@
 """subagent 委派任务生命周期测试（SubagentTask/SubagentTaskStatus/SubagentTaskManager/工具桥）。"""
 
 import json
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest  # pyright: ignore[reportMissingImports]
 from my_agent_llm import Response, StreamChunk  # pyright: ignore[reportMissingImports]
@@ -381,8 +381,12 @@ async def test_task_manager_steer_and_followup_task(tmp_path: Path):
                 f_ok = tm.follow_up_task(tid, "child followup msg")
                 observed_active["steer_ok"] = s_ok
                 observed_active["follow_ok"] = f_ok
-                observed_active["has_steering"] = child_agent.message_queue.has_steering()
-                observed_active["has_followup"] = child_agent.message_queue.has_followup()
+                observed_active["has_steering"] = (
+                    child_agent.message_queue.has_steering()
+                )
+                observed_active["has_followup"] = (
+                    child_agent.message_queue.has_followup()
+                )
 
             yield StreamChunk(content=f"Child answer {self.calls}", model="fake")
 
