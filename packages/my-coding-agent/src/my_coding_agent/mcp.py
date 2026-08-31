@@ -9,14 +9,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import mcp.types as mcp_types
-from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
-
-from my_agent_core.tools import Tool, ToolResult
+import mcp.types as mcp_types  # pyright: ignore[reportMissingImports]
+from mcp.client.session import ClientSession  # pyright: ignore[reportMissingImports]
+from mcp.client.stdio import (  # pyright: ignore[reportMissingImports]
+    StdioServerParameters,
+    stdio_client,
+)
+from my_agent_core.tools import (  # pyright: ignore[reportMissingImports]
+    Tool,
+    ToolResult,
+)
 
 if TYPE_CHECKING:
-    from my_agent_core.extensions import ExtensionAPI
+    from my_agent_core.extensions import (  # pyright: ignore[reportMissingImports]
+        ExtensionAPI,
+    )
 
 
 @dataclass

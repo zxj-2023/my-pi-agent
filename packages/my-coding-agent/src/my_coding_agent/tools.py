@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 from pathlib import Path
-from subprocess import PIPE, Popen, TimeoutExpired
+from subprocess import PIPE, Popen
 from typing import TYPE_CHECKING
 
 from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
@@ -131,6 +132,23 @@ def make_edit_tool(
     return Tool(func=edit, name="edit", is_parallel_safe=True)
 
 
+def _format_timeout_output(command: str, partial_out: str | None, partial_err: str | None) -> str:
+    parts: list[str] = []
+    if partial_out:
+        parts.append(partial_out)
+    if partial_err:
+        parts.append(partial_err)
+    captured = "".join(parts).strip()
+    partial_text = captured[-2000:] if captured else "(no output captured before timeout)"
+    return (
+        f"Error: Timeout ({_TIMEOUT_SECONDS}s) for command '{command}'.\n"
+        f"=== Output before timeout ===\n"
+        f"{partial_text}\n"
+        f"=== End of output ===\n"
+        f"Tip: The command may be waiting for interactive stdin. Pass non-interactive flags (e.g. -y) or check for long-running loops."
+    )
+
+
 def make_bash_tool(
     root: str | Path, background_runner: BackgroundRunner | None = None
 ) -> Tool:
@@ -167,22 +185,10 @@ def make_bash_tool(
                     stdout, stderr = proc.communicate(timeout=_TIMEOUT_SECONDS)
                     out = (stdout + stderr).strip()
                     return out[:50000] if out else "(no output)"
-                except TimeoutExpired:
+                except subprocess.TimeoutExpired:
                     proc.kill()
                     partial_out, partial_err = proc.communicate()
-                    captured = ((partial_out or "") + (partial_err or "")).strip()
-                    partial_text = (
-                        captured[-2000:]
-                        if captured
-                        else "(no output captured before timeout)"
-                    )
-                    return (
-                        f"Error: Timeout ({_TIMEOUT_SECONDS}s) for command '{command}'.\n"
-                        f"=== Output before timeout ===\n"
-                        f"{partial_text}\n"
-                        f"=== End of output ===\n"
-                        f"Tip: The command may be waiting for interactive stdin. Pass non-interactive flags (e.g. -y) or check for long-running loops."
-                    )
+                    return _format_timeout_output(command, partial_out, partial_err)
 
             return await asyncio.to_thread(_sync_run)
         except OSError as e:
