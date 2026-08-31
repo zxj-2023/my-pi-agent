@@ -480,4 +480,5 @@ my-pi-agent/
 - 阶段 14：Pi 风格动态干预机制 Steer 与 Follow-up（已完成，223 + 36 + 18 测试全绿）
 - 阶段 6：动态工具（未做）
 - 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
+- 阶段 16：事件管道 A——只读轻量事件订阅管道（`session.subscribe` / `agent.subscribe`，fire-and-forget 同步非阻塞广播 + `unsubscribe()` 注销句柄）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

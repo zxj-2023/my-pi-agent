@@ -81,3 +81,18 @@ class HookResult:
 
 - 多个 Hook 订阅同一事件时，第一个返回 `HookResult(block=True)` 或非空干预字段的 Hook 会立即短路生效；
 - Hook 执行异常被框架内部安全捕获，防止第三方插件异常打崩核心生命周期。
+
+---
+
+## 四、双管道事件分流架构（对标 Pi 第 7 章）
+
+整个事件驱动系统规划为两条并行的订阅管道：
+
+1. **管道 B（强拦截干预管道，已实现）**：
+   - 入口：`@api.on(Event)` / `HookRegistry`；
+   - 机制：Agent 主循环会 `await` 监听器执行，并读取 `HookResult`（支持 `block` 阻断、改写输入/提示词/上下文/工具参数/出参）；
+   - 场景：安全门禁、参数清洗、敏感信息脱敏、临时上下文注入。
+2. **管道 A（只读轻量广播管道，未来演进路线）**：
+   - 入口：`agent.subscribe(listener)` / `session.subscribe(listener)`；
+   - 机制：纯同步非阻塞（Fire-and-Forget）广播，Agent 不等待监听器，忽略返回值；
+   - 场景：终端 UI 打字机实时渲染、Web SSE 流式转发、统计与日志落库。
