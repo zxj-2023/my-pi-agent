@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
+import os
+import signal
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +32,22 @@ class BackgroundJob:
     started_at: float = field(default_factory=time.time)
 
 
+def _kill_process_tree(proc: asyncio.subprocess.Process | None) -> None:
+    """递归杀死子进程及其整个子进程树，防止孤儿进程遗留。"""
+    if proc is None or proc.returncode is not None or not proc.pid:
+        return
+    with contextlib.suppress(Exception):
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+
+
 class BackgroundRunner:
     """管理后台异步作业生命周期并自动向 MessageQueue 投递完成通知。"""
 
@@ -39,15 +58,14 @@ class BackgroundRunner:
         atexit.register(self._sync_cleanup)
 
     def _sync_cleanup(self) -> None:
-        """进程退出时强制清理所有存活的子进程，杜绝孤儿进程。"""
+        """进程退出时强制清理所有存活的子进程树，杜绝孤儿进程。"""
         for job in self.jobs.values():
             if (
                 job.status == "running"
                 and job.process
                 and job.process.returncode is None
             ):
-                with contextlib.suppress(Exception):
-                    job.process.kill()
+                _kill_process_tree(job.process)
 
     async def run_process(
         self, command: str, cwd: Path | str, description: str = ""
@@ -93,11 +111,11 @@ class BackgroundRunner:
         return job_id
 
     async def cancel_all(self) -> None:
-        """取消所有正在运行的后台子进程。"""
+        """取消所有正在运行的后台子进程并递归杀死进程树。"""
         for job in self.jobs.values():
             if job.status == "running":
                 job.status = "cancelled"
-                if job.process and job.process.returncode is None:
+                _kill_process_tree(job.process)
+                if job.process:
                     with contextlib.suppress(Exception):
-                        job.process.terminate()
                         await job.process.wait()

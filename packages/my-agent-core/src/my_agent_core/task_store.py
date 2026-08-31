@@ -227,7 +227,7 @@ class TaskStore:
         tasks = self.list()
         if not tasks:
             return "(No active tasks)"
-        lines = []
+        lines: list[str] = []
         for t in tasks:
             if t.status == "completed":
                 icon = "[x]"

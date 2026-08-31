@@ -87,3 +87,24 @@ def test_task_tools_never_throw_on_error(tmp_path: Path):
         assert "not found" in res_err2.error
 
     asyncio.run(_test())
+
+
+def test_task_tools_parallel_execution(tmp_path: Path):
+    async def _test():
+        store = TaskStore(tmp_path)
+        tools = {t.name: t for t in make_task_tools(store)}
+
+        # Concurrently execute 10 task_create tool calls
+        results = await asyncio.gather(
+            *(
+                tools["task_create"].execute({"subject": f"Tool Task {i}"})
+                for i in range(10)
+            )
+        )
+        for res in results:
+            assert res.ok
+            assert "task" in res.data
+
+        assert len(store.list()) == 10
+
+    asyncio.run(_test())
