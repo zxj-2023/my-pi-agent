@@ -1,6 +1,10 @@
 """my_agent_core 公共 API。"""
 
 from my_agent_core.agent import Agent
+from my_agent_core.background import (  # pyright: ignore[reportMissingImports]
+    BackgroundJob,
+    BackgroundRunner,
+)
 from my_agent_core.context import ContextManager
 from my_agent_core.events import (
     AgentEnd,
@@ -38,7 +42,7 @@ from my_agent_core.task_store import (  # pyright: ignore[reportMissingImports]
     TaskStore,
 )
 from my_agent_core.tools import Tool, ToolResult, tool
-from my_agent_core.tools.builtin import (  # pyright: ignore
+from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
     make_task_tools,
 )
 
@@ -74,6 +78,8 @@ __all__ = [
     "TaskItem",
     "TaskStore",
     "make_task_tools",
+    "BackgroundJob",
+    "BackgroundRunner",
     "MessageQueue",
     "MessageType",
     "QueuedMessage",

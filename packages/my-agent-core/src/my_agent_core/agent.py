@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -15,6 +16,9 @@ from typing import Any, Literal
 
 from my_agent_llm import LLM, Message  # pyright: ignore[reportMissingImports]
 
+from my_agent_core.background import (  # pyright: ignore[reportMissingImports]
+    BackgroundRunner,
+)
 from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
@@ -119,6 +123,9 @@ class Agent:
         self.message_queue = MessageQueue(
             steering_mode=steering_mode, followup_mode=followup_mode
         )  # 动态干预消息队列 (Pi-style steer & followup)
+        self.background_runner = BackgroundRunner(
+            self.message_queue
+        )  # 后台异步执行器与孤儿进程防御调度引擎
 
         self._register_tools(tools)  # ① 工具注册统一（用户 + 内置 task + 内置 memory）
         self.extension_manager = ExtensionManager(
@@ -254,6 +261,7 @@ class Agent:
         """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本并清空干预队列）。"""
         self._aborted = True
         self.message_queue.clear()
+        asyncio.create_task(self.background_runner.cancel_all())
 
     def steer(self, message: str) -> None:
         """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
