@@ -83,11 +83,11 @@
   - `SKILL.md` YAML 元数据与 Markdown 正文解析
   - 启动阶段仅将轻量 Skills 清单注入 System Prompt，省 Token 且无工具调用开销
   - `invoke_skill` 宿主显式触发机制
-- **[Subagents 与 Task 任务委派（subagents & tasks）](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/)**：
+- **[Subagents 与 SubagentTask 任务委派（subagents & subagent_tasks）](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/)**：
   - `.agents/agents/*.md` 声明式子代理配置发现
-  - `TaskManager` 任务生命周期状态机管理（`RUNNING` ➔ `COMPLETED` / `ERROR`）
+  - `SubagentTaskManager` 任务生命周期状态机管理（`RUNNING` ➔ `COMPLETED` / `ERROR`）
   - **隔离子会话**：独立落盘于 `<session_dir>/subagents/agent-task_*.jsonl`，父会话不被子代理中间过程污染
-  - **防递归与隔离机制**：子代理继承工具时强制过滤 `task` 与 `memory` 工具，并显式配置 `subagent_dirs=[]` 与 `memory_dir=False`
+  - **防递归与隔离机制**：子代理继承工具时强制过滤 `task`、`memory` 与 `task_*` 工具，并显式配置 `subagent_dirs=[]`、`plugin_dirs=[]`、`memory_dir=False` 与 `task_store=False`
   - `make_task_tool` 桥接：将子代理委派转化为单一标准工具 `task(prompt, agent_type)` 供主模型调用
 - **[Extension 扩展机制（extensions）](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/)**：
   - 静态注册面 `ExtensionAPI` + 调度总管 `ExtensionManager`
@@ -128,7 +128,7 @@
 
 ### 4. 架构设计与外部对标分析
 
-- **[docs/ 技术设计文档库](docs/README.md)**：包含 14 篇模块级技术架构规范（模型层、核心层、产品层与 Tau 深度对标分析）。
+- **[docs/ 技术设计文档库](docs/README.md)**：包含 15 篇模块级技术架构规范（模型层、核心层、产品层与 Tau 深度对标分析）。
 - **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**：深度解构 Python 版 Pi Harness 框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、会话历史自愈机制与演进路线。
 
 ---
@@ -157,7 +157,7 @@ uv run python -m my_coding_agent.agent
 本项目所有单元测试均严格使用 FakeLLM 与模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```powershell
-# 运行全部三个包的单元测试（302 tests）
+# 运行全部三个包的单元测试（303 tests）
 cd packages/my-agent-core && uv run python -m pytest -q
 cd ../my-agent-llm && uv run python -m pytest -q
 cd ../my-coding-agent && uv run python -m pytest -q
@@ -185,7 +185,7 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (244 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (245 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
 │   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点 + 看板自动投影）
@@ -200,11 +200,11 @@ my-pi-agent/
 │   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │   │   │   ├── skills.py           # Skill / SkillManager（.agents/skills 发现与提示词注入）
 │   │   │   ├── subagents.py        # Subagent / SubagentManager（.agents/agents 发现）
-│   │   │   ├── tasks.py            # Task / TaskManager（子代理生命周期与独立会话隔离）
+│   │   │   ├── subagent_tasks.py   # SubagentTask / SubagentTaskManager（子代理生命周期与独立会话隔离）
 │   │   │   ├── extensions/         # ExtensionAPI + ExtensionManager（扩展加载与命令路由）
 │   │   │   ├── plugins.py          # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   │   │   └── main.py             # 核心层 demo 入口
-│   │   └── tests/                  # 离线测试
+│   │   └── tests/                  # 离线测试 (245 tests)
 │   │
 │   └── my-coding-agent/            # 产品层独立 uv 项目 (22 tests)
 │       ├── pyproject.toml          # src 布局 + 依赖 core, llm, mcp
