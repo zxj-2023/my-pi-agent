@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
+from typing import TYPE_CHECKING
 
 from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
+
+if TYPE_CHECKING:
+    from my_agent_core.background import (  # pyright: ignore[reportMissingImports]
+        BackgroundRunner,
+    )
 
 from my_coding_agent.mutation_queue import FileMutationQueue
 
@@ -124,47 +131,60 @@ def make_edit_tool(
     return Tool(func=edit, name="edit", is_parallel_safe=True)
 
 
-def make_bash_tool(root: str | Path) -> Tool:
-    """bash(command)：在 root 下执行 shell，危险命令黑名单 + 超时自动捕获已输出日志。"""
+def make_bash_tool(
+    root: str | Path, background_runner: BackgroundRunner | None = None
+) -> Tool:
+    """bash(command, run_in_background=False)：在 root 下执行 shell，支持后台异步执行。"""
     root = Path(root).resolve()
 
-    def bash(command: str) -> str:
+    async def bash(command: str, run_in_background: bool = False) -> str:
         """Run a shell command in the workspace root."""
         if any(d in command for d in _DANGEROUS):
             return "Error: Dangerous command blocked"
+
+        if run_in_background:
+            if background_runner is None:
+                return "Error: Background runner is not configured"
+            job_id = await background_runner.run_process(command, cwd=root)
+            return f"[Background task {job_id} started for command: '{command}']"
+
         try:
             cmd_args = (
                 ["cmd.exe", "/c", command]
                 if os.name == "nt"
                 else ["/bin/sh", "-c", command]
             )
-            proc = Popen(
-                cmd_args,
-                cwd=root,
-                stdout=PIPE,
-                stderr=PIPE,
-                text=True,
-            )
-            try:
-                stdout, stderr = proc.communicate(timeout=_TIMEOUT_SECONDS)
-                out = (stdout + stderr).strip()
-                return out[:50000] if out else "(no output)"
-            except TimeoutExpired:
-                proc.kill()
-                partial_out, partial_err = proc.communicate()
-                captured = ((partial_out or "") + (partial_err or "")).strip()
-                partial_text = (
-                    captured[-2000:]
-                    if captured
-                    else "(no output captured before timeout)"
+
+            def _sync_run() -> str:
+                proc = Popen(
+                    cmd_args,
+                    cwd=root,
+                    stdout=PIPE,
+                    stderr=PIPE,
+                    text=True,
                 )
-                return (
-                    f"Error: Timeout ({_TIMEOUT_SECONDS}s) for command '{command}'.\n"
-                    f"=== Output before timeout ===\n"
-                    f"{partial_text}\n"
-                    f"=== End of output ===\n"
-                    f"Tip: The command may be waiting for interactive stdin. Pass non-interactive flags (e.g. -y) or check for long-running loops."
-                )
+                try:
+                    stdout, stderr = proc.communicate(timeout=_TIMEOUT_SECONDS)
+                    out = (stdout + stderr).strip()
+                    return out[:50000] if out else "(no output)"
+                except TimeoutExpired:
+                    proc.kill()
+                    partial_out, partial_err = proc.communicate()
+                    captured = ((partial_out or "") + (partial_err or "")).strip()
+                    partial_text = (
+                        captured[-2000:]
+                        if captured
+                        else "(no output captured before timeout)"
+                    )
+                    return (
+                        f"Error: Timeout ({_TIMEOUT_SECONDS}s) for command '{command}'.\n"
+                        f"=== Output before timeout ===\n"
+                        f"{partial_text}\n"
+                        f"=== End of output ===\n"
+                        f"Tip: The command may be waiting for interactive stdin. Pass non-interactive flags (e.g. -y) or check for long-running loops."
+                    )
+
+            return await asyncio.to_thread(_sync_run)
         except OSError as e:
             return f"Error: {e}"
 
