@@ -42,11 +42,11 @@
   - 渐进式披露：启动阶段仅将轻量 Skills 清单注入 System Prompt，省 Token 且无工具调用开销；
   - `SKILL.md` 容错解析与单 Skill 简写支持；
   - `invoke_skill` 宿主显式触发机制。
-- **Subagents 与 Task 任务委派（`subagents` & `tasks`）**：
+- **Subagents 与 Task 任务委派（`subagents` & `subagent_tasks`）**：
   - 声明式 `.agents/agents/*.md` 发现与专员参数配置；
-  - `TaskManager` 任务状态机管理（`RUNNING` ➔ `COMPLETED` / `ERROR`）；
+  - `SubagentTaskManager` 任务状态机管理（`RUNNING` ➔ `COMPLETED` / `ERROR`）；
   - **沙箱隔离子会话**：独立落盘于 `<session_dir>/subagents/`，父会话历史保持纯净；
-  - **防递归沙箱防护**：子代理强制剔除 `task` 与 `memory` 工具，并设置 `subagent_dirs=[]`、`plugin_dirs=[]` 与 `memory_dir=False`。
+  - **防递归沙箱防护**：子代理强制剔除 `task`、`memory` 与 `task_*` 工具，并设置 `subagent_dirs=[]`、`plugin_dirs=[]`、`memory_dir=False` 与 `task_store=False`。
 - **Extension 扩展与 0 Token 命令路由（`extensions`）**：
   - 静态契约面 `ExtensionAPI` + 调度总管 `ExtensionManager`；
   - 模块动态加载与单点故障隔离保护（单个扩展异常不影响主程序）；
@@ -112,13 +112,15 @@ packages/my-agent-core/
 │   ├── memory.py             # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │   ├── skills.py             # Skill + SkillManager（技能发现与清单注入）
 │   ├── subagents.py          # Subagent + SubagentManager（子代理发现）
-│   ├── tasks.py              # Task + TaskStatus + TaskManager（委派生命周期调度）
+│   ├── subagent_tasks.py     # SubagentTask + SubagentTaskManager（子代理委派生命周期调度）
+│   ├── task_store.py         # TaskItem + TaskStore（项目工单 DAG 依赖图与原子持久化）
+│   ├── background.py         # BackgroundRunner（后台异步执行器与孤儿进程防御）
 │   ├── extensions/           # Extension 扩展机制
 │   │   ├── __init__.py       # 符号导出
 │   │   └── core.py           # ExtensionAPI + ExtensionManager 核心实现
 │   ├── plugins.py            # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   └── main.py               # 异步流式打字机 demo
-└── tests/                    # 100% 离线单元测试 (226 tests)
+└── tests/                    # 100% 离线单元测试 (245 tests)
     ├── test_agent.py         # Agent 循环、状态与 5 大决策点拦截测试
     ├── test_agent_steering.py # Steer 即时转向与 Follow-up 追问两层循环测试
     ├── test_message_queue.py # MessageQueue 动态干预队列单测
@@ -130,7 +132,11 @@ packages/my-agent-core/
     ├── test_context.py       # 四层压缩管线与 retainedTail 缓存测试
     ├── test_skills.py        # Skills 发现、清单注入与显式调用测试
     ├── test_subagents.py     # Subagent 发现与 frontmatter 测试
-    ├── test_tasks.py         # Task 任务委派与独立子会话沙箱测试 (含子代理 steer/followup)
+    ├── test_subagent_tasks.py # SubagentTask 任务委派与独立子会话沙箱测试 (含子代理 steer/followup)
+    ├── test_task_store.py    # TaskItem 与 TaskStore DAG 依赖、环检测与并发测试
+    ├── test_task_tools.py    # 4 增量 CRUD 工具族与 todo_write 工具测试
+    ├── test_task_context_projection.py # 上下文看板自动投影测试
+    ├── test_background.py    # BackgroundRunner 异步执行与孤儿进程清理测试
     ├── test_extensions.py    # Extension 加载、覆盖与命令路由测试
     ├── test_memory.py        # MemoryStore、快照冻结与受控工具测试
     └── test_plugins.py       # Plugin 发现、Manifest 容错与解构测试

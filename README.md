@@ -234,11 +234,12 @@ my-pi-agent/
 | **会话持久化** | `my_agent_core/session.py` | [my-pi-agent--session管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) |
 | **上下文四层压缩** | `my_agent_core/context.py` | [my-pi-agent--context管理](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/) |
 | **Skills 机制** | `my_agent_core/skills.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
-| **Subagents 委派** | `my_agent_core/tasks.py` | [my-pi-agent--subagent与task委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) |
+| **Subagents 委派** | `my_agent_core/subagent_tasks.py` | [my-pi-agent--subagent与task委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) |
 | **Extension 与 MCP** | `my_agent_core/extensions/`, `mcp.py` | [my-pi-agent--extension机制与mcp](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) |
 | **Memory 记忆系统** | `my_agent_core/memory.py` | [my-pi-agent--memory系统](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/) |
 | **Plugin 插件系统** | `my_agent_core/plugins.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
 | **动态干预与两层循环** | `my_agent_core/message_queue.py` | [docs/core/11-dynamic-steering.md](docs/core/11-dynamic-steering.md) |
+| **统一任务与后台异步** | `my_agent_core/task_store.py`, `background.py` | [docs/core/12-task-system-and-background.md](docs/core/12-task-system-and-background.md) |
 
 ---
 
@@ -250,8 +251,11 @@ my-pi-agent/
   - **`steer`（动态转向与即时纠偏）**：在 ReAct 循环执行过程中（工具执行间隙、无工具文本输出期等安全点），支持上层宿主或子代理调度器注入转向指令，使 Agent 实时调整执行方向，而无需中断会话或丢失已产生的上下文；
   - **`follow_up`（轮次边界任务追加）**：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务，保持单会话连贯性；
   - **经典两层循环与交付模式**：支持 `one-at-a-time`（单步纠偏）与 `all`（批注入）消费模式，并在 `TaskManager` 中提供子代理定向干预（`steer_task` / `follow_up_task`）。
-- [ ] **Task / Todo 系统（Phase 8）**：
-  - 实现 `todo_write` 工具与 `TaskStore`，支持任务多层级拆解、实时状态机推进（`todo` ➔ `in_progress` ➔ `completed`）与悬浮看板投影。
+- [x] **统一 Task / Todo 系统与后台异步执行（Phase 8）**：
+  - 实现 `TaskItem` + `TaskStore` DAG 依赖状态机、环检测与崩溃安全原子落盘；
+  - 提供 4 增量 CRUD 工具族（`task_create`, `task_update`, `task_get`, `task_list`）与 `todo_write` 便捷工具；
+  - `BeforeModelCall` 自动 `<TASK_BOARD>` 上下文看板投影（Session 零污染）；
+  - `BackgroundRunner` 异步调度与进程树递归强杀孤儿进程防御。
 - [ ] **Coding Agent CLI 交互层（`packages/my-coding-agent`）**：
   - 基于 `prompt_toolkit` 与 `rich` 的现代化终端交互 REPL；
   - 权限确认门控（落地于 `ToolExecutionStart` 拦截点）；
