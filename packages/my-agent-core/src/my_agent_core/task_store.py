@@ -30,7 +30,9 @@ class TaskItem:
 class TaskStore:
     """基于 DAG 依赖图与原子持久化的项目任务仓库。"""
 
-    def __init__(self, workspace: Path | str, enforce_single_in_progress: bool = True) -> None:
+    def __init__(
+        self, workspace: Path | str, enforce_single_in_progress: bool = True
+    ) -> None:
         self.workspace = Path(workspace)
         self.store_dir = self.workspace / ".my_agent_core"
         self.file_path = self.store_dir / "tasks.json"
@@ -60,7 +62,9 @@ class TaskStore:
             "tasks": [asdict(t) for t in self.tasks.values()],
         }
         content = json.dumps(payload, ensure_ascii=False, indent=2)
-        fd, tmp_path = tempfile.mkstemp(dir=self.store_dir, prefix="tasks_", suffix=".tmp")
+        fd, tmp_path = tempfile.mkstemp(
+            dir=self.store_dir, prefix="tasks_", suffix=".tmp"
+        )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -143,12 +147,16 @@ class TaskStore:
                     if dep not in self.tasks:
                         raise KeyError(f"Dependency task '{dep}' not found")
                     if self._depends_on(dep, task_id):
-                        raise ValueError(f"Cycle detected: {task_id} -> {dep} -> {task_id}")
+                        raise ValueError(
+                            f"Cycle detected: {task_id} -> {dep} -> {task_id}"
+                        )
                     if dep not in task.blocked_by:
                         task.blocked_by.append(dep)
 
             if remove_blocked_by:
-                task.blocked_by = [d for d in task.blocked_by if d not in remove_blocked_by]
+                task.blocked_by = [
+                    d for d in task.blocked_by if d not in remove_blocked_by
+                ]
 
             if status is not None:
                 task.status = status
@@ -183,8 +191,7 @@ class TaskStore:
     def list(self, include_deleted: bool = False) -> list[TaskItem]:
         """列出所有活跃任务。"""
         return [
-            t for t in self.tasks.values()
-            if include_deleted or t.status != "deleted"
+            t for t in self.tasks.values() if include_deleted or t.status != "deleted"
         ]
 
     async def batch_write(self, todos: list[dict[str, Any]]) -> list[TaskItem]:
@@ -196,7 +203,12 @@ class TaskStore:
                     t = self.tasks[t_id]
                     if "subject" in item:
                         t.subject = str(item["subject"]).strip()
-                    if "status" in item and item["status"] in ("pending", "in_progress", "completed", "deleted"):
+                    if "status" in item and item["status"] in (
+                        "pending",
+                        "in_progress",
+                        "completed",
+                        "deleted",
+                    ):
                         t.status = item["status"]
                 else:
                     new_id = f"task_{self._next_id}"

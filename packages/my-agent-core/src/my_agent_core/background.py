@@ -41,7 +41,11 @@ class BackgroundRunner:
     def _sync_cleanup(self) -> None:
         """进程退出时强制清理所有存活的子进程，杜绝孤儿进程。"""
         for job in self.jobs.values():
-            if job.status == "running" and job.process and job.process.returncode is None:
+            if (
+                job.status == "running"
+                and job.process
+                and job.process.returncode is None
+            ):
                 with contextlib.suppress(Exception):
                     job.process.kill()
 

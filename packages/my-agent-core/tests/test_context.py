@@ -452,12 +452,20 @@ async def test_extract_and_accumulate_file_operations():
     """验证从工具调用中提取 <read-files> 与 <modified-files>，且跨压缩迭代累积。"""
     from my_agent_core.context import extract_file_operations, format_file_operations
 
-    tc_read = [
-        {"function": {"name": "read", "arguments": '{"path": "src/auth.py"}'}}
-    ]
+    tc_read = [{"function": {"name": "read", "arguments": '{"path": "src/auth.py"}'}}]
     tc_write = [
-        {"function": {"name": "edit", "arguments": '{"path": "src/auth.py", "old_text": "a", "new_text": "b"}'}},
-        {"function": {"name": "write", "arguments": '{"path": "src/config.json", "content": "{}"}'}},
+        {
+            "function": {
+                "name": "edit",
+                "arguments": '{"path": "src/auth.py", "old_text": "a", "new_text": "b"}',
+            }
+        },
+        {
+            "function": {
+                "name": "write",
+                "arguments": '{"path": "src/config.json", "content": "{}"}',
+            }
+        },
     ]
 
     msgs = [
@@ -487,4 +495,3 @@ async def test_extract_and_accumulate_file_operations():
     acc_read, acc_mod = extract_file_operations(msgs, previous_summary=prev_summary)
     assert acc_read == ["old_read.py", "src/auth.py"]
     assert acc_mod == ["old_mod.py", "src/auth.py", "src/config.json"]
-

@@ -9,7 +9,9 @@ from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingI
 def test_task_store_create_and_get(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
-        t1 = await store.create(subject="Design schema", description="Create users table")
+        t1 = await store.create(
+            subject="Design schema", description="Create users table"
+        )
         assert t1.id == "task_1"
         assert t1.status == "pending"
         assert t1.subject == "Design schema"
@@ -94,10 +96,12 @@ def test_task_store_persistence(tmp_path: Path):
 def test_task_store_batch_write(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
-        items = await store.batch_write([
-            {"subject": "Batch task 1", "status": "completed"},
-            {"subject": "Batch task 2", "status": "in_progress"},
-        ])
+        items = await store.batch_write(
+            [
+                {"subject": "Batch task 1", "status": "completed"},
+                {"subject": "Batch task 2", "status": "in_progress"},
+            ]
+        )
         assert len(items) == 2
         assert store.get("task_1").status == "completed"
         assert store.get("task_2").status == "in_progress"

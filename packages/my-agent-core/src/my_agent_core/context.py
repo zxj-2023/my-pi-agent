@@ -214,9 +214,7 @@ def extract_file_operations(
     return read_files, modified_files
 
 
-def format_file_operations(
-    read_files: list[str], modified_files: list[str]
-) -> str:
+def format_file_operations(read_files: list[str], modified_files: list[str]) -> str:
     """将文件足迹格式化为 XML 标签块。"""
     blocks = []
     if read_files:
@@ -472,9 +470,7 @@ class ContextManager:
             resp = self.llm.chat(messages=msgs, tools=[])
 
         summary_text = self._extract_summary(resp.content)
-        read_files, modified_files = extract_file_operations(
-            messages, self._summary
-        )
+        read_files, modified_files = extract_file_operations(messages, self._summary)
         file_ops_block = format_file_operations(read_files, modified_files)
         if (
             file_ops_block

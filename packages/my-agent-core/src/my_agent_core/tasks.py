@@ -83,7 +83,9 @@ class TaskManager:
         self._manager = manager  # 查 agent 定义
         self._parent = parent  # 供 llm/工具集/skill_manager/max_iterations
         self._counter = 0
-        self._active_agents: dict[str, Agent] = {}  # 追踪运行中的子代理实例 (task_id -> Agent)
+        self._active_agents: dict[
+            str, Agent
+        ] = {}  # 追踪运行中的子代理实例 (task_id -> Agent)
 
     def steer_task(self, task_id: str, message: str) -> bool:
         """向指定运行中的子代理发送 Steer 转向指令。"""

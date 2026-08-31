@@ -5,7 +5,6 @@ from pathlib import Path
 from my_agent_core.background import (  # pyright: ignore
     BackgroundRunner,
 )
-
 from my_agent_core.message_queue import (
     MessageQueue,  # pyright: ignore[reportMissingImports]
 )

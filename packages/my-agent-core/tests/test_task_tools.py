@@ -19,7 +19,9 @@ def test_task_tools_crud_lifecycle(tmp_path: Path):
         assert "todo_write" in tools
 
         # 1. task_create
-        res1 = await tools["task_create"](subject="Implement Auth", description="JWT based auth")
+        res1 = await tools["task_create"](
+            subject="Implement Auth", description="JWT based auth"
+        )
         assert res1.ok
         assert res1.data["task"]["id"] == "task_1"
 
@@ -56,10 +58,12 @@ def test_todo_write_tool(tmp_path: Path):
         store = TaskStore(tmp_path)
         tools = {t.name: t for t in make_task_tools(store)}
 
-        res = await tools["todo_write"](todos=[
-            {"subject": "Step 1", "status": "completed"},
-            {"subject": "Step 2", "status": "in_progress"},
-        ])
+        res = await tools["todo_write"](
+            todos=[
+                {"subject": "Step 1", "status": "completed"},
+                {"subject": "Step 2", "status": "in_progress"},
+            ]
+        )
         assert res.ok
         assert len(store.list()) == 2
         assert "[x] task_1: Step 1" in res.data["board"]

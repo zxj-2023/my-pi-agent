@@ -47,7 +47,9 @@ from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
 from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools import Tool, ToolResult
-from my_agent_core.tools.builtin.task import make_task_tool  # pyright: ignore[reportMissingImports]
+from my_agent_core.tools.builtin.task import (
+    make_task_tool,  # pyright: ignore[reportMissingImports]
+)
 from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
     make_task_tools,
 )
@@ -387,7 +389,9 @@ class Agent:
 
                 # ── 看板自动投影（若有任务，动态注入到模型临时视图中，Session 零污染）
                 if self.task_store and self.task_store.list():
-                    board_block = f"<TASK_BOARD>\n{self.task_store.render_board()}\n</TASK_BOARD>"
+                    board_block = (
+                        f"<TASK_BOARD>\n{self.task_store.render_board()}\n</TASK_BOARD>"
+                    )
                     view = list(view)
                     if view and view[0].role == "system":
                         view[0] = Message(
