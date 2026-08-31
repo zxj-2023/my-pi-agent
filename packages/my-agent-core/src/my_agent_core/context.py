@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from my_agent_llm import Message
+from my_agent_llm import Message  # pyright: ignore[reportMissingImports]
 
 if TYPE_CHECKING:
     from my_agent_core.session import Session
@@ -119,18 +119,113 @@ SUMMARIZATION_SYSTEM_PROMPT = (
 )
 
 SUMMARIZATION_PROMPT_TEMPLATE = (
-    "Summarize this conversation so work can continue. "
-    "Preserve: 1. current goal, 2. key findings/decisions, "
-    "3. remaining work, 4. user constraints.\n"
+    "Summarize this conversation so work can continue without losing essential state.\n"
+    "Preserve: 1. Current goal, 2. User constraints & preferences, "
+    "3. Progress (Done / In Progress / Blocked), 4. Key decisions, "
+    "5. Next steps, 6. Critical context.\n\n"
     "First reason through the conversation inside <analysis> tags. "  # ② 先分析再总结
     "Then output the final summary inside <summary> tags, formatted as:\n"
-    "## Goal\n## Progress (Done / In Progress / Blocked)\n"
-    "## Key Decisions\n## Next Steps\n\n"
+    "## Goal\n"
+    "## Constraints & Preferences\n"
+    "## Progress\n"
+    "### Done\n"
+    "### In Progress\n"
+    "### Blocked\n"
+    "## Key Decisions\n"
+    "## Next Steps\n"
+    "## Critical Context\n\n"
     "Previous summary:\n{previous_summary}\n\n"
     "Conversation:\n{conversation}"
 )
 
 SUMMARY_MESSAGE_PREFIX = "[Context summary — earlier conversation compacted]\n\n"
+
+
+def extract_file_operations(
+    messages: list[Message], previous_summary: str | None = None
+) -> tuple[list[str], list[str]]:
+    """从被压缩的消息序列及前次摘要中提取读/写文件足迹列表（保序且去重）。"""
+    read_files: list[str] = []
+    modified_files: list[str] = []
+
+    def _add_unique(lst: list[str], item: str) -> None:
+        if item and item not in lst:
+            lst.append(item)
+
+    # 1. 继承上一次摘要中的文件足迹
+    if previous_summary:
+        read_match = re.search(
+            r"<read-files>\s*(.*?)\s*</read-files>", previous_summary, re.DOTALL
+        )
+        if read_match:
+            for line in read_match.group(1).splitlines():
+                _add_unique(read_files, line.strip())
+        mod_match = re.search(
+            r"<modified-files>\s*(.*?)\s*</modified-files>",
+            previous_summary,
+            re.DOTALL,
+        )
+        if mod_match:
+            for line in mod_match.group(1).splitlines():
+                _add_unique(modified_files, line.strip())
+
+    # 2. 从当前被压缩的 messages 中扫描工具调用
+    for m in messages:
+        if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
+            for tc in m.metadata["tool_calls"]:
+                name = tc.get("function", {}).get("name", "")
+                raw_args = tc.get("function", {}).get("arguments", "{}")
+                try:
+                    args = (
+                        json.loads(raw_args)
+                        if isinstance(raw_args, str)
+                        else (raw_args or {})
+                    )
+                except (json.JSONDecodeError, TypeError):
+                    args = {}
+                if not isinstance(args, dict):
+                    continue
+                target_path = (
+                    args.get("path")
+                    or args.get("file_path")
+                    or args.get("filename")
+                    or args.get("file")
+                )
+                if isinstance(target_path, str) and target_path.strip():
+                    p = target_path.strip()
+                    if name in (
+                        "read",
+                        "read_file",
+                        "view",
+                        "cat",
+                        "read_symbol",
+                    ):
+                        _add_unique(read_files, p)
+                    elif name in (
+                        "write",
+                        "edit",
+                        "write_file",
+                        "edit_file",
+                        "patch",
+                        "modify",
+                    ):
+                        _add_unique(modified_files, p)
+
+    return read_files, modified_files
+
+
+def format_file_operations(
+    read_files: list[str], modified_files: list[str]
+) -> str:
+    """将文件足迹格式化为 XML 标签块。"""
+    blocks = []
+    if read_files:
+        files_str = "\n".join(read_files)
+        blocks.append(f"<read-files>\n{files_str}\n</read-files>")
+    if modified_files:
+        files_str = "\n".join(modified_files)
+        blocks.append(f"<modified-files>\n{files_str}\n</modified-files>")
+    return "\n\n".join(blocks)
 
 
 class CompactionInfo:
@@ -361,7 +456,7 @@ class ContextManager:
     async def _call_summarizer(
         self, messages: list[Message]
     ) -> tuple[str, dict | None, str | None]:
-        """调 self.llm 做摘要调用（tools=[]）→ (摘要, usage, model)。迭代：附旧摘要。"""
+        """调 self.llm 做摘要调用（tools=[]）→ (摘要, usage, model)。迭代：附旧摘要 + 文件足迹。"""
         conversation = _serialize_messages(messages)
         user_content = SUMMARIZATION_PROMPT_TEMPLATE.format(
             previous_summary=self._summary or "(none)",
@@ -375,7 +470,20 @@ class ContextManager:
             resp = await self.llm.achat(messages=msgs, tools=[])
         else:
             resp = self.llm.chat(messages=msgs, tools=[])
-        return self._extract_summary(resp.content), resp.usage, resp.model
+
+        summary_text = self._extract_summary(resp.content)
+        read_files, modified_files = extract_file_operations(
+            messages, self._summary
+        )
+        file_ops_block = format_file_operations(read_files, modified_files)
+        if (
+            file_ops_block
+            and "<read-files>" not in summary_text
+            and "<modified-files>" not in summary_text
+        ):
+            summary_text = f"{summary_text}\n\n{file_ops_block}"
+
+        return summary_text, resp.usage, resp.model
 
     @staticmethod
     def _extract_summary(content: str) -> str:

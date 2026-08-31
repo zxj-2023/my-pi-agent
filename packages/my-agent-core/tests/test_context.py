@@ -3,8 +3,8 @@
 import tempfile
 from pathlib import Path
 
-import pytest
-from my_agent_llm import Message, Response
+import pytest  # pyright: ignore[reportMissingImports]
+from my_agent_llm import Message, Response  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
 from my_agent_core.context import (
@@ -426,3 +426,65 @@ async def test_bridge_restore_and_write(tmp_path):
     assert ctx2._summary is not None
     assert ctx2._covered_count == ctx._covered_count
     assert ctx2._retained_tail == ctx._retained_tail
+
+
+@pytest.mark.anyio
+async def test_summary_prompt_includes_6_sections():
+    """验证 L4 摘要 Prompt 包含完整的 6 Section 约束模板。"""
+    llm = FakeLLM([_response(content="## Goal\n...")])
+    ctx = _small_ctx(llm, budget=1000, keep_recent_tokens=100)
+    msgs = [_msg("user", "x" * 300) for _ in range(20)]
+    await ctx.prepare(msgs)
+    prompt = llm.calls[0]["messages"][1].content
+    assert "## Goal" in prompt
+    assert "## Constraints & Preferences" in prompt
+    assert "## Progress" in prompt
+    assert "### Done" in prompt
+    assert "### In Progress" in prompt
+    assert "### Blocked" in prompt
+    assert "## Key Decisions" in prompt
+    assert "## Next Steps" in prompt
+    assert "## Critical Context" in prompt
+
+
+@pytest.mark.anyio
+async def test_extract_and_accumulate_file_operations():
+    """验证从工具调用中提取 <read-files> 与 <modified-files>，且跨压缩迭代累积。"""
+    from my_agent_core.context import extract_file_operations, format_file_operations
+
+    tc_read = [
+        {"function": {"name": "read", "arguments": '{"path": "src/auth.py"}'}}
+    ]
+    tc_write = [
+        {"function": {"name": "edit", "arguments": '{"path": "src/auth.py", "old_text": "a", "new_text": "b"}'}},
+        {"function": {"name": "write", "arguments": '{"path": "src/config.json", "content": "{}"}'}},
+    ]
+
+    msgs = [
+        _msg("user", "read auth"),
+        _msg("assistant", "reading", tool_calls=tc_read),
+        _msg("tool", "content", tool_call_id="1"),
+        _msg("user", "edit files"),
+        _msg("assistant", "editing", tool_calls=tc_write),
+        _msg("tool", "ok", tool_call_id="2"),
+        _msg("tool", "ok", tool_call_id="3"),
+    ]
+
+    read_files, mod_files = extract_file_operations(msgs)
+    assert read_files == ["src/auth.py"]
+    assert mod_files == ["src/auth.py", "src/config.json"]
+
+    block = format_file_operations(read_files, mod_files)
+    assert "<read-files>\nsrc/auth.py\n</read-files>" in block
+    assert "<modified-files>\nsrc/auth.py\nsrc/config.json\n</modified-files>" in block
+
+    # 验证累积：传入 previous_summary 包含旧文件
+    prev_summary = (
+        "## Goal\nprev\n\n"
+        "<read-files>\nold_read.py\n</read-files>\n\n"
+        "<modified-files>\nold_mod.py\n</modified-files>"
+    )
+    acc_read, acc_mod = extract_file_operations(msgs, previous_summary=prev_summary)
+    assert acc_read == ["old_read.py", "src/auth.py"]
+    assert acc_mod == ["old_mod.py", "src/auth.py", "src/config.json"]
+

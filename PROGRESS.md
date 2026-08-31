@@ -456,10 +456,11 @@ my-pi-agent/
   - `tools.py`（`my-coding-agent`）：
     - `write` 和 `edit` 接入 `FileMutationQueue` 单文件锁保护，将外部并发声明提升为 `is_parallel_safe=True`（多文件并发修改耗时直降，同名文件自动保序排队）；
     - 精细化错误文案（Prompt-Quality Errors）：`read` 增加行数统计与精准越界提示，`edit` 增加文件行数、未找到排查建议与多重匹配检测，`bash` 超时自动捕获并回显子进程已输出的最后 2000 字符日志。
+  - `context.py`：升级 L4 结构化压缩为完整的 6 Section 约束模板（`Goal`, `Constraints & Preferences`, `Progress (Done/InProgress/Blocked)`, `Key Decisions`, `Next Steps`, `Critical Context`）；新增 `extract_file_operations` 与 `format_file_operations`，自动从被压缩历史中提取并累积读改文件足迹（`<read-files>` 与 `<modified-files>`）。
   - `agent.py`：对齐 Pi 规范，在每轮执行结束（包含纯文本答复轮）无条件成对发射 `TurnEnd(message, tool_results)` 事件，杜绝轮次悬空。
   - `docs/references/tau-analysis.md`（新增）：深度调研与解构 Python 版 Pi Harness 开源框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、`repair_tool_history` 自愈等核心亮点与演进路线。
-  - 测试：更新 `test_registry.py`（验证并发因果时序与全员并发）、`test_agent.py`（严格断言配对 `TurnEnd`）、`test_tools.py`（扩充 5 项单测覆盖文件锁并发、越界行数提示、多重匹配与超时日志捕获）。
-- **验证**：三包全量 **281 个离线测试** 全部 100% 绿灯通过（my-agent-core 224 + my-agent-llm 36 + my-coding-agent 21）。
+  - 测试：更新 `test_registry.py`（验证并发因果时序与全员并发）、`test_agent.py`（严格断言配对 `TurnEnd`）、`test_tools.py`（扩充 5 项单测覆盖文件锁并发、越界行数提示、多重匹配与超时日志捕获）、`test_context.py`（扩充 2 项单测覆盖 6 Section 约束模板与跨压缩文件足迹累积）。
+- **验证**：三包全量 **283 个离线测试** 全部 100% 绿灯通过（my-agent-core 226 + my-agent-llm 36 + my-coding-agent 21）。
 
 ---
 

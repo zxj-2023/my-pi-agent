@@ -34,6 +34,7 @@
   - Workspace 目录天然物理隔离（`<workspace>/.my_agent_core/sessions/`）。
 - **四层廉价优先上下文压缩管线（`context`）**：
   - `ContextManager` 廉价优先管线：L3 大结果落盘 ➔ L1 裁切中间轮次 ➔ L2 旧结果占位（0 API 损耗）➔ L4 LLM 智能摘要（超阈才花 1 次 API）；
+  - 6 Section 结构化约束模板（Goal / Constraints / Progress / Decisions / NextSteps / CriticalContext）与 `<read-files>` / `<modified-files>` 跨压缩文件足迹自动累积；
   - Usage 动态锚定：字符估算兜底 + `Response.usage` 官方真实消耗动态校准；
   - `retainedTail` 缓存：摘要 + 尾部快照固化为 `compaction` entry，重启免重算；
   - `compaction_floor` 护栏：压缩后指针只能回退到压缩点之后，防止缓存失效。
@@ -81,7 +82,7 @@ uv run python -m my_agent_core.main # 运行流式打字机 demo
 
 ```powershell
 uv run python -m pytest -q
-# 输出: 224 passed in ~4s
+# 输出: 226 passed in ~4s
 ```
 
 ---
@@ -113,7 +114,7 @@ packages/my-agent-core/
 │   │   └── core.py           # ExtensionAPI + ExtensionManager 核心实现
 │   ├── plugins.py            # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   └── main.py               # 异步流式打字机 demo
-└── tests/                    # 100% 离线单元测试 (224 tests)
+└── tests/                    # 100% 离线单元测试 (226 tests)
     ├── test_agent.py         # Agent 循环、状态与 5 大决策点拦截测试
     ├── test_agent_steering.py # Steer 即时转向与 Follow-up 追问两层循环测试
     ├── test_message_queue.py # MessageQueue 动态干预队列单测

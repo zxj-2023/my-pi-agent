@@ -73,6 +73,7 @@
   - Workspace 目录隔离（`<workspace>/.my_agent_core/sessions`）
 - **[上下文管理与压缩（context）](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/)**：
   - `ContextManager` 四层压缩管线（cheap-first）：L3 大结果落盘 ➔ L1 裁切中间轮次 ➔ L2 旧结果占位（0 API 耗损）➔ L4 LLM 智能摘要（超阈才花 1 次 API）
+  - 6 Section 结构化约束模板（Goal / Constraints / Progress / Decisions / NextSteps / CriticalContext）与 `<read-files>` / `<modified-files>` 文件足迹自动累积
   - Usage 锚定估算（`chars / 4` 兜底 + `Response.usage` 实测校准）
   - `retainedTail` 缓存（摘要 + 尾部快照持久化为 `compaction` entry，重启免重算）
   - `compaction_floor` 护栏：压缩后指针只能回退到压缩点之后，缓存永不失效
@@ -180,7 +181,7 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (224 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (226 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
 │   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点）
