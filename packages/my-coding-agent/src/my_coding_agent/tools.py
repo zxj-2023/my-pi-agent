@@ -132,14 +132,18 @@ def make_edit_tool(
     return Tool(func=edit, name="edit", is_parallel_safe=True)
 
 
-def _format_timeout_output(command: str, partial_out: str | None, partial_err: str | None) -> str:
+def _format_timeout_output(
+    command: str, partial_out: str | None, partial_err: str | None
+) -> str:
     parts: list[str] = []
     if partial_out:
         parts.append(partial_out)
     if partial_err:
         parts.append(partial_err)
     captured = "".join(parts).strip()
-    partial_text = captured[-2000:] if captured else "(no output captured before timeout)"
+    partial_text = (
+        captured[-2000:] if captured else "(no output captured before timeout)"
+    )
     return (
         f"Error: Timeout ({_TIMEOUT_SECONDS}s) for command '{command}'.\n"
         f"=== Output before timeout ===\n"
