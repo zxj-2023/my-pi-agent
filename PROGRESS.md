@@ -499,7 +499,7 @@ my-pi-agent/
   - 子代理递归探测隔离：派发子代理时，子 Agent 必须显式设置 `task_store=False` 并在 `_filter_tools` 中剔除 `task_*` 工具，防止子代理重复注册同名工具。
   - 孤儿进程防御：后台子进程执行必须强绑定进程生命周期与 `Agent.abort()`，避免用户中断后子进程在后台无序运行。
   - 自动收割闭环：后台任务跑完后通过已有的 `MessageQueue`（Follow-up 机制）无缝收割，两层循环在自然安全边界自动流转，架构高度统一。
-- **验证**：三包全量 **299 个离线测试** 全部 100% 绿灯通过（my-agent-core 241 + my-agent-llm 36 + my-coding-agent 22）。
+- **验证**：三包全量 **302 个离线测试** 全部 100% 绿灯通过（my-agent-core 244 + my-agent-llm 36 + my-coding-agent 22）。
 
 ---
 
@@ -518,7 +518,7 @@ my-pi-agent/
 - 阶段 7：memory 记忆系统（已完成，201 + 36 + 18 测试全绿）
 - 阶段 13：Claude Code 风格 Plugin 插件系统（已完成，212 + 36 + 18 测试全绿）
 - 阶段 14：Pi 风格动态干预机制 Steer 与 Follow-up（已完成，223 + 36 + 18 测试全绿）
-- 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，241 + 36 + 22 = 299 测试全绿）
+- 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，244 + 36 + 22 = 302 测试全绿）
 - 阶段 6：动态工具（未做）
 - 阶段 16：事件管道 A——只读轻量事件订阅管道（`session.subscribe` / `agent.subscribe`，fire-and-forget 同步非阻塞广播 + `unsubscribe()` 注销句柄）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
