@@ -464,6 +464,45 @@ my-pi-agent/
 
 ---
 
+### 阶段 8：统一任务系统、看板自动投影与后台异步执行（2026-08-29）
+
+**目标**：对标 Claude Code v2.1.142+（`trpc-agent-python`）、Pi（`@juicesharp/rpiv-todo`）与 `learn-claude-code`（s10/s11），构建三位一体的统一任务子系统。实现 `TaskItem` + `TaskStore` DAG 依赖状态机、标准 4 增量 CRUD 工具族（`task_create`, `task_update`, `task_get`, `task_list`）与 `todo_write` 便捷工具、`BeforeModelCall` 决策点 `<TASK_BOARD>` 上下文看板自动投影（0 工具往返消耗，Session 历史零污染），以及具备孤儿进程防御的 `BackgroundRunner` 后台异步执行引擎（`agent.abort()` 联动清理，结果自动送入 `MessageQueue` 收割）。
+
+- 提交：`307bd2e` `54fed05` `cd8a8a7` `460f992` `af30075`
+- **改了什么**：
+  - `task_store.py`（新增于 `my-agent-core`）：
+    - `TaskItem`：工单数据模型（`id`, `subject`, `description`, `status: pending/in_progress/completed/deleted`, `owner`, `active_form`, `blocked_by`, `metadata`）；
+    - `TaskStore`：管理 `<workspace>/.my_agent_core/tasks.json` 原子持久化（`tempfile` + `fsync` + `os.replace`），提供自增 ID 分配、DAG 传递性深度成环检测（`_depends_on`）、单 `in_progress` 聚焦约束、上游完成时下游 `unblocked` 自动解锁回显、全量紧凑看板渲染（`render_board`）与内部 `asyncio.Lock` 互斥保护。
+  - `tools/builtin/task_tools.py`（新增于 `my-agent-core`）：
+    - 导出 5 个标准工具：`task_create`, `task_update`, `task_get`, `task_list`, `todo_write`，全部标记 `is_parallel_safe=True`，遵循 Never-Throw 异常隔离。
+  - `background.py`（新增于 `my-agent-core`）：
+    - `BackgroundJob` & `BackgroundRunner`：异步非阻塞启动操作系统后台子进程，立即返回 `job_id`；执行完成后自动将 `<task_notification>` 送入 `agent.message_queue.add_followup()`；
+    - 孤儿进程防御：注册 `atexit` 钩子并在 `cancel_all()` / `agent.abort()` 中主动 `terminate()` 正在运行的子进程，杜绝僵尸进程。
+  - `agent.py`（`my-agent-core`）：
+    - 支持 `task_store` 参数（默认探测 `<cwd>/.my_agent_core/tasks.json`，显式指定或禁用），自动注册 `task_*` 工具；
+    - 自动装配 `self.background_runner`，并在 `abort()` 中触发后台进程安全清理；
+    - 在模型视图准备期（`BeforeModelCall` 前），若存在未完成任务，自动将 `<TASK_BOARD>` Markdown 看板注入当轮临时模型视图（Session 历史保持绝对纯净）。
+  - `tasks.py`（`my-agent-core`）：
+    - `_filter_tools` 自动过滤 `task_*` 与 `todo_write` 工具，派发子代理时显式传入 `task_store=False`，防止递归工具注册冲突。
+  - `tools.py` & `agent.py`（`my-coding-agent`）：
+    - `make_bash_tool` 支持 `run_in_background: bool = False` 参数并接入 `BackgroundRunner`；
+    - `CodingAgent` 自动装配并暴露 `task_store` 与 `background_runner` 属性。
+  - `docs/core/12-task-system-and-background.md`（新增）：沉淀统一任务系统与后台异步完整技术架构规范。
+  - 测试：
+    - `test_task_store.py`（8 项单测，覆盖 DAG 依赖、环检测、单 in_progress、解锁与原子持久化）；
+    - `test_task_tools.py`（3 项单测，覆盖 CRUD 与 todo_write 契约）；
+    - `test_task_context_projection.py`（2 项单测，验证 `<TASK_BOARD>` 自动注入与 Session 零污染）；
+    - `test_background.py`（2 项单测，验证异步启动、消息队列通知投递与取消清理）；
+    - `test_coding_agent_tasks_e2e.py`（新增于 `my-coding-agent`，端到端验证多轮任务规划与后台测试运行）。
+- **过程中的关键教训**：
+  - 领域模型分工：彻底区分“工程规划待办实体（`TaskItem` & `TaskStore`）”与“子代理委派运行实例（`my_agent_core.tasks.Task`）”，对标 OpenHands 与 `trpc-agent-python`，杜绝概念污染与命名冲突。
+  - 子代理递归探测隔离：派发子代理时，子 Agent 必须显式设置 `task_store=False` 并在 `_filter_tools` 中剔除 `task_*` 工具，防止子代理重复注册同名工具。
+  - 孤儿进程防御：后台子进程执行必须强绑定进程生命周期与 `Agent.abort()`，避免用户中断后子进程在后台无序运行。
+  - 自动收割闭环：后台任务跑完后通过已有的 `MessageQueue`（Follow-up 机制）无缝收割，两层循环在自然安全边界自动流转，架构高度统一。
+- **验证**：三包全量 **299 个离线测试** 全部 100% 绿灯通过（my-agent-core 241 + my-agent-llm 36 + my-coding-agent 22）。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
@@ -479,7 +518,7 @@ my-pi-agent/
 - 阶段 7：memory 记忆系统（已完成，201 + 36 + 18 测试全绿）
 - 阶段 13：Claude Code 风格 Plugin 插件系统（已完成，212 + 36 + 18 测试全绿）
 - 阶段 14：Pi 风格动态干预机制 Steer 与 Follow-up（已完成，223 + 36 + 18 测试全绿）
+- 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，241 + 36 + 22 = 299 测试全绿）
 - 阶段 6：动态工具（未做）
-- 阶段 8：task 系统——todo_write 部分（未做；委派生命周期已做）
 - 阶段 16：事件管道 A——只读轻量事件订阅管道（`session.subscribe` / `agent.subscribe`，fire-and-forget 同步非阻塞广播 + `unsubscribe()` 注销句柄）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

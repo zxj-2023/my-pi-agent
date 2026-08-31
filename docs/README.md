@@ -61,6 +61,7 @@
 - [09-memory.md](core/09-memory.md)：Memory 长期记忆系统、`MemoryStore` 双 Store 分区、Frozen Snapshot 保护 Prefix Cache、唯一子串匹配与受控维护工具。
 - [10-plugins.md](core/10-plugins.md)：Claude Code 官方标准 Plugin 插件系统、Manifest 优先级查找与智能兜底推断、自包含资源解构分发。
 - [11-dynamic-steering.md](core/11-dynamic-steering.md)：Pi 风格即时转向（Steer）与排队追问（Follow-up）双层调度引擎、三大切入安全点与取消隔离。
+- [12-task-system-and-background.md](core/12-task-system-and-background.md)：统一任务系统（`TaskItem` + `TaskStore` DAG 依赖）、`<TASK_BOARD>` 上下文看板自动投影与具备孤儿进程防御的 `BackgroundRunner` 后台异步执行引擎。
 
 ### 3. 产品与编码层 (`docs/coding/`)
 

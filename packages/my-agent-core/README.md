@@ -63,6 +63,10 @@
   - **经典两层循环拓扑（Two-Level Loop）**：外层处理 Follow-up 宏观任务流转，内层处理 ReAct 微观步骤与 Steer 转向；
   - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退；
   - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问。
+- **统一任务系统与后台异步执行（`task_store` & `background`）**：
+  - **DAG 依赖状态机（`TaskItem` + `TaskStore`）**：对标 Claude Code v2.1.142+，支持 `task_create` / `task_update` / `task_get` / `task_list` / `todo_write` 5 个标准工具、深度传递性环检测、单 `in_progress` 约束与 `unblocked` 自动解锁回显；
+  - **`<TASK_BOARD>` 上下文看板自动投影**：`BeforeModelCall` 决策点自动将当前未完成任务投影为极简 Markdown 看板注入当前模型视图（0 工具往返消耗，Session 历史零污染）；
+  - **`BackgroundRunner` 异步执行与孤儿进程防御**：驱动慢任务非阻塞运行，完成结果通过 `MessageQueue` 自动在下轮安全点收割；强绑定进程生命周期（`agent.abort()` 与 `atexit` 自动强杀清理，杜绝孤儿进程）。
 
 ---
 
@@ -222,5 +226,9 @@ def extension(api: ExtensionAPI):
   - `steer` 动态转向：在 ReAct 循环或子代理运行中途（工具执行间隙、无工具文本输出期）注入转向指令，使 Agent 实时调整执行方向，无需中断会话；
   - `follow_up` 轮次边界追加：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务；
   - 双层循环拓扑（外层任务流转 + 内层 ReAct 迭代）、交付模式分流（`one-at-a-time` / `all`）与子代理 `steer_task` 支持。
-- [ ] **Task / Todo 系统（阶段 8）**：`todo_write` 工具与 `TaskStore`，支持任务多层级拆解与实时状态看板投影。
+- [x] **阶段 8：统一 Task / Todo 系统与后台异步执行**：
+  - `TaskItem` 与 `TaskStore` DAG 依赖状态机、环检测与崩溃安全原子落盘；
+  - 标准 4 增量 CRUD 工具族（`task_create`, `task_update`, `task_get`, `task_list`）与 `todo_write` 便捷工具；
+  - `BeforeModelCall` 上下文看板自动投影（`<TASK_BOARD>`）；
+  - `BackgroundRunner` 异步调度与孤儿进程清理防御。
 - [ ] **可靠性增强**：网络异常重试、429 指数退避、`stop_reason` 细粒度归一化。

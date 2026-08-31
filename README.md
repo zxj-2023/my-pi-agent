@@ -109,6 +109,10 @@
   - **经典两层循环架构（Two-Level Loop）**：外层处理 Follow-up 宏观任务流转，内层处理 ReAct 微观步骤与 Steer 转向
   - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退
   - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问
+- **[统一任务系统与后台异步（task_store & background）](docs/core/12-task-system-and-background.md)**：
+  - **DAG 依赖状态机（`TaskItem` + `TaskStore`）**：对标 Claude Code v2.1.142+，支持 `task_create` / `task_update` / `task_get` / `task_list` / `todo_write` 5 个标准工具、深度传递性环检测、单 `in_progress` 聚焦约束、自动解锁下游任务与崩溃安全原子持久化
+  - **`<TASK_BOARD>` 上下文看板自动投影**：`BeforeModelCall` 决策点自动将当前未完成任务投影为 Markdown 看板注入模型临时视图（0 工具往返消耗，Session 历史零污染）
+  - **`BackgroundRunner` 后台异步执行引擎**：支持慢命令（`bash run_in_background=True`）非阻塞运行，结果自动送入 `MessageQueue` 安全点收割；强绑定进程生命周期（`agent.abort()` 与 `atexit` 自动强杀清理，彻底杜绝孤儿进程）
 
 ### 3. 产品层 `my-coding-agent`
 
@@ -153,7 +157,7 @@ uv run python -m my_coding_agent.agent
 本项目所有单元测试均严格使用 FakeLLM 与模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```powershell
-# 运行全部三个包的单元测试（277 tests）
+# 运行全部三个包的单元测试（299 tests）
 cd packages/my-agent-core && uv run python -m pytest -q
 cd ../my-agent-llm && uv run python -m pytest -q
 cd ../my-coding-agent && uv run python -m pytest -q
@@ -165,10 +169,10 @@ cd ../my-coding-agent && uv run python -m pytest -q
 
 ```text
 my-pi-agent/
-├── docs/                           # 全套技术设计规范文档库 (14 篇模块规范 + 全景导航)
+├── docs/                           # 全套技术设计规范文档库 (15 篇模块规范 + 全景导航)
 │   ├── README.md                   # 架构全景与文档索引
 │   ├── llm/                        # 模型边界层规范 (01-llm-boundary.md)
-│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 11-dynamic-steering.md)
+│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 12-task-system-and-background.md)
 │   └── coding/                     # 产品与编码层规范 (01-file-tools.md, 02-mcp-client.md)
 │
 ├── packages/
@@ -181,12 +185,14 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (226 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (241 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
-│   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点）
+│   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点 + 看板自动投影）
 │   │   │   ├── message_queue.py    # MessageQueue 动态干预队列（Steer & Follow-up）
-│   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult）
+│   │   │   ├── task_store.py       # TaskItem + TaskStore（DAG 依赖图、环检测与原子落盘）
+│   │   │   ├── background.py       # BackgroundRunner（后台异步调度与孤儿进程防御）
+│   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult / task_tools）
 │   │   │   ├── events.py           # 12 个生命周期事件 + HookResult 统一干预模型
 │   │   │   ├── session.py          # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
 │   │   │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
@@ -200,7 +206,7 @@ my-pi-agent/
 │   │   │   └── main.py             # 核心层 demo 入口
 │   │   └── tests/                  # 离线测试
 │   │
-│   └── my-coding-agent/            # 产品层独立 uv 项目 (21 tests)
+│   └── my-coding-agent/            # 产品层独立 uv 项目 (22 tests)
 │       ├── pyproject.toml          # src 布局 + 依赖 core, llm, mcp
 │       ├── src/my_coding_agent/    # Python 包
 │       │   ├── tools.py            # 内置编码工具（read/write/edit/bash + _safe_path 沙箱 + 精细化报错）
