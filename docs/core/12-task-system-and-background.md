@@ -31,7 +31,7 @@
 │    • 状态机: pending -> in_progress -> completed (或 deleted 软删除)         │
 │    • 核心属性: id, subject, description, blocked_by, owner, active_form     │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 2. 子代理委派实例 (my_agent_core.tasks)                                     │
+│ 2. 子代理委派实例 (my_agent_core.subagent_tasks)                             │
 │    • 代表【一次 Subagent 的运行时执行容器】，存活于一次 task() 工具调用期间   │
 │    • 状态机: RUNNING -> COMPLETED -> ERROR                                  │
 │    • 核心属性: id, status, result, error, 拥有独立的 subagents/*.jsonl 会话   │

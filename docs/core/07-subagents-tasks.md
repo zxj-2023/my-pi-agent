@@ -1,32 +1,34 @@
-# Subagents 与 Task 任务委派设计规范 (`my_agent_core.subagents` & `tasks`)
+# Subagents 与 SubagentTask 任务委派设计规范 (`my_agent_core.subagents` & `subagent_tasks`)
 
-- **定位**：声明式多智能体发现与受控任务委派调度引擎 (`packages/my-agent-core/src/my_agent_core/subagents.py`, `tasks.py`)
-- **核心类**：`Subagent`, `SubagentManager`, `Task`, `TaskManager`, `make_task_tool`
-- **主要实现**：`subagents.py`, `tasks.py`, `tools/builtin/task.py`
+- **定位**：声明式多智能体发现与受控任务委派调度引擎 (`packages/my-agent-core/src/my_agent_core/subagents.py`, `subagent_tasks.py`)
+- **核心类**：`Subagent`, `SubagentManager`, `SubagentTask`, `SubagentTaskManager`, `make_task_tool`
+- **主要实现**：`subagents.py`, `subagent_tasks.py`（保留 `tasks.py` 别名兼容）, `tools/builtin/task.py`
 
 ---
 
 ## 一、架构设计与定位
 
 当面对复杂分工任务时，单一 Agent 会因为上下文过载而降低推理质量。
-`subagents` 与 `tasks` 模块提供了一套声明式、强隔离的子智能体任务委派机制：
+`subagents` 与 `subagent_tasks` 模块提供了一套声明式、强隔离的子智能体任务委派机制：
 
 1. **声明式子代理发现**：在 `.agents/agents/*.md` 中以 Markdown 格式声明各领域专家专员；
 2. **单工具桥接（Tool as Bridge）**：大模型无需理解底层通信协议，仅通过标准工具 `task(prompt, agent_type)` 即可委派任务；
-3. **独立子会话树沙箱隔离**：子代理的完整对话历史保存在独立子会话文件中，主会话保持纯净。
+3. **独立子会话树沙箱隔离**：子代理的完整对话历史保存在独立子会话文件中，主会话保持纯净；
+4. **与项目看板（`TaskItem` / `TaskStore`）概念清晰分离**：`SubagentTask` 专指运行时子代理执行句柄，项目工程工单由 `TaskItem` / `TaskStore` 统一管理。
 
 ```text
   主 Agent ReAct 循环
          │
          ▼ 大模型发起委派: task(prompt="审查代码", agent_type="reviewer")
   ┌───────────────────────────────────────────────────────────────────┐
-  │ TaskManager.start_task(prompt, "reviewer")                        │
+  │ SubagentTaskManager.start_task(prompt, "reviewer")                │
   ├───────────────────────────────────────────────────────────────────┤
   │  1. 查表 SubagentManager 获取 reviewer.md 提示词配置               │
   │  2. 创建独立子会话: <session_dir>/subagents/agent-task_xxx.jsonl   │
   │  3. 【防递归与沙箱隔离】:                                          │
-  │     - 过滤掉父工具中的 task 与 memory 工具                         │
-  │     - 显式传入 subagent_dirs=[], plugin_dirs=[], memory_dir=False │
+  │     - 过滤掉父工具中的 task、memory 与 task_* 看板工具             │
+  │     - 显式传入 subagent_dirs=[], plugin_dirs=[], memory_dir=False, │
+  │       task_store=False                                            │
   │  4. 实例化 Child Agent 并在独立沙箱中执行 run(prompt)              │
   │  5. 捕获子代理最终总结文本 ➔ 返回给主 Agent 作为 tool 观察结果    │
   └───────────────────────────────────────────────────────────────────┘
