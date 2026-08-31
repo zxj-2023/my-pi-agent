@@ -41,8 +41,12 @@ from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
+from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools import Tool, ToolResult
-from my_agent_core.tools.builtin import make_task_tool
+from my_agent_core.tools.builtin.task import make_task_tool  # pyright: ignore[reportMissingImports]
+from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
+    make_task_tools,
+)
 
 
 class Agent:
@@ -66,6 +70,7 @@ class Agent:
         extension_dirs: Sequence[str | Path] | None = None,
         plugin_dirs: Sequence[str | Path] | None = None,
         memory_dir: str | Path | None | Literal[False] = None,
+        task_store: TaskStore | Path | str | None | Literal[False] = None,
         steering_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         followup_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         hooks: list[tuple[type[Event], Callable]] | None = None,
@@ -110,6 +115,7 @@ class Agent:
         )  # 三态同 skill_dirs
 
         self.memory_store = self._init_memory_store(memory_dir)  # memory 装配与快照冻结
+        self.task_store = self._init_task_store(task_store)  # 任务看板仓库装配
         self.message_queue = MessageQueue(
             steering_mode=steering_mode, followup_mode=followup_mode
         )  # 动态干预消息队列 (Pi-style steer & followup)
@@ -126,6 +132,26 @@ class Agent:
             session, context_budget, keep_recent_tokens
         )  # ③ context 装配
         self._register_hooks(hooks)  # ④ hooks 批量注册
+
+    def _init_task_store(
+        self, task_store: TaskStore | Path | str | None | Literal[False]
+    ) -> TaskStore | None:
+        """解析 task_store 三态并初始化 TaskStore：
+        False → 显式禁用；
+        TaskStore 实例 → 直接复用；
+        str | Path → 指定工作区初始化；
+        None → 探测 <cwd>/.my_agent_core/tasks.json（存在才启用）。
+        """
+        if isinstance(task_store, bool) and not task_store:
+            return None
+        if isinstance(task_store, TaskStore):
+            return task_store
+        if task_store is not None:
+            return TaskStore(task_store)
+        default_file = Path.cwd() / ".my_agent_core" / "tasks.json"
+        if default_file.exists() and default_file.is_file():
+            return TaskStore(Path.cwd())
+        return None
 
     def _init_memory_store(
         self, memory_dir: str | Path | None | Literal[False]
@@ -164,6 +190,13 @@ class Agent:
                     "Tool name 'memory' conflicts with the built-in memory tool"
                 )
             self.registry.register(make_memory_tool(self.memory_store))
+        if self.task_store:
+            for task_tool in make_task_tools(self.task_store):
+                if self.registry.get(task_tool.name) is not None:
+                    raise ValueError(
+                        f"Tool name '{task_tool.name}' conflicts with built-in task tool"
+                    )
+                self.registry.register(task_tool)
 
     def _init_messages(
         self, session: Session, system_prompt: str | None
@@ -343,6 +376,18 @@ class Agent:
                 # ── Reason：准备上下文视图 + 异步流式调大模型
                 tools = self.registry.get_schemas()
                 view = await self._ctx.prepare(self.messages)
+
+                # ── 看板自动投影（若有任务，动态注入到模型临时视图中，Session 零污染）
+                if self.task_store and self.task_store.list():
+                    board_block = f"<TASK_BOARD>\n{self.task_store.render_board()}\n</TASK_BOARD>"
+                    view = list(view)
+                    if view and view[0].role == "system":
+                        view[0] = Message(
+                            role="system",
+                            content=view[0].content + f"\n\n{board_block}",
+                        )
+                    else:
+                        view.insert(0, Message(role="system", content=board_block))
 
                 # ── 决策点 3: BeforeModelCall 临时视图改写（self.messages 与 Session 零污染）
                 ctx_hook = await self._emit(

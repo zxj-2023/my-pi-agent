@@ -57,8 +57,17 @@ def _system_for(sub: Subagent, parent: Agent) -> str:
 
 
 def _filter_tools(parent: Agent, sub: Subagent) -> list:
-    """父工具集按白/黑名单过滤；task 与 memory 永不出现（防递归与隔离）。"""
-    tools = [t for t in parent.registry.list() if t.name not in ("task", "memory")]
+    """父工具集按白/黑名单过滤；task、memory 与 task_* 永不出现（防递归与隔离）。"""
+    builtins = (
+        "task",
+        "memory",
+        "task_create",
+        "task_update",
+        "task_get",
+        "task_list",
+        "todo_write",
+    )
+    tools = [t for t in parent.registry.list() if t.name not in builtins]
     if sub.tools is not None:
         allowed = set(sub.tools)
         tools = [t for t in tools if t.name in allowed]
@@ -140,6 +149,7 @@ class TaskManager:
             skill_dirs=[],  # skill 清单已由 _system_for 拼入
             subagent_dirs=[],  # 防递归：禁用子代理再探测
             memory_dir=False,  # 隔离：子代理禁用长期记忆探测与维护
+            task_store=False,  # 隔离：子代理禁用任务看板探测与维护
             plugin_dirs=[],  # 隔离：子代理禁用插件再探测（防递归注册 task 工具）
         )
         self._active_agents[task_id] = child

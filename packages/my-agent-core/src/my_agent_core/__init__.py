@@ -33,7 +33,14 @@ from my_agent_core.plugins import (
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session, SessionTree
 from my_agent_core.session_store import SessionStore
+from my_agent_core.task_store import (  # pyright: ignore[reportMissingImports]
+    TaskItem,
+    TaskStore,
+)
 from my_agent_core.tools import Tool, ToolResult, tool
+from my_agent_core.tools.builtin import (  # pyright: ignore
+    make_task_tools,
+)
 
 __all__ = [
     "Agent",
@@ -64,6 +71,9 @@ __all__ = [
     "ExtensionManager",
     "MemoryStore",
     "make_memory_tool",
+    "TaskItem",
+    "TaskStore",
+    "make_task_tools",
     "MessageQueue",
     "MessageType",
     "QueuedMessage",
