@@ -37,6 +37,11 @@ from my_agent_core.plugins import (
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session, SessionTree
 from my_agent_core.session_store import SessionStore
+from my_agent_core.subagent_tasks import (  # pyright: ignore[reportMissingImports]
+    SubagentTask,
+    SubagentTaskManager,
+    SubagentTaskStatus,
+)
 from my_agent_core.task_store import (  # pyright: ignore[reportMissingImports]
     TaskItem,
     TaskStore,
@@ -78,6 +83,9 @@ __all__ = [
     "TaskItem",
     "TaskStore",
     "make_task_tools",
+    "SubagentTask",
+    "SubagentTaskManager",
+    "SubagentTaskStatus",
     "BackgroundJob",
     "BackgroundRunner",
     "MessageQueue",

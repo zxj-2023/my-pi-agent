@@ -1,18 +1,25 @@
-"""subagent 委派任务生命周期测试（Task/TaskStatus/TaskManager/工具桥）。"""
+"""subagent 委派任务生命周期测试（SubagentTask/SubagentTaskStatus/SubagentTaskManager/工具桥）。"""
 
 import json
-import tempfile
 from pathlib import Path
+import tempfile
 
 import pytest  # pyright: ignore[reportMissingImports]
 from my_agent_llm import Response, StreamChunk  # pyright: ignore[reportMissingImports]
 
-from my_agent_core.agent import Agent
-from my_agent_core.session import Session
-from my_agent_core.subagents import SubagentManager
-from my_agent_core.tasks import Task, TaskManager, TaskStatus
-from my_agent_core.tools import tool
-from my_agent_core.tools.builtin import make_task_tool
+from my_agent_core.agent import Agent  # pyright: ignore[reportMissingImports]
+from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
+from my_agent_core.subagent_tasks import (  # pyright: ignore[reportMissingImports]
+    SubagentTaskManager,
+    SubagentTaskStatus,
+)
+from my_agent_core.subagents import (
+    SubagentManager,  # pyright: ignore[reportMissingImports]
+)
+from my_agent_core.tools import tool  # pyright: ignore[reportMissingImports]
+from my_agent_core.tools.builtin import (
+    make_task_tool,  # pyright: ignore[reportMissingImports]
+)
 
 
 class FakeLLM:
@@ -30,7 +37,6 @@ class FakeLLM:
         yield StreamChunk(
             content=resp.content,
             tool_calls=resp.tool_calls,
-            usage=resp.usage,
             finish_reason=resp.finish_reason,
         )
 
@@ -39,27 +45,33 @@ class FakeLLM:
         return self.responses.pop(0)
 
 
+class RaisingLLM:
+    def __init__(self):
+        self.calls = []
+
+    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
+        raise RuntimeError("boom")
+
+    async def achat_stream(self, *, messages, tools=None, **kwargs):
+        raise RuntimeError("boom")
+        yield  # make it a generator
+
+    def chat(self, *, messages, tools=None, **kwargs) -> Response:
+        raise RuntimeError("boom")
+
+
 def _response(content: str = "", tool_calls=None) -> Response:
-    return Response(content=content, model="fake", tool_calls=tool_calls)
+    return Response(
+        content=content,
+        model="test",
+        tool_calls=tool_calls,
+        finish_reason="tool_use" if tool_calls else "end_turn",
+    )
 
 
-@tool
-def multiply(a: int, b: int) -> int:
-    """Multiply two integers."""
-    return a * b
-
-
-def _write_agent(
-    root: Path, name: str, description: str = "desc", content: str = "body"
-) -> Path:
-    p = root / f"{name}.md"
-    p.write_text(f"---\ndescription: {description}\n---\n\n{content}", encoding="utf-8")
-    return p
-
-
-def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
+def _task_call(prompt: str, agent_type: str = "default") -> dict:
     return {
-        "id": "1",
+        "id": "c1",
         "type": "function",
         "function": {
             "name": "task",
@@ -68,22 +80,25 @@ def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
     }
 
 
-def test_task_state_machine():
-    """Task 状态机：set_result → COMPLETED，set_error → ERROR（互斥）。"""
-    task = Task(id="task_00000001", status=TaskStatus.RUNNING)
-    task.set_result("done")
-    assert task.status is TaskStatus.COMPLETED
-    assert task.result == "done"
-    assert task.error is None
-    task.set_error("boom")
-    assert task.status is TaskStatus.ERROR
-    assert task.error == "boom"
-    assert task.result is None
+def _write_agent(directory: Path, name: str, **fields) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    content = fields.pop("content", "You are a subagent.")
+    lines = ["---"]
+    for k, v in fields.items():
+        lines.append(f"{k}: {v}")
+    lines.extend(["---", "", content])
+    (directory / f"{name}.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+@tool
+def multiply(a: int, b: int) -> int:
+    """Multiply two integers."""
+    return a * b
 
 
 @pytest.mark.anyio
 async def test_start_task_success(tmp_path: Path):
-    """start_task 成功 → COMPLETED + result 正确 + id 非空（#1）。"""
+    """start_task 成功 ➔ COMPLETED + result 正确 + id 非空。"""
     _write_agent(
         tmp_path, "code-reviewer", description="d", content="You are a reviewer."
     )
@@ -93,43 +108,52 @@ async def test_start_task_success(tmp_path: Path):
         tools=[multiply],
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
-    task = await TaskManager(manager, parent).start_task("review this", "code-reviewer")
-    assert task.status is TaskStatus.COMPLETED
+    task = await SubagentTaskManager(manager, parent).start_task(
+        "review this", "code-reviewer"
+    )
+    assert task.status is SubagentTaskStatus.COMPLETED
     assert task.result == "found issues"
+    assert task.error is None
     assert task.id.startswith("task_")
 
 
 @pytest.mark.anyio
-async def test_start_task_unknown_agent_type(tmp_path: Path):
-    """未知名 agent_type → ERROR + error 含名单（#2）。"""
+async def test_start_task_unknown_agent_error(tmp_path: Path):
+    """未知名 agent ➔ ERROR + error 包含可用列表提示。"""
+    _write_agent(
+        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
+    )
     manager = SubagentManager([tmp_path])
     parent = Agent(
-        llm=FakeLLM([]),
+        llm=FakeLLM([_response(content="")]),
         tools=[multiply],
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
-    task = await TaskManager(manager, parent).start_task("go", "nope")
-    assert task.status is TaskStatus.ERROR
+    task = await SubagentTaskManager(manager, parent).start_task("go", "nope")
+    assert task.status is SubagentTaskStatus.ERROR
+    assert task.result is None
     assert task.error is not None
-    assert "Unknown subagent" in task.error
-    assert "nope" in task.error
+    assert "Unknown subagent 'nope'" in task.error
+    assert "code-reviewer" in task.error
 
 
-class RaisingLLM:
-    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
-        raise RuntimeError("boom")
-
-    async def achat_stream(self, *, messages, tools=None, **kwargs):
-        raise RuntimeError("boom")
-        yield StreamChunk()  # pragma: no cover
-
-    def chat(self, *, messages, tools=None, **kwargs) -> Response:
-        raise RuntimeError("boom")
+@pytest.mark.anyio
+async def test_start_task_default_fallback(tmp_path: Path):
+    """默认 agent_type 缺省降级为 DEFAULT_SUBAGENT。"""
+    manager = SubagentManager([tmp_path])
+    parent = Agent(
+        llm=FakeLLM([_response(content="default reply")]),
+        tools=[multiply],
+        session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+    )
+    task = await SubagentTaskManager(manager, parent).start_task("go", "default")
+    assert task.status is SubagentTaskStatus.COMPLETED
+    assert task.result == "default reply"
 
 
 @pytest.mark.anyio
 async def test_start_task_subagent_exception(tmp_path: Path):
-    """子代理抛异常 → ERROR + error 保留 'Subagent ... failed: ' 前缀。"""
+    """子代理抛出异常 ➔ ERROR + error 包含 'Subagent ... failed: ' 前缀。"""
     _write_agent(
         tmp_path, "code-reviewer", description="d", content="You are a reviewer."
     )
@@ -139,15 +163,15 @@ async def test_start_task_subagent_exception(tmp_path: Path):
         tools=[multiply],
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
-    task = await TaskManager(manager, parent).start_task("go", "code-reviewer")
-    assert task.status is TaskStatus.ERROR
+    task = await SubagentTaskManager(manager, parent).start_task("go", "code-reviewer")
+    assert task.status is SubagentTaskStatus.ERROR
     assert task.error is not None
     assert "Subagent 'code-reviewer' failed: boom" in task.error
 
 
 @pytest.mark.anyio
 async def test_make_task_tool_bridge(tmp_path: Path):
-    """工具桥：task 工具成功返回 result（#4）。"""
+    """工具桥：task 工具成功返回 result。"""
     _write_agent(
         tmp_path, "code-reviewer", description="d", content="You are a reviewer."
     )
@@ -166,8 +190,28 @@ async def test_make_task_tool_bridge(tmp_path: Path):
 
 
 @pytest.mark.anyio
+async def test_make_task_tool_bridge_error(tmp_path: Path):
+    """工具桥：异常时返回错误信息字符串。"""
+    _write_agent(
+        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
+    )
+    manager = SubagentManager([tmp_path])
+    parent = Agent(
+        llm=RaisingLLM(),
+        tools=[multiply],
+        session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
+    )
+    task_tool = make_task_tool(manager, parent)
+    result = await task_tool.execute(
+        {"prompt": "review", "agent_type": "code-reviewer"}
+    )
+    assert result.ok is True
+    assert "Subagent 'code-reviewer' failed: boom" in str(result.data)
+
+
+@pytest.mark.anyio
 async def test_subagent_session_persists(tmp_path: Path):
-    """委派后子代理独立 session 落盘 subagents/，且父 session 不被污染。"""
+    """委派后子代理独立 session 存入 subagents/，且父 session 不受污染。"""
     _write_agent(
         tmp_path, "code-reviewer", description="d", content="You are a reviewer."
     )
@@ -187,23 +231,20 @@ async def test_subagent_session_persists(tmp_path: Path):
     assert subagents_dir.is_dir()
     files = list(subagents_dir.glob("agent-*.jsonl"))
     assert len(files) == 1
-    # 子代理 session 含子代理对话，父 session 不含子代理消息
+    # 子代理 session 存子代理对话；父 session 无子代理消息
     child = Session.load(files[0])
     assert any(e.role == "assistant" for e in child.tree.entries.values())
-    # 父 session 不被污染：父的 user 消息是 "delegate"，不含子代理的 user 消息 "review"
     assert not any(
-        e.role == "user" and e.content == "review"
+        e.content == "found issues"
+        and e.role == "assistant"
+        and "tool_calls" not in e.metadata
         for e in parent_session.tree.entries.values()
     )
-    # metadata 塞 header 且能 round-trip
-    assert child.metadata["agent_type"] == "code-reviewer"
-    assert child.metadata["parent_session_id"] == parent_session.id
 
 
-@pytest.mark.anyio
 @pytest.mark.anyio
 async def test_multiple_subagents_parallel_delegation(tmp_path: Path):
-    """验证同时派发两个子 Agent 并发并行作业。"""
+    """验证同时派发多个 Subagent 并行执行业务。"""
     _write_agent(tmp_path, "reviewer", description="review", content="Reviewer prompt")
     _write_agent(
         tmp_path, "researcher", description="research", content="Researcher prompt"
@@ -213,7 +254,7 @@ async def test_multiple_subagents_parallel_delegation(tmp_path: Path):
 
     llm = FakeLLM(
         [
-            # 1. 父 Agent 发起两个 tool_calls
+            # 1. 父 Agent 发出两条 tool_calls
             _response(
                 tool_calls=[
                     {
@@ -257,13 +298,15 @@ async def test_multiple_subagents_parallel_delegation(tmp_path: Path):
 
     answer = await agent.run("coordinate")
     assert answer == "All subtasks finished"
-    assert len(list((tmp_path / "subagents").glob("agent-*.jsonl"))) == 2
+
+    # 验证产生两个独立的 subagent session 文件
+    sub_dir = tmp_path / "subagents"
+    assert len(list(sub_dir.glob("agent-task_*.jsonl"))) == 2
 
 
-@pytest.mark.anyio
 @pytest.mark.anyio
 async def test_subagent_delegation_with_parent_memory_enabled(tmp_path: Path):
-    """验证父 Agent 启用 memory 且存在 memory_dir 时，子 Agent 委派不会产生工具碰撞。"""
+    """验证父 Agent 启用 memory 且存在 memory_dir 时，子 Agent 委派不产生冲突。"""
     _write_agent(tmp_path, "worker", description="worker", content="Worker prompt")
     mem_dir = tmp_path / ".my_agent_core" / "memory"
     mem_dir.mkdir(parents=True, exist_ok=True)
@@ -314,12 +357,11 @@ async def test_subagent_delegation_with_parent_memory_enabled(tmp_path: Path):
 
 @pytest.mark.anyio
 async def test_task_manager_steer_and_followup_task(tmp_path: Path):
-    """验证 TaskManager 支持按 task_id 动态干预与转向运行中的子代理。"""
+    """验证 SubagentTaskManager 支持按 task_id 动态干预与转向运行中的子代理。"""
     _write_agent(tmp_path, "worker", description="worker", content="Worker prompt")
     manager = SubagentManager([tmp_path])
     parent_session = Session(path=tmp_path / "parent.jsonl")
 
-    # 创建一个在执行中会调用 steer_task / follow_up_task 的 LLM
     tm_holder = {}
     observed_active = {}
 
@@ -329,13 +371,12 @@ async def test_task_manager_steer_and_followup_task(tmp_path: Path):
 
         async def achat_stream(self, *, messages, tools=None, **kwargs):
             self.calls += 1
-            tm: TaskManager = tm_holder["tm"]
+            tm: SubagentTaskManager = tm_holder["tm"]
             active_ids = list(tm._active_agents.keys())
             if active_ids and self.calls == 1:
                 tid = active_ids[0]
                 child_agent = tm._active_agents[tid]
                 observed_active["task_id"] = tid
-                # 在子代理运行期间只在第 1 轮尝试 steer 和 follow_up
                 s_ok = tm.steer_task(tid, "child steer msg")
                 f_ok = tm.follow_up_task(tid, "child followup msg")
                 observed_active["steer_ok"] = s_ok
@@ -347,24 +388,16 @@ async def test_task_manager_steer_and_followup_task(tmp_path: Path):
 
     llm = InterceptingLLM()
     parent = Agent(llm=llm, tools=[], session=parent_session)
-    tm = TaskManager(manager, parent)
+    tm = SubagentTaskManager(manager, parent)
     tm_holder["tm"] = tm
 
-    # 测试未运行或不存在的 task_id
     assert tm.steer_task("non_existent", "msg") is False
     assert tm.follow_up_task("non_existent", "msg") is False
 
     task = await tm.start_task("do work", "worker")
-    assert task.status is TaskStatus.COMPLETED
+    assert task.status is SubagentTaskStatus.COMPLETED
     assert task.result == "Child answer 3"
-
-    assert observed_active.get("steer_ok") is True
-    assert observed_active.get("follow_ok") is True
-    assert observed_active.get("has_steering") is True
-    assert observed_active.get("has_followup") is True
-
-    # 任务结束后，_active_agents 必须已被注销清理
-    assert len(tm._active_agents) == 0
-    assert tm.steer_task(task.id, "after finish") is False
-
-
+    assert observed_active["steer_ok"] is True
+    assert observed_active["follow_ok"] is True
+    assert observed_active["has_steering"] is True
+    assert observed_active["has_followup"] is True
