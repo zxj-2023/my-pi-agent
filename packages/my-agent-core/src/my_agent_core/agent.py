@@ -51,6 +51,7 @@ from my_agent_core.tools.builtin.task import (
     make_task_tool,  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
+    TaskGuardHook,
     make_task_tools,
 )
 
@@ -249,6 +250,10 @@ class Agent:
 
     def _register_hooks(self, hooks) -> None:
         """构造时批量注册 hooks（对称 _register_tools）。"""
+        if self.task_store:
+            guard = TaskGuardHook(self.task_store, self.steer)
+            self.hooks.register(AgentStart, guard.on_agent_start)
+            self.hooks.register(TurnEnd, guard.on_turn_end)
         for event_cls, callback in hooks or []:
             self.hooks.register(event_cls, callback)
 
@@ -335,7 +340,6 @@ class Agent:
                 [m.content for m in self.message_queue.get_steering_messages()]
             )
 
-        nudged_task_ids: set[str] = set()
         iteration = 0
         final_text: str | None = None
 
@@ -546,29 +550,6 @@ class Agent:
                     tool_results = []
                     has_more_tool_calls = False
                     final_text = content_acc
-
-                    # ── 任务收尾提醒 (Task Completion Nudge Guard):
-                    # 若模型未发起工具调用试图退出，但看板上仍有处于 in_progress 的任务未结清，自动发起 Steer 敲打提醒
-                    if (
-                        self.task_store
-                        and not self.message_queue.has_steering()
-                        and iteration < (self.max_iterations or 50)
-                    ):
-                        in_progress_tasks = [
-                            t
-                            for t in self.task_store.list()
-                            if t.status == "in_progress"
-                        ]
-                        for t in in_progress_tasks:
-                            if t.id not in nudged_task_ids:
-                                nudged_task_ids.add(t.id)
-                                nudge = (
-                                    f"Task '{t.id}' ({t.subject}) is still marked as 'in_progress'. "
-                                    f"If you have completed it, please call todo(action='update', task_id='{t.id}', status='completed') "
-                                    f"to update your progress before concluding."
-                                )
-                                self.message_queue.add_steering(nudge)
-                                break
 
                 # 每个 Turn 结束时统一派发 TurnEnd（对齐 Pi 标准生命周期：每轮必有配对的 TurnEnd）
                 await self._emit(TurnEnd(message=assistant, tool_results=tool_results))

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal
 
+from my_agent_core.events import AgentStart, TurnEnd
 from my_agent_core.tools.core import Tool, ToolResult, tool
 
 if TYPE_CHECKING:
@@ -182,3 +184,33 @@ def make_todo_tool(store: TaskStore) -> Tool:
 def make_task_tools(store: TaskStore) -> list[Tool]:
     """导出单一 todo 标准工具（对标 Pi & Hermes）。"""
     return [make_todo_tool(store)]
+
+
+class TaskGuardHook:
+    """任务收尾早退守卫钩子（对标 Pi 扩展架构）：在 TurnEnd 时检查未结清工单，通过 steer 提醒大模型。"""
+
+    def __init__(self, task_store: TaskStore, steer_fn: Callable[[str], None]) -> None:
+        self.task_store = task_store
+        self.steer_fn = steer_fn
+        self.nudged_ids: set[str] = set()
+
+    def on_agent_start(self, event: AgentStart) -> None:
+        """会话开始时重置已提醒集合。"""
+        self.nudged_ids.clear()
+
+    def on_turn_end(self, event: TurnEnd) -> None:
+        """Turn 结束时检查：若无工具调用且仍有 in_progress 任务，发起 steer 提醒。"""
+        if event.tool_results:
+            return
+
+        in_progress = [t for t in self.task_store.list() if t.status == "in_progress"]
+        for t in in_progress:
+            if t.id not in self.nudged_ids:
+                self.nudged_ids.add(t.id)
+                self.steer_fn(
+                    f"Task '{t.id}' ({t.subject}) is still marked as 'in_progress'. "
+                    f"If you have completed it, please call todo(action='update', task_id='{t.id}', status='completed') "
+                    f"to update your progress before concluding."
+                )
+                break
+

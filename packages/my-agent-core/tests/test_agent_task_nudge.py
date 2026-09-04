@@ -52,9 +52,7 @@ class NudgeTestLLM:
             )
         elif self.turns == 2:
             # Turn 2: Model forgot to call todo(completed), just says it's done without tools
-            yield StreamChunk(
-                content="I have written all the code, job is finished!"
-            )
+            yield StreamChunk(content="I have written all the code, job is finished!")
         elif self.turns == 3:
             # Turn 3: Model receives the nudge and marks completed
             yield StreamChunk(
@@ -104,9 +102,7 @@ def test_agent_nudges_model_when_in_progress_task_remains(tmp_path: Path):
 
         # Verify Turn 3 received the reminder message
         turn3_msgs = llm.received_messages[2]
-        all_text = "".join(
-            m.content for m in turn3_msgs if isinstance(m.content, str)
-        )
+        all_text = "".join(m.content for m in turn3_msgs if isinstance(m.content, str))
         assert "is still marked as 'in_progress'" in all_text
 
     asyncio.run(_test())

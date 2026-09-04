@@ -71,17 +71,17 @@
 
 ## 五、任务收尾提醒与早退守卫 (Task Completion Nudge & Early-Exit Guard)
 
-为防止大模型完成工作后忘记调用 `todo` 打勾更新状态便直接输出总结退出：
+对标 Pi 官方的扩展事件钩子哲学，**核心 Agent 循环 (`Agent.run`) 保持 100% 纯净通用，绝不硬编码任何任务状态检查**。该守卫以标准的 `TaskGuardHook` 形式挂载在 `TurnEnd` 与 `AgentStart` 事件上：
 
-1. **早退拦截检查**：当模型未发起工具调用（准备输出最终文本退出本轮）时，框架自动检查 `TaskStore` 中是否存在仍处于 `in_progress` 的未结清任务；
-2. **Steer 自动提醒**：若存在在跑任务，框架拦截退出，自动向 `MessageQueue` 注入一条 Steering 纠偏指令：
+1. **事件解耦监听**：`TaskGuardHook` 监听 `TurnEnd` 事件。当模型未发起工具调用（`not event.tool_results`，准备输出最终文本退出本轮）时，钩子检查 `TaskStore` 中是否存在仍处于 `in_progress` 的未结清任务；
+2. **Steer 自动提醒**：若存在在跑任务，钩子调用 `agent.steer(nudge)` 向 `MessageQueue` 注入一条 Steering 纠偏指令：
    ```text
    Task '{task_id}' ({subject}) is still marked as 'in_progress'. 
    If you have completed it, please call todo(action='update', task_id='{task_id}', status='completed') 
    to update your progress before concluding.
    ```
-3. **闭环收工**：模型接收到精准提醒后，调用 `todo` 完成打勾结算，并在下一轮整洁交差；
-4. **单次防御防护**：为防止模型执意不更新造成死循环，框架对同一任务在单次运行中最多敲打一次（`nudged_task_ids` 集合），既保证纪律严明又保障绝对收敛。
+3. **安全点拦截继续**：`Agent.run` 在派发 `TurnEnd` 后的安全点检测到 `has_steering() == True`，无缝拉起下一轮 ReAct 循环；
+4. **闭环收工与防死循环**：模型接收到精准提醒后，调用 `todo` 完成打勾结算并在下一轮交差；钩子在单次运行中对同一任务最多敲打一次（`nudged_ids` 集合，在 `AgentStart` 时重置），保障绝对收敛。
 
 ---
 
