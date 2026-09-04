@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import tempfile
@@ -39,7 +38,6 @@ class TaskStore:
         self.enforce_single_in_progress = enforce_single_in_progress
         self.tasks: dict[str, TaskItem] = {}
         self._next_id = 1
-        self._lock = asyncio.Lock()
         self._load_from_disk()
 
     def _load_from_disk(self) -> None:
@@ -99,23 +97,22 @@ class TaskStore:
         metadata: dict | None = None,
     ) -> TaskItem:
         """创建新任务，自动分配递增 ID。"""
-        async with self._lock:
-            sub = subject.strip()
-            if not sub:
-                raise ValueError("Task subject cannot be empty")
-            task_id = f"task_{self._next_id}"
-            self._next_id += 1
-            task = TaskItem(
-                id=task_id,
-                subject=sub,
-                description=description,
-                status="pending",
-                active_form=active_form,
-                metadata=metadata or {},
-            )
-            self.tasks[task_id] = task
-            self._save_to_disk()
-            return task
+        sub = subject.strip()
+        if not sub:
+            raise ValueError("Task subject cannot be empty")
+        task_id = f"task_{self._next_id}"
+        self._next_id += 1
+        task = TaskItem(
+            id=task_id,
+            subject=sub,
+            description=description,
+            status="pending",
+            active_form=active_form,
+            metadata=metadata or {},
+        )
+        self.tasks[task_id] = task
+        self._save_to_disk()
+        return task
 
     async def update(
         self,
@@ -130,57 +127,56 @@ class TaskStore:
         remove_blocked_by: list[str] | None = None,
     ) -> tuple[TaskItem, list[str]]:
         """局部增量更新任务字段与 DAG 依赖，并计算自动解锁列表。"""
-        async with self._lock:
-            if task_id not in self.tasks:
-                raise KeyError(f"Task '{task_id}' not found")
-            task = self.tasks[task_id]
+        if task_id not in self.tasks:
+            raise KeyError(f"Task '{task_id}' not found")
+        task = self.tasks[task_id]
 
-            if status == "in_progress" and self.enforce_single_in_progress:
-                for other_id, other in self.tasks.items():
-                    if other_id != task_id and other.status == "in_progress":
-                        raise ValueError(f"Task '{other_id}' is already in progress")
+        if status == "in_progress" and self.enforce_single_in_progress:
+            for other_id, other in self.tasks.items():
+                if other_id != task_id and other.status == "in_progress":
+                    raise ValueError(f"Task '{other_id}' is already in progress")
 
-            if add_blocked_by:
-                for dep in add_blocked_by:
-                    if dep == task_id:
-                        raise ValueError("Task cannot depend on itself")
-                    if dep not in self.tasks:
-                        raise KeyError(f"Dependency task '{dep}' not found")
-                    if self._depends_on(dep, task_id):
-                        raise ValueError(
-                            f"Cycle detected: {task_id} -> {dep} -> {task_id}"
-                        )
-                    if dep not in task.blocked_by:
-                        task.blocked_by.append(dep)
+        if add_blocked_by:
+            for dep in add_blocked_by:
+                if dep == task_id:
+                    raise ValueError("Task cannot depend on itself")
+                if dep not in self.tasks:
+                    raise KeyError(f"Dependency task '{dep}' not found")
+                if self._depends_on(dep, task_id):
+                    raise ValueError(
+                        f"Cycle detected: {task_id} -> {dep} -> {task_id}"
+                    )
+                if dep not in task.blocked_by:
+                    task.blocked_by.append(dep)
 
-            if remove_blocked_by:
-                task.blocked_by = [
-                    d for d in task.blocked_by if d not in remove_blocked_by
-                ]
+        if remove_blocked_by:
+            task.blocked_by = [
+                d for d in task.blocked_by if d not in remove_blocked_by
+            ]
 
-            if status is not None:
-                task.status = status
-            if subject is not None:
-                task.subject = subject.strip()
-            if description is not None:
-                task.description = description
-            if active_form is not None:
-                task.active_form = active_form
-            if owner is not None:
-                task.owner = owner
-            if metadata is not None:
-                task.metadata.update(metadata)
+        if status is not None:
+            task.status = status
+        if subject is not None:
+            task.subject = subject.strip()
+        if description is not None:
+            task.description = description
+        if active_form is not None:
+            task.active_form = active_form
+        if owner is not None:
+            task.owner = owner
+        if metadata is not None:
+            task.metadata.update(metadata)
 
-            unblocked: list[str] = []
-            if status == "completed":
-                for other_id, other in self.tasks.items():
-                    if other.status == "pending" and task_id in other.blocked_by:
-                        other.blocked_by.remove(task_id)
-                        if len(other.blocked_by) == 0:
-                            unblocked.append(other_id)
+        unblocked: list[str] = []
+        if status == "completed":
+            for other_id, other in self.tasks.items():
+                if other.status == "pending" and task_id in other.blocked_by:
+                    other.blocked_by.remove(task_id)
+                    if len(other.blocked_by) == 0:
+                        unblocked.append(other_id)
 
-            self._save_to_disk()
-            return task, unblocked
+        self._save_to_disk()
+        return task, unblocked
 
     def get(self, task_id: str) -> TaskItem:
         """获取单个任务详情。"""
@@ -196,31 +192,30 @@ class TaskStore:
 
     async def batch_write(self, todos: list[dict[str, Any]]) -> list[TaskItem]:
         """批量/便签覆盖写入。"""
-        async with self._lock:
-            for item in todos:
-                t_id = item.get("id")
-                if t_id and t_id in self.tasks:
-                    t = self.tasks[t_id]
-                    if "subject" in item:
-                        t.subject = str(item["subject"]).strip()
-                    if "status" in item and item["status"] in (
-                        "pending",
-                        "in_progress",
-                        "completed",
-                        "deleted",
-                    ):
-                        t.status = item["status"]
-                else:
-                    new_id = f"task_{self._next_id}"
-                    self._next_id += 1
-                    self.tasks[new_id] = TaskItem(
-                        id=new_id,
-                        subject=str(item.get("subject", "Untitled")).strip(),
-                        description=str(item.get("description", "")),
-                        status=item.get("status", "pending"),
-                    )
-            self._save_to_disk()
-            return self.list()
+        for item in todos:
+            t_id = item.get("id")
+            if t_id and t_id in self.tasks:
+                t = self.tasks[t_id]
+                if "subject" in item:
+                    t.subject = str(item["subject"]).strip()
+                if "status" in item and item["status"] in (
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "deleted",
+                ):
+                    t.status = item["status"]
+            else:
+                new_id = f"task_{self._next_id}"
+                self._next_id += 1
+                self.tasks[new_id] = TaskItem(
+                    id=new_id,
+                    subject=str(item.get("subject", "Untitled")).strip(),
+                    description=str(item.get("description", "")),
+                    status=item.get("status", "pending"),
+                )
+        self._save_to_disk()
+        return self.list()
 
     def render_board(self) -> str:
         """渲染紧凑 Markdown 看板。"""

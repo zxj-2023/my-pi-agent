@@ -89,22 +89,15 @@ def test_task_tools_never_throw_on_error(tmp_path: Path):
     asyncio.run(_test())
 
 
-def test_task_tools_parallel_execution(tmp_path: Path):
-    async def _test():
-        store = TaskStore(tmp_path)
-        tools = {t.name: t for t in make_task_tools(store)}
+def test_task_tools_parallel_flags(tmp_path: Path):
+    store = TaskStore(tmp_path)
+    tools = {t.name: t for t in make_task_tools(store)}
 
-        # Concurrently execute 10 task_create tool calls
-        results = await asyncio.gather(
-            *(
-                tools["task_create"].execute({"subject": f"Tool Task {i}"})
-                for i in range(10)
-            )
-        )
-        for res in results:
-            assert res.ok
-            assert "task" in res.data
+    # Write tools are sequential (is_parallel_safe=False)
+    assert not tools["task_create"].is_parallel_safe
+    assert not tools["task_update"].is_parallel_safe
+    assert not tools["todo_write"].is_parallel_safe
 
-        assert len(store.list()) == 10
-
-    asyncio.run(_test())
+    # Read tools are parallel-safe (is_parallel_safe=True)
+    assert tools["task_get"].is_parallel_safe
+    assert tools["task_list"].is_parallel_safe

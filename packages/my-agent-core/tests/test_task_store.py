@@ -131,29 +131,24 @@ def test_task_store_invalid_operations(tmp_path: Path):
     asyncio.run(_test())
 
 
-def test_task_store_parallel_concurrency_stress(tmp_path: Path):
+def test_task_store_multiple_creates_and_updates(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
 
-        # 1. 20 concurrent creates
-        tasks = await asyncio.gather(
-            *(store.create(subject=f"Concurrent Task {i}") for i in range(20))
-        )
-        assert len(tasks) == 20
+        # 1. Sequential creates
+        tasks = [await store.create(subject=f"Task {i}") for i in range(10)]
+        assert len(tasks) == 10
         unique_ids = {t.id for t in tasks}
-        assert len(unique_ids) == 20
-        assert len(store.list()) == 20
+        assert len(unique_ids) == 10
+        assert len(store.list()) == 10
 
-        # 2. 20 concurrent updates on distinct tasks
-        update_results = await asyncio.gather(
-            *(store.update(f"task_{i + 1}", description=f"Desc {i}") for i in range(20))
-        )
-        assert len(update_results) == 20
-        for i in range(20):
+        # 2. Sequential updates on distinct tasks
+        for i in range(10):
+            await store.update(f"task_{i + 1}", description=f"Desc {i}")
             assert store.get(f"task_{i + 1}").description == f"Desc {i}"
 
         # 3. Reload from disk and verify consistency
         reloaded = TaskStore(tmp_path)
-        assert len(reloaded.list()) == 20
+        assert len(reloaded.list()) == 10
 
     asyncio.run(_test())

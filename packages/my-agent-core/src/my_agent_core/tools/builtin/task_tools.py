@@ -18,7 +18,7 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
     @tool(
         name="task_create",
         description="Create a new task on the task board with an assigned id.",
-        is_parallel_safe=True,
+        is_parallel_safe=False,
     )
     async def task_create(
         subject: str,
@@ -50,7 +50,7 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
     @tool(
         name="task_update",
         description="Update an existing task's status, fields, or DAG dependencies.",
-        is_parallel_safe=True,
+        is_parallel_safe=False,
     )
     async def task_update(
         task_id: str,
@@ -145,7 +145,7 @@ def make_task_tools(store: TaskStore) -> list[Tool]:
     @tool(
         name="todo_write",
         description="Batch overwrite or update scratchpad todo items.",
-        is_parallel_safe=True,
+        is_parallel_safe=False,
     )
     async def todo_write(todos: list[dict[str, Any]]) -> ToolResult:
         try:

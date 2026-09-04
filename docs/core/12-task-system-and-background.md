@@ -51,21 +51,21 @@
 3. **传递性成环检测 (Cycle Detection)**：在添加依赖时沿图做回溯深度遍历，成环时立即拦截并抛错，防止死锁；
 4. **单 `in_progress` 约束**：默认强制同一时刻至多一个任务处于 `in_progress`，保证 Agent 执行注意力高度聚焦；
 5. **下游任务自动解锁 (Unblocking)**：当某任务标记 `completed` 时，自动计算并返回前置依赖已全部清空的 pending 任务列表 `unblocked`；
-6. **并发互斥锁**：Store 内部由 `asyncio.Lock` 保护，支持多工具并发调用时状态绝对一致。
+6. **串行调度与极简设计**：写操作工具（`task_create`, `task_update`, `todo_write`）诚实声明为 `is_parallel_safe=False`，由 `ToolRegistry` 保证严格原序串行执行；`TaskStore` 内部彻底消除冗余的互斥锁，保持逻辑极简且零死锁风险。
 
 ---
 
 ## 四、标准 4 增量 CRUD 工具族与 `todo_write`
 
-通过工厂函数 `make_task_tools(store)` 导出 5 个标准工具（全部声明 `is_parallel_safe=True`）：
+通过工厂函数 `make_task_tools(store)` 导出 5 个标准工具（写操作工具声明 `is_parallel_safe=False`，只读工具声明 `is_parallel_safe=True`）：
 
-| 工具名 | 核心入参 | 返回内容 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `task_create` | `subject`, `description`, `active_form`, `metadata` | `{"task": {"id", "subject", "status"}}` | 创建新任务 |
-| `task_update` | `task_id`, `status`, `add_blocked_by`, `remove_blocked_by` 等 | `{"task": {...}, "unblocked": ["task_2"]}` | 增量更新与解锁回显 |
-| `task_get` | `task_id` | 完整任务 JSON（含长 description 与 metadata） | 单任务详情查询 |
-| `task_list` | `include_deleted` | 紧凑摘要列表（省略 description，极省 Token） | 全看板列表查询 |
-| `todo_write` | `todos: list[dict]` | 最新看板渲染结果 | 批量便签覆盖写入 |
+| 工具名 | 核心入参 | 并发属性 | 返回内容 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `task_create` | `subject`, `description`, `active_form`, `metadata` | 串行 (`is_parallel_safe=False`) | `{"task": {"id", "subject", "status"}}` | 创建新任务 |
+| `task_update` | `task_id`, `status`, `add_blocked_by`, `remove_blocked_by` 等 | 串行 (`is_parallel_safe=False`) | `{"task": {...}, "unblocked": ["task_2"]}` | 增量更新与解锁回显 |
+| `task_get` | `task_id` | 并发安全 (`is_parallel_safe=True`) | 完整任务 JSON（含长 description 与 metadata） | 单任务详情查询 |
+| `task_list` | `include_deleted` | 并发安全 (`is_parallel_safe=True`) | 紧凑摘要列表（省略 description，极省 Token） | 全看板列表查询 |
+| `todo_write` | `todos: list[dict]` | 串行 (`is_parallel_safe=False`) | 最新看板渲染结果 | 批量便签覆盖写入 |
 
 ---
 
