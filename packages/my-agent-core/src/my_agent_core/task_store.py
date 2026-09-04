@@ -32,7 +32,7 @@ class TaskStore:
     def __init__(
         self, workspace: Path | str, enforce_single_in_progress: bool = True
     ) -> None:
-        self.workspace = Path(workspace)
+        self.workspace = Path(workspace).resolve()
         self.store_dir = self.workspace / ".my_agent_core"
         self.file_path = self.store_dir / "tasks.json"
         self.enforce_single_in_progress = enforce_single_in_progress
