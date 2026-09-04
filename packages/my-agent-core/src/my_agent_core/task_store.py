@@ -30,12 +30,17 @@ class TaskStore:
     """基于 DAG 依赖图与原子持久化的项目任务仓库。"""
 
     def __init__(
-        self, workspace: Path | str, enforce_single_in_progress: bool = True
+        self,
+        workspace: Path | str,
+        enforce_single_in_progress: bool = True,
+        allow_parallel: bool = False,
     ) -> None:
         self.workspace = Path(workspace).resolve()
         self.store_dir = self.workspace / ".my_agent_core"
         self.file_path = self.store_dir / "tasks.json"
-        self.enforce_single_in_progress = enforce_single_in_progress
+        self.enforce_single_in_progress = (
+            False if allow_parallel else enforce_single_in_progress
+        )
         self.tasks: dict[str, TaskItem] = {}
         self._next_id = 1
         self._load_from_disk()
@@ -143,16 +148,12 @@ class TaskStore:
                 if dep not in self.tasks:
                     raise KeyError(f"Dependency task '{dep}' not found")
                 if self._depends_on(dep, task_id):
-                    raise ValueError(
-                        f"Cycle detected: {task_id} -> {dep} -> {task_id}"
-                    )
+                    raise ValueError(f"Cycle detected: {task_id} -> {dep} -> {task_id}")
                 if dep not in task.blocked_by:
                     task.blocked_by.append(dep)
 
         if remove_blocked_by:
-            task.blocked_by = [
-                d for d in task.blocked_by if d not in remove_blocked_by
-            ]
+            task.blocked_by = [d for d in task.blocked_by if d not in remove_blocked_by]
 
         if status is not None:
             task.status = status
@@ -216,6 +217,12 @@ class TaskStore:
                 )
         self._save_to_disk()
         return self.list()
+
+    def clear(self) -> None:
+        """清空所有工单并落盘。"""
+        self.tasks.clear()
+        self._next_id = 1
+        self._save_to_disk()
 
     def render_board(self) -> str:
         """渲染紧凑 Markdown 看板。"""

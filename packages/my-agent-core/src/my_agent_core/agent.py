@@ -387,20 +387,6 @@ class Agent:
                 tools = self.registry.get_schemas()
                 view = await self._ctx.prepare(self.messages)
 
-                # ── 看板自动投影（若有任务，动态注入到模型临时视图中，Session 零污染）
-                if self.task_store and self.task_store.list():
-                    board_block = (
-                        f"<TASK_BOARD>\n{self.task_store.render_board()}\n</TASK_BOARD>"
-                    )
-                    view = list(view)
-                    if view and view[0].role == "system":
-                        view[0] = Message(
-                            role="system",
-                            content=view[0].content + f"\n\n{board_block}",
-                        )
-                    else:
-                        view.insert(0, Message(role="system", content=board_block))
-
                 # ── 决策点 3: BeforeModelCall 临时视图改写（self.messages 与 Session 零污染）
                 ctx_hook = await self._emit(
                     BeforeModelCall(messages=list(view), iteration=iteration)

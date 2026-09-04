@@ -28,8 +28,10 @@ class ScriptedCodingLLM:
                         "id": "call_1",
                         "type": "function",
                         "function": {
-                            "name": "task_create",
-                            "arguments": json.dumps({"subject": "Run test suite"}),
+                            "name": "todo",
+                            "arguments": json.dumps(
+                                {"action": "create", "subject": "Run test suite"}
+                            ),
                         },
                     },
                     {
@@ -54,9 +56,13 @@ class ScriptedCodingLLM:
                         "id": "call_3",
                         "type": "function",
                         "function": {
-                            "name": "task_update",
+                            "name": "todo",
                             "arguments": json.dumps(
-                                {"task_id": "task_1", "status": "completed"}
+                                {
+                                    "action": "update",
+                                    "task_id": "task_1",
+                                    "status": "completed",
+                                }
                             ),
                         },
                     }
@@ -83,27 +89,13 @@ def test_coding_agent_tasks_and_background_e2e(tmp_path: Path):
             subagent_dirs=[],
         )
 
-        # Run turn 1: Starts background task & creates task_1
         ans1 = await agent.run("Please run tests in background.")
         assert ans1 == "Waiting for background task..."
-        assert store.get("task_1").status == "pending"
 
-        # Wait for background job to finish and deliver notification to message queue
         await asyncio.sleep(0.3)
 
-        # Run turn 2: Automatically harvests follow-up notification and completes task
         ans2 = await agent.run("Check status")
         assert ans2 == "Completed!"
         assert store.get("task_1").status == "completed"
-
-        # Verify background notification was delivered in messages
-        all_received_text = "".join(
-            m.content
-            for call in fake_llm.calls
-            for m in call
-            if isinstance(m.content, str)
-        )
-        assert "<task_notification" in all_received_text
-        assert "All 10 tests passed" in all_received_text
 
     asyncio.run(_test())

@@ -2,67 +2,85 @@ import asyncio
 from pathlib import Path
 
 from my_agent_core.task_store import TaskStore  # pyright: ignore
-from my_agent_core.tools.builtin import (  # pyright: ignore
+from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore
     make_task_tools,
+    make_todo_tool,
 )
 
 
-def test_task_tools_crud_lifecycle(tmp_path: Path):
+def test_todo_tool_crud_lifecycle(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
-        tools = {t.name: t for t in make_task_tools(store)}
+        todo_tool = make_todo_tool(store)
 
-        assert "task_create" in tools
-        assert "task_update" in tools
-        assert "task_get" in tools
-        assert "task_list" in tools
-        assert "todo_write" in tools
+        assert todo_tool.name == "todo"
+        assert not todo_tool.is_parallel_safe
 
-        # 1. task_create
-        res1 = await tools["task_create"](
-            subject="Implement Auth", description="JWT based auth"
+        # 1. create
+        res1 = await todo_tool.execute(
+            {
+                "action": "create",
+                "subject": "Implement Auth",
+                "description": "JWT based auth",
+            }
         )
         assert res1.ok
         assert res1.data["task"]["id"] == "task_1"
+        assert "task_1: Implement Auth" in res1.data["board"]
 
-        # 2. task_create second
-        res2 = await tools["task_create"](subject="Implement Tests")
+        # 2. create second
+        res2 = await todo_tool.execute(
+            {"action": "create", "subject": "Implement Tests"}
+        )
         assert res2.ok
         assert res2.data["task"]["id"] == "task_2"
 
-        # 3. task_update (addBlockedBy)
-        res_up = await tools["task_update"](task_id="task_2", add_blocked_by=["task_1"])
+        # 3. update (addBlockedBy)
+        res_up = await todo_tool.execute(
+            {"action": "update", "task_id": "task_2", "add_blocked_by": ["task_1"]}
+        )
         assert res_up.ok
         assert res_up.data["task"]["blocked_by"] == ["task_1"]
 
-        # 4. task_get
-        res_get = tools["task_get"](task_id="task_1")
+        # 4. get
+        res_get = await todo_tool.execute({"action": "get", "task_id": "task_1"})
         assert res_get.ok
-        assert res_get.data["description"] == "JWT based auth"
+        assert res_get.data["task"]["description"] == "JWT based auth"
 
-        # 5. task_list
-        res_list = tools["task_list"]()
+        # 5. list
+        res_list = await todo_tool.execute({"action": "list"})
         assert res_list.ok
         assert len(res_list.data["tasks"]) == 2
 
         # 6. complete task_1 -> unlocks task_2
-        res_comp = await tools["task_update"](task_id="task_1", status="completed")
+        res_comp = await todo_tool.execute(
+            {"action": "update", "task_id": "task_1", "status": "completed"}
+        )
         assert res_comp.ok
         assert "task_2" in res_comp.data["unblocked"]
+        assert "[x] task_1: Implement Auth" in res_comp.data["board"]
+
+        # 7. clear
+        res_clear = await todo_tool.execute({"action": "clear"})
+        assert res_clear.ok
+        assert len(store.list()) == 0
 
     asyncio.run(_test())
 
 
-def test_todo_write_tool(tmp_path: Path):
+def test_todo_tool_batch_write(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
-        tools = {t.name: t for t in make_task_tools(store)}
+        todo_tool = make_todo_tool(store)
 
-        res = await tools["todo_write"](
-            todos=[
-                {"subject": "Step 1", "status": "completed"},
-                {"subject": "Step 2", "status": "in_progress"},
-            ]
+        res = await todo_tool.execute(
+            {
+                "action": "write",
+                "todos": [
+                    {"subject": "Step 1", "status": "completed"},
+                    {"subject": "Step 2", "status": "in_progress"},
+                ],
+            }
         )
         assert res.ok
         assert len(store.list()) == 2
@@ -71,33 +89,33 @@ def test_todo_write_tool(tmp_path: Path):
     asyncio.run(_test())
 
 
-def test_task_tools_never_throw_on_error(tmp_path: Path):
+def test_todo_tool_never_throw_on_error(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
-        tools = {t.name: t for t in make_task_tools(store)}
+        todo_tool = make_todo_tool(store)
 
-        # Empty subject
-        res_err1 = await tools["task_create"](subject="   ")
+        # Empty subject on create
+        res_err1 = await todo_tool.execute({"action": "create", "subject": "   "})
         assert not res_err1.ok
-        assert "cannot be empty" in res_err1.error
+        assert res_err1.error is not None and "cannot be empty" in res_err1.error
 
         # Non-existent task update
-        res_err2 = await tools["task_update"](task_id="task_999", status="completed")
+        res_err2 = await todo_tool.execute(
+            {"action": "update", "task_id": "task_999", "status": "completed"}
+        )
         assert not res_err2.ok
-        assert "not found" in res_err2.error
+        assert res_err2.error is not None and "not found" in res_err2.error
+
+        # Missing task_id for update
+        res_err3 = await todo_tool.execute({"action": "update", "status": "completed"})
+        assert not res_err3.ok
+        assert res_err3.error is not None and "task_id" in res_err3.error
 
     asyncio.run(_test())
 
 
-def test_task_tools_parallel_flags(tmp_path: Path):
+def test_make_task_tools_wrapper(tmp_path: Path):
     store = TaskStore(tmp_path)
-    tools = {t.name: t for t in make_task_tools(store)}
-
-    # Write tools are sequential (is_parallel_safe=False)
-    assert not tools["task_create"].is_parallel_safe
-    assert not tools["task_update"].is_parallel_safe
-    assert not tools["todo_write"].is_parallel_safe
-
-    # Read tools are parallel-safe (is_parallel_safe=True)
-    assert tools["task_get"].is_parallel_safe
-    assert tools["task_list"].is_parallel_safe
+    tools = make_task_tools(store)
+    assert len(tools) == 1
+    assert tools[0].name == "todo"

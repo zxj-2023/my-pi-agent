@@ -49,6 +49,7 @@ from my_agent_core.task_store import (  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools import Tool, ToolResult, tool
 from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
     make_task_tools,
+    make_todo_tool,
 )
 
 __all__ = [
@@ -83,6 +84,7 @@ __all__ = [
     "TaskItem",
     "TaskStore",
     "make_task_tools",
+    "make_todo_tool",
     "SubagentTask",
     "SubagentTaskManager",
     "SubagentTaskStatus",

@@ -70,6 +70,7 @@ def _filter_tools(parent: Agent, sub: Subagent) -> list:
     builtins = (
         "task",
         "memory",
+        "todo",
         "task_create",
         "task_update",
         "task_get",

@@ -153,6 +153,20 @@ def _format_timeout_output(
     )
 
 
+def _kill_popen_tree(proc: Popen) -> None:
+    """递归强杀子进程树，防止 Windows 管道悬空等待。"""
+    if os.name == "nt":
+        if proc.pid:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+    else:
+        proc.kill()
+
+
 def make_bash_tool(
     root: str | Path, background_runner: BackgroundRunner | None = None
 ) -> Tool:
@@ -190,7 +204,7 @@ def make_bash_tool(
                     out = (stdout + stderr).strip()
                     return out[:50000] if out else "(no output)"
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    _kill_popen_tree(proc)
                     partial_out, partial_err = proc.communicate()
                     return _format_timeout_output(command, partial_out, partial_err)
 
