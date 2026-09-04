@@ -120,9 +120,10 @@ packages/my-agent-core/
 │   │   └── core.py           # ExtensionAPI + ExtensionManager 核心实现
 │   ├── plugins.py            # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   └── main.py               # 异步流式打字机 demo
-└── tests/                    # 100% 离线单元测试 (245 tests)
+└── tests/                    # 100% 离线单元测试 (246 tests)
     ├── test_agent.py         # Agent 循环、状态与 5 大决策点拦截测试
     ├── test_agent_steering.py # Steer 即时转向与 Follow-up 追问两层循环测试
+    ├── test_agent_task_nudge.py # 早退拦截门禁与任务收尾自动提醒测试
     ├── test_message_queue.py # MessageQueue 动态干预队列单测
     ├── test_tools.py         # Tool / ToolResult / @tool 测试
     ├── test_registry.py      # ToolRegistry 并发分流与保序回填测试

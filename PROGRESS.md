@@ -493,13 +493,15 @@ my-pi-agent/
     - `test_task_tools.py`（3 项单测，覆盖 CRUD 与 todo_write 契约）；
     - `test_task_context_projection.py`（2 项单测，验证 `<TASK_BOARD>` 自动注入与 Session 零污染）；
     - `test_background.py`（2 项单测，验证异步启动、消息队列通知投递与取消清理）；
+    - `test_agent_task_nudge.py`（新增单测，验证模型试图输出纯文本早退时触发 Steering 提醒更新 in_progress 任务）；
     - `test_coding_agent_tasks_e2e.py`（新增于 `my-coding-agent`，端到端验证多轮任务规划与后台测试运行）。
 - **过程中的关键教训**：
-  - 领域模型分工：彻底区分“工程规划待办实体（`TaskItem` & `TaskStore`）”与“子代理委派运行实例（`my_agent_core.tasks.Task`）”，对标 OpenHands 与 `trpc-agent-python`，杜绝概念污染与命名冲突。
-  - 子代理递归探测隔离：派发子代理时，子 Agent 必须显式设置 `task_store=False` 并在 `_filter_tools` 中剔除 `task_*` 工具，防止子代理重复注册同名工具。
-  - 孤儿进程防御：后台子进程执行必须强绑定进程生命周期与 `Agent.abort()`，避免用户中断后子进程在后台无序运行。
-  - 自动收割闭环：后台任务跑完后通过已有的 `MessageQueue`（Follow-up 机制）无缝收割，两层循环在自然安全边界自动流转，架构高度统一。
-- **验证**：三包全量 **302 个离线测试** 全部 100% 绿灯通过（my-agent-core 244 + my-agent-llm 36 + my-coding-agent 22）。
+  - 领域模型分工：彻底区分“工程规划待办实体（`TaskItem` & `TaskStore`）”与“子代理委派运行实例（`SubagentTask`）”，彻底删除旧 `tasks.py`，杜绝概念污染与命名冲突。
+  - 极简写串行化：写操作工具（`task_create`, `task_update`, `todo_write`）诚实声明 `is_parallel_safe=False`，由 `ToolRegistry` 保证严格原序串行执行，彻底免除 `TaskStore` 内部冗余互斥锁。
+  - 前缀缓存捍卫：彻底移除每轮向 System Prompt 动态拼接看板的逻辑，看板通过工具返回值即时回显，前缀缓存（Prefix Cache）100% 稳定。
+  - 任务收尾守卫：模型试图未结清退出时，框架通过 Steering 自动注入提醒，促使模型及时调用 `todo` 工具完成闭环打勾。
+  - 孤儿进程与管道悬空防御：引入 `_kill_popen_tree`（`taskkill /F /T`），彻底解决 Windows 子进程管道悬空等待导致的测试超时假死。
+- **验证**：三包全量 **304 个离线测试** 全部 100% 绿灯通过（my-agent-core 246 + my-agent-llm 36 + my-coding-agent 22）。
 
 ---
 
@@ -518,7 +520,7 @@ my-pi-agent/
 - 阶段 7：memory 记忆系统（已完成，201 + 36 + 18 测试全绿）
 - 阶段 13：Claude Code 风格 Plugin 插件系统（已完成，212 + 36 + 18 测试全绿）
 - 阶段 14：Pi 风格动态干预机制 Steer 与 Follow-up（已完成，223 + 36 + 18 测试全绿）
-- 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，244 + 36 + 22 = 302 测试全绿）
+- 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，246 + 36 + 22 = 304 测试全绿）
 - 阶段 6：动态工具（未做）
 - 阶段 16：事件管道 A——只读轻量事件订阅管道（`session.subscribe` / `agent.subscribe`，fire-and-forget 同步非阻塞广播 + `unsubscribe()` 注销句柄）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

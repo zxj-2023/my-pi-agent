@@ -69,26 +69,19 @@
 
 ---
 
-## 五、上下文看板自动投影 (`Task Board View`)
+## 五、任务收尾提醒与早退守卫 (Task Completion Nudge & Early-Exit Guard)
 
-在 `Agent.run()` 的模型视图准备期（`BeforeModelCall` 决策点前），如果 `TaskStore` 中存在未完成的任务：
+为防止大模型完成工作后忘记调用 `todo` 打勾更新状态便直接输出总结退出：
 
-1. 框架自动调用 `store.render_board()` 渲染为全量紧凑 Markdown 看板；
-2. 包装为 `<TASK_BOARD>\n...\n</TASK_BOARD>`；
-3. 临时附加至大模型当轮的视图中（注入 System 消息末尾）。
-
-```xml
-<TASK_BOARD>
-[x] task_1: 设计数据库表 (completed)
-[>] task_2: 编写 API 接口 (in_progress - writing endpoints)
-[ ] task_3: 编写单元测试 (pending, blocked by: [task_2])
-</TASK_BOARD>
-```
-
-### 核心收益
-
-- **0 API 工具往返消耗**：模型每轮睁眼即可看到当前进展与阻塞关系，无需花费轮次主动调 `task_list`；
-- **Session 零污染**：投影仅存在于内存视图，不持久化到 Session JSONL 文件，保障历史记录绝对真实纯净。
+1. **早退拦截检查**：当模型未发起工具调用（准备输出最终文本退出本轮）时，框架自动检查 `TaskStore` 中是否存在仍处于 `in_progress` 的未结清任务；
+2. **Steer 自动提醒**：若存在在跑任务，框架拦截退出，自动向 `MessageQueue` 注入一条 Steering 纠偏指令：
+   ```text
+   Task '{task_id}' ({subject}) is still marked as 'in_progress'. 
+   If you have completed it, please call todo(action='update', task_id='{task_id}', status='completed') 
+   to update your progress before concluding.
+   ```
+3. **闭环收工**：模型接收到精准提醒后，调用 `todo` 完成打勾结算，并在下一轮整洁交差；
+4. **单次防御防护**：为防止模型执意不更新造成死循环，框架对同一任务在单次运行中最多敲打一次（`nudged_task_ids` 集合），既保证纪律严明又保障绝对收敛。
 
 ---
 
