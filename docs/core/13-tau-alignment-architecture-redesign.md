@@ -41,7 +41,9 @@
 - 将 ReAct 循环抽离为**纯函数无状态微内核 (`run_agent_loop`)**；
 - 将 `Agent` 瘦身为**轻量有状态外壳 (`AgentHarness`)**，对外暴露极窄接口；
 - 引入 **`tool_history.py`**，赋予会话毫秒级自愈与防 API 400 报错的坚固护盾；
-- 将 `session.py` 领域下沉为清晰的 **`session/` 子包**，拆分数据模型、纯树算法与存储驱动（支持纯内存存储快速单测）。
+- 将 `session.py` 领域下沉为清晰的 **`session/` 子包**，拆分数据模型、纯树算法、状态投影与存储驱动（支持纯内存存储快速单测）；
+- 升级消息与工具协议，支持**多块级内容（Thinking/Image/ToolCall）**与**结构化细节隔离（`details`）**；
+- 引入 **`_provider_context`** 与 **`tool_history.py`** 双重保护，过滤空失败轮次并自动缝合断头工具调用。
 
 ---
 
@@ -59,26 +61,27 @@
  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
  │                      核心有状态外壳 (Agent / AgentHarness)                               │
  │   • 极窄对外接口：prompt() / continue_() / steer() / follow_up() / cancel() / subscribe()│
- │   • 职责：持有纯对话状态、消息队列缓冲、管理事件订阅者，不包含复杂的业务组装逻辑        │
+ │   • 职责：持有纯对话状态、消息队列缓冲、管理事件订阅者，通过 SessionState 无锁投影状态  │
  └─────────────┬──────────────────────────────┴─────────────────────────────┬──────────────┘
                │                                                            │
                ▼ 驱动                                                       ▼ 修复
  ┌───────────────────────────────────────────┐ ┌───────────────────────────────────────────┐
  │  纯函数无状态微内核 (run_agent_loop)      │ │  对话历史自愈引擎 (tool_history.py)       │
  │   • 纯异步生成器:                         │ │   • repair_tool_history(messages)         │
- │     run_agent_loop(...) ->                │ │   • 自动缝合未闭合的 ToolCall             │
- │     AsyncIterator[AgentEvent]             │ │   • 丢弃孤儿结果、保序重排                 │
- │   • 纯状态机：只负责与模型交互、调工具、  │ │   • 保证发送给 LLM 的历史 100% 合法        │
- │     发射事件、两层循环换挡收割            │ └───────────────────────────────────────────┘
+ │     run_agent_loop(...) ->                │ │   • 三阶段状态机：预留配对/补齐/去孤儿    │
+ │     AsyncIterator[AgentEvent]             │ │   • _provider_context 过滤空失败轮次      │
+ │   • 细粒度 Provider 流式事件解耦          │ │   • portable_tool_call_id 跨模型重放      │
+ │   • 协作式取消信号 ToolCancellationToken  │ └───────────────────────────────────────────┘
  └─────────────────────┬─────────────────────┘
                        │ 读写会话
                        ▼
  ┌─────────────────────────────────────────────────────────────────────────────────────────┐
  │                          领域下沉的会话子系统 (session/)                                │
- │   • entries.py : 强类型 SessionEntry 实体定义                                           │
- │   • tree.py    : 纯内存 DAG 树遍历算法（祖先回溯、LCA 计算，零 I/O）                    │
- │   • storage.py : 存储契约抽象（SessionStorage: InMemoryStorage vs JsonlStorage）       │
- │   • jsonl.py   : 行级原子序列化与反序列化                                               │
+ │   • entries.py : 9 种强类型 SessionEntry 实体定义（Discriminated Union）                │
+ │   • tree.py    : 纯内存 DAG 树遍历算法（祖先回溯、LCA 计算、防环路检测，零 I/O）        │
+ │   • memory.py  : SessionState 纯函数不可变事件溯源折叠投影（无锁瞬态聚合）             │
+ │   • storage.py : 纯异步只追加协议（SessionStorage: InMemoryStorage vs JsonlStorage）   │
+ │   • jsonl.py   : 行级原子序列化、跨进程锁与未完成 .tmp 碎片自愈清理                     │
  └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -86,38 +89,61 @@
 
 ## 三、核心模块详细设计规格 (Module Specifications)
 
-### 3.1 模块一：对话自愈引擎 (`my_agent_core/tool_history.py`)
+### 3.1 模块一：对话自愈引擎 (`my_agent_core/tool_history.py`) 与上下文前置清洗 (`_provider_context`)
 
 #### 1. 核心定位
 
 位于 LLM API 调用前置边界的纯函数深度模块。入参为原始消息元组，出参为合法无瑕疵的消息元组以及修复诊断报告。
 
-#### 2. 接口规格
+#### 2. 三阶段确定性自愈算法规格 (`repair_tool_history`)
 
 ```python
 @dataclass(frozen=True, slots=True)
 class ToolHistoryRepair:
-    messages: tuple[Message, ...]
+    messages: tuple[AgentMessage, ...]
     changed: bool = False
     synthesized_results: int = 0      # 补齐的悬空结果数
     dropped_orphan_results: int = 0   # 丢弃的孤儿结果数
     dropped_duplicate_results: int = 0# 丢弃的重复结果数
     reordered_results: int = 0        # 调整顺序的结果数
 
-def repair_tool_history(messages: Sequence[Message]) -> ToolHistoryRepair:
+def repair_tool_history(messages: Sequence[AgentMessage]) -> ToolHistoryRepair:
     """保证每一条带有 tool_calls 的 Assistant 消息后，都紧跟且仅紧跟对应的 ToolResult。
     
-    1. 悬空补齐：若 Assistant 发起了 call_1 但后续未找到 ToolResult，
-       自动合成为：Message(role="tool", tool_call_id="call_1", content="Tool call interrupted by user")；
-    2. 孤儿丢弃：若存在 tool_call_id 不匹配任何 Assistant tool_call 的 ToolResult，自动剔除；
-    3. 保序重排：将位置颠倒的 ToolResult 移动至对应的 Assistant 之后紧邻位置。
+    采用 Tau 三阶段状态机实现确定性修复：
+    1. Phase 1 (就近预留配对):
+       计算每个 tool_call 的期望位置 (message_index + call_offset)。若该位置恰为对应的
+       ToolResult，立即将其预留。防止 LLM 复用同名 ID 时前面轮次错误抢夺后续正常结果；
+    2. Phase 2 (贪心匹配或补齐中断):
+       未就近配对的调用，优先在后续结果池中寻找真实结果；若池为空，自动合成中断结果：
+       ToolResultMessage(tool_call_id=call.id, content=[TextContent(text="Tool call interrupted by user")], is_error=True)；
+    3. Phase 2.5 (真实结果反超):
+       若先前分配了合成中断，但后续发现同 ID 未使用的真实结果，回滚合成并优先采纳真实结果；
+    4. Phase 3 (重建转录本、丢弃孤儿与重排):
+       按严格紧邻原序重构消息链；未能匹配任何 ToolCall 的孤儿结果自动丢弃，重复结果自动剔除。
     """
 ```
 
-#### 3. 架构收益
+#### 3. 空终端错误清洗规则 (`_provider_context`)
 
-- 彻底解决大模型在工具调用中途被 `abort()` 打断后，下一次启动报 API 400 的死穴；
-- 赋予系统像 Erlang 般的“自愈（Self-healing）”韧性。
+在送入模型前，微内核必须调用 `_provider_context` 剔除无正文的异常轮次：
+```python
+def _provider_context(messages: list[AgentMessage]) -> list[AgentMessage]:
+    """过滤持久化诊断中的终端空失败轮次，并执行工具调用拓扑修复。"""
+    replayable = tuple(
+        m for m in messages
+        if not (
+            isinstance(m, AssistantMessage)
+            and m.stop_reason in {"error", "aborted"}
+            and not m.content
+        )
+    )
+    return list(repair_tool_history(replayable).messages)
+```
+- **核心价值**：主流模型 API（OpenAI / Anthropic）对空 assistant 内容（`content: ""`）直接报 400 错误。此清洗既保留了磁盘中的失败诊断审计，又保证了发给模型的重放上下文 100% 满足 API 严格交替格式。
+
+#### 4. 跨模型重放防御（`portable_tool_call_id`）
+引入 ID 规范化函数，利用 SHA-256 将任意不规则或超长 ID 转换为满足 `^[A-Za-z0-9_-]{1,64}$` 的便携格式，消除会话从 OpenAI 切换至 Anthropic 时的格式报错。
 
 ---
 
@@ -135,36 +161,41 @@ async def run_agent_loop(
     llm: LLM,
     model: str | None,
     system: str,
-    messages: list[Message],
+    messages: list[AgentMessage],
     tools: ToolRegistry,
     context_manager: ContextManager,
-    prompts: Sequence[Message] = (),
+    prompts: Sequence[AgentMessage] = (),
     max_turns: int | None = None,
     signal: CancellationToken | None = None,
-    get_steering_messages: Callable[[], Sequence[Message]] | None = None,
-    get_follow_up_messages: Callable[[], Sequence[Message]] | None = None,
+    get_steering_messages: Callable[[], Sequence[AgentMessage]] | None = None,
+    get_follow_up_messages: Callable[[], Sequence[AgentMessage]] | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """执行 ReAct 双层事件循环，逐一 yield 出生命周期事件。"""
 ```
 
-#### 3. 内部循环控制流（对齐 Pi / Tau）
+#### 3. 内部循环控制流与安全流水线（对齐 Pi / Tau）
 
 1. **输入初始化**：将 `prompts` 追加进 `messages`，发射 `AgentStart` 与 `TurnStart`；
 2. **微观 ReAct 内层循环** (`while has_more_tools or pending:`):
-   - 准备临时视图：`view = await context_manager.prepare(messages)`；
-   - 发射 `BeforeModelCall` 并允许拦截改写；
-   - 调用 `llm.achat_stream`，实时派发 `MessageStart`、`MessageUpdate(delta)`、`MessageEnd`；
-   - 若模型发起工具调用：
-     - 发射 `ToolExecutionStart`；
-     - 检查 `signal.is_cancelled()`；
-     - 执行工具调用并收集结果；
+   - **前置清洗**：`clean_messages = _provider_context(messages)`（剥离空中断消息并自动修复断头 ToolCall）；
+   - **准备临时视图**：`view = await context_manager.prepare(clean_messages)`；
+   - **模型决策点**：发射 `BeforeModelCall` 并允许拦截改写；
+   - **细粒度 Provider 事件流驱动**：
+     调用 `llm.stream_events`，实时分流捕获：
+     - `ThinkingDeltaEvent` $\to$ 发射 `MessageUpdate(thinking_delta)`（前端可流式折叠显示思考过程）；
+     - `TextDeltaEvent` $\to$ 发射 `MessageUpdate(text_delta)`（流式打字机）；
+     - `ToolCallDeltaEvent` $\to$ 实时累加工具参数，并可选发射 `ToolCallStart` 提示；
+   - **工具执行与细粒度协作取消**：
+     若模型发起工具调用：
+     - 检查 `signal.is_cancelled()`；若已取消，合成中断结果并退出；
+     - 通过 `ToolUpdateCallback` 闭包隔离（`accepting = False` 防迟滞竞争）支持长命令边执行边吐出增量更新（`ToolExecutionUpdateEvent`）；
+     - 执行工具调用，捕获多模态内容与 `details` 结构化诊断；
      - 发射 `ToolExecutionEnd`；
      - 发射成对的 `TurnEnd`；
      - 检查并消费 `get_steering_messages()`；
    - 若模型未发起工具调用：
-     - 发射 `TurnEnd`；
-     - 检查并消费 `get_steering_messages()`（若有，继续转内层循环）；
-     - 若无，退出内层循环；
+     - 发射成对的 `TurnEnd`；
+     - 检查并消费 `get_steering_messages()`（若有，继续转内层循环；若无，退出内层循环）；
 3. **宏观自收割外层循环** (`while True:`):
    - 检查 `get_follow_up_messages()`；
    - 若有待处理的后台通知或追问，将其转化为输入，`continue` 开启下一轮；
@@ -221,33 +252,115 @@ class Agent:
 
 ---
 
-### 3.4 模块四：会话存储子包重构 (`my_agent_core/session/`)
+### 3.4 模块四：会话存储子系统 (`my_agent_core/session/`)
 
-#### 1. 拆解单文件 `session.py` 为专职模块
+#### 1. 拆解单文件 `session.py` 为 5 大专职模块
 
 ```text
 packages/my-agent-core/src/my_agent_core/session/
-├── __init__.py           # 导出 Session, SessionTree, SessionEntry, SessionStorage
-├── entries.py            # SessionEntry dataclass 家族（MessageEntry, LeafEntry 等）
-├── tree.py               # 纯内存树算法（LCA 共同祖先、路径回溯、分支分叉，零 I/O）
-├── storage.py            # 存储驱动协议与实现（InMemorySessionStorage / JsonlSessionStorage）
-└── jsonl.py              # 行级编解码器（Crash-Safe 临时文件与 fsync）
+├── __init__.py           # 统一导出 Session, SessionTree, SessionEntry, SessionStorage
+├── entries.py            # 9 种强类型 SessionEntry 实体（Discriminated Union）
+├── tree.py               # 纯内存树算法（LCA 共同祖先、路径回溯、防环路检测，零 I/O）
+├── memory.py             # SessionState 纯函数折叠聚合器（事件溯源不可变投影）
+├── storage.py            # 纯异步只追加存储协议（InMemorySessionStorage / JsonlSessionStorage）
+└── jsonl.py              # 行级编解码、跨进程读写锁与未提交 .tmp 碎片自愈
 ```
 
-#### 2. 存储驱动 Seam（接缝）设计
+#### 2. 9 种多态条目类型体系 (`entries.py`)
+
+摒弃脆弱的 `lines[0]` Header 字典，改用标准的 Pydantic 判别联合体：
+- `SessionInfoEntry`: 记录会话元数据（`cwd`, `title`, `created_at`），作为流首项；
+- `MessageEntry`: 包装 `AgentMessage`；
+- `ModelChangeEntry`: 记录模型变更；
+- `ThinkingLevelChangeEntry`: 记录推理思考等级调整；
+- `CompactionEntry`: 记录压缩覆盖的条目 ID 清单与摘要；
+- `BranchSummaryEntry`: 分支折叠摘要；
+- `LabelEntry`: 用户书签检查点；
+- `LeafEntry`: 指向当前分支活动叶节点的指针（分支切换仅需追加一条 LeafEntry，零文件重写）；
+- `CustomEntry`: `namespace: str` + `data: dict`，为扩展与遥测提供隔离槽位。
+
+#### 3. 内存状态纯函数折叠投影 (`memory.py`)
+
+```python
+@dataclass(frozen=True, slots=True)
+class SessionState:
+    messages: tuple[AgentMessage, ...]
+    model: str | None
+    provider: str | None
+    thinking_level: str | None
+    label: str | None
+    active_leaf_id: str | None
+
+    @classmethod
+    def from_entries(cls, entries: Sequence[SessionEntry], leaf_id: str | None = None) -> SessionState:
+        """纯函数折叠投影：沿根至 leaf_id 的路径条目无锁计算出最新运行时状态。"""
+```
+
+#### 4. 纯异步只追加存储契约 (`storage.py`)
 
 ```python
 class SessionStorage(Protocol):
-    def append_entry(self, entry: SessionEntry) -> None: ...
-    def load_all_entries(self) -> list[SessionEntry]: ...
-    def rewrite_history(self, entries: list[SessionEntry]) -> None: ...
-
-class InMemorySessionStorage(SessionStorage):
-    """纯内存存储，单测无需创建任何磁盘文件，速度提升 5~10 倍且无磁盘残留。"""
-
-class JsonlSessionStorage(SessionStorage):
-    """原子文件追加持久化，支持崩溃恢复。"""
+    async def append(self, entry: SessionEntry) -> None: ...
+    async def append_batch(self, entries: Sequence[SessionEntry]) -> None: ...
+    async def read_all(self) -> list[SessionEntry]: ...
 ```
+- 彻底废除全量重写 `rewrite_history`，保证“历史发生即不可变”；
+- `InMemorySessionStorage`：纯内存字典存储，单测完全脱离文件系统，速度提升 10 倍且零碎片；
+- `JsonlSessionStorage`：配合 `.{name}.lock` 跨进程锁与 `_remove_incomplete_temp()` 自动清理崩溃残留碎片。
+
+---
+
+### 3.5 模块五：工具协议与执行上下文升级 (`my_agent_core/tools/`)
+
+#### 1. 多模态与结构化诊断隔离 (`AgentToolResult`)
+
+```python
+class AgentToolResult(BaseModel):
+    content: list[TextContent | ImageContent] = Field(default_factory=list) # 发给模型的正文
+    details: JSONValue = None             # 发给前端 TUI/CLI 的结构化诊断数据
+    added_tool_names: list[str] | None = None # 动态新开放的工具集（触发动态 Token 计算）
+    terminate: bool | None = None         # 提前终止本轮标记（如交互式提问 handoff）
+```
+
+#### 2. 工具级协作取消与状态流式更新
+
+```python
+class ToolExecutor(Protocol):
+    async def __call__(
+        self,
+        tool_call_id: str,
+        arguments: Mapping[str, Any],
+        signal: ToolCancellationToken | None = None,
+        on_update: ToolUpdateCallback | None = None,
+    ) -> AgentToolResult: ...
+```
+- 长命令可在内部通过 `signal.is_cancelled()` 协同取消子进程树；
+- 执行中可通过 `on_update(partial_result)` 流式回显中间日志，且由闭包 `accepting = False` 隔绝迟滞竞争。
+
+#### 3. 前端展示解耦渲染器 (`ToolCallRenderer` & `ToolResultRenderer`)
+
+- 工具内聚提供参数简写格式化与折叠/展开 Markdown 渲染；
+- 单次渲染报错隔离机制（`_renderer_failures_reported`），前端永不因渲染异常崩溃。
+
+---
+
+### 3.6 模块六：消息模型与 Provider 事件流解耦 (`my-agent-llm`)
+
+#### 1. 块级内容体系 (`ContentBlock`)
+
+- `TextContent(type="text", text: str)`
+- `ThinkingContent(type="thinking", thinking: str, signature: str | None)`
+- `ImageContent(type="image", data: str, mime_type: str)`
+- `ToolCall(type="toolCall", id: str, name: str, arguments: dict)`
+- `AssistantMessage.content` 为多块有序列表，真实还原思考与调用的交替过程。
+
+#### 2. Provider 流式细粒度事件流
+
+统一 Provider 异步生成器标准事件输出：
+- `ThinkingDeltaEvent(thinking_delta: str)`：思考过程流式推送；
+- `TextDeltaEvent(text_delta: str)`：正文打字机推送；
+- `ToolCallDeltaEvent(call_id, args_delta)`：工具参数实时组装提示；
+- `ResponseTiming(time_to_first_output_ms, total_duration_ms)`：高精度首字与交互耗时监控。
 
 ---
 
