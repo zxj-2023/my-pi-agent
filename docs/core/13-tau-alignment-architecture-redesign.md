@@ -127,6 +127,7 @@ def repair_tool_history(messages: Sequence[AgentMessage]) -> ToolHistoryRepair:
 #### 3. 空终端错误清洗规则 (`_provider_context`)
 
 在送入模型前，微内核必须调用 `_provider_context` 剔除无正文的异常轮次：
+
 ```python
 def _provider_context(messages: list[AgentMessage]) -> list[AgentMessage]:
     """过滤持久化诊断中的终端空失败轮次，并执行工具调用拓扑修复。"""
@@ -140,9 +141,11 @@ def _provider_context(messages: list[AgentMessage]) -> list[AgentMessage]:
     )
     return list(repair_tool_history(replayable).messages)
 ```
+
 - **核心价值**：主流模型 API（OpenAI / Anthropic）对空 assistant 内容（`content: ""`）直接报 400 错误。此清洗既保留了磁盘中的失败诊断审计，又保证了发给模型的重放上下文 100% 满足 API 严格交替格式。
 
 #### 4. 跨模型重放防御（`portable_tool_call_id`）
+
 引入 ID 规范化函数，利用 SHA-256 将任意不规则或超长 ID 转换为满足 `^[A-Za-z0-9_-]{1,64}$` 的便携格式，消除会话从 OpenAI 切换至 Anthropic 时的格式报错。
 
 ---
@@ -269,6 +272,7 @@ packages/my-agent-core/src/my_agent_core/session/
 #### 2. 9 种多态条目类型体系 (`entries.py`)
 
 摒弃脆弱的 `lines[0]` Header 字典，改用标准的 Pydantic 判别联合体：
+
 - `SessionInfoEntry`: 记录会话元数据（`cwd`, `title`, `created_at`），作为流首项；
 - `MessageEntry`: 包装 `AgentMessage`；
 - `ModelChangeEntry`: 记录模型变更；
@@ -304,6 +308,7 @@ class SessionStorage(Protocol):
     async def append_batch(self, entries: Sequence[SessionEntry]) -> None: ...
     async def read_all(self) -> list[SessionEntry]: ...
 ```
+
 - 彻底废除全量重写 `rewrite_history`，保证“历史发生即不可变”；
 - `InMemorySessionStorage`：纯内存字典存储，单测完全脱离文件系统，速度提升 10 倍且零碎片；
 - `JsonlSessionStorage`：配合 `.{name}.lock` 跨进程锁与 `_remove_incomplete_temp()` 自动清理崩溃残留碎片。
@@ -334,6 +339,7 @@ class ToolExecutor(Protocol):
         on_update: ToolUpdateCallback | None = None,
     ) -> AgentToolResult: ...
 ```
+
 - 长命令可在内部通过 `signal.is_cancelled()` 协同取消子进程树；
 - 执行中可通过 `on_update(partial_result)` 流式回显中间日志，且由闭包 `accepting = False` 隔绝迟滞竞争。
 
@@ -357,6 +363,7 @@ class ToolExecutor(Protocol):
 #### 2. Provider 流式细粒度事件流
 
 统一 Provider 异步生成器标准事件输出：
+
 - `ThinkingDeltaEvent(thinking_delta: str)`：思考过程流式推送；
 - `TextDeltaEvent(text_delta: str)`：正文打字机推送；
 - `ToolCallDeltaEvent(call_id, args_delta)`：工具参数实时组装提示；
