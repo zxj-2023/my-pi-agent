@@ -75,11 +75,13 @@
 
 1. **事件解耦监听**：`TaskGuardHook` 监听 `TurnEnd` 事件。当模型未发起工具调用（`not event.tool_results`，准备输出最终文本退出本轮）时，钩子检查 `TaskStore` 中是否存在仍处于 `in_progress` 的未结清任务；
 2. **Steer 自动提醒**：若存在在跑任务，钩子调用 `agent.steer(nudge)` 向 `MessageQueue` 注入一条 Steering 纠偏指令：
+
    ```text
    Task '{task_id}' ({subject}) is still marked as 'in_progress'. 
    If you have completed it, please call todo(action='update', task_id='{task_id}', status='completed') 
    to update your progress before concluding.
    ```
+
 3. **安全点拦截继续**：`Agent.run` 在派发 `TurnEnd` 后的安全点检测到 `has_steering() == True`，无缝拉起下一轮 ReAct 循环；
 4. **闭环收工与防死循环**：模型接收到精准提醒后，调用 `todo` 完成打勾结算并在下一轮交差；钩子在单次运行中对同一任务最多敲打一次（`nudged_ids` 集合，在 `AgentStart` 时重置），保障绝对收敛。
 

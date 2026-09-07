@@ -213,4 +213,3 @@ class TaskGuardHook:
                     f"to update your progress before concluding."
                 )
                 break
-
