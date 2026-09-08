@@ -19,6 +19,13 @@ from .entries import (
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
 )
+from .memory import (
+    SessionState,
+)
+from .storage import (
+    InMemorySessionStorage,
+    SessionStorage,
+)
 from .tree import (
     SessionTreeError,
     entries_by_id,
@@ -61,4 +68,9 @@ __all__ = [
     "entries_by_id",
     "path_to_entry",
     "lowest_common_ancestor",
+    # Memory projection
+    "SessionState",
+    # Storage protocol & driver
+    "SessionStorage",
+    "InMemorySessionStorage",
 ]
