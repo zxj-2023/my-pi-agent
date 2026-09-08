@@ -505,6 +505,25 @@ my-pi-agent/
 
 ---
 
+### 阶段 8 补充演进：TaskGuardHook 事件解耦、随路回显与 Tau 深度架构对标（2026-08-30）
+
+**目标**：消除 Agent 核心循环硬编码任务检查的分层泄漏缺陷，对齐 Pi 官方 Extension 哲学；深度探索对标 Tau（`tau_agent`）与 Pi 官方后台扩展架构，沉淀深度模块化重构规范与代码清理审查报告。
+
+- 提交：`afa9115` `ddbbe46` `6cd59d0` `e141641` `ac73711`
+- **改了什么**：
+  - `task_tools.py` & `agent.py`：将硬编码在 `Agent.run()` 中的早退催促逻辑彻底抽离，重构为独立的 `TaskGuardHook`，挂载在 `TurnEnd`（无工具调用时检查）与 `AgentStart`（清空已提醒集合）生命周期事件上，由底层消息队列安全点（`steer`）自动拉起下一轮；`Agent.run()` 核心循环回归 100% 纯净通用调度。
+  - 随路看板回显（In-Band Echo）：工具写操作在 `ToolResult.data["board"]` 中即时返回最新紧凑看板，100% 捍卫大模型供应商 Prompt Prefix Cache，Session 磁盘历史保持零污染。
+  - `docs/core/13-tau-alignment-architecture-redesign.md`（新增）：深度解构 `tau_agent`，规划 4 阶段演进路线图：
+    1. 引入 `tool_history.py` 三阶段确定性自愈状态机与 `_provider_context` 空失败轮次清洗；
+    2. 拆解 `session/` 子包（9 种多态实体、纯内存树算法防环路、`SessionState` 纯函数无锁折叠投影、纯追加 `SessionStorage`）；
+    3. 提炼 `loop.py` 纯函数微内核并暴露 `prompt_stream` 事件流；
+    4. `Agent` 消除 18 参数上帝类构造。
+  - `docs/core/14-codebase-cleanup-and-defect-repair.md`（新增）：基于双路并行 Subagent（Deslop Pass 与 Verbosity Pass）对抗式审查结论，形式化定义 P0-1（POSIX 进程组防自杀）、P0-2（`ExtensionAPI.on` 异步 Hook 协程包装）、P1-1（`context.py` L3 重复写放大消除）、P1-2（`Tool.timeout` 接入 `asyncio.wait_for` 真实生效）等关键缺陷与修复规格。
+  - 博客更新：修润 `my-pi-agent--todolist与background.md`，理顺工具演进脉络与随路回显架构。
+- **验证**：三包全量 **304 个离线测试** 持续 100% 绿灯全通。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）

@@ -110,9 +110,10 @@
   - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退
   - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问
 - **[统一任务系统与后台异步（task_store & background）](docs/core/12-task-system-and-background.md)**：
-  - **DAG 依赖状态机（`TaskItem` + `TaskStore`）**：对标 Claude Code v2.1.142+，支持 `task_create` / `task_update` / `task_get` / `task_list` / `todo_write` 5 个标准工具、深度传递性环检测、单 `in_progress` 聚焦约束、自动解锁下游任务与崩溃安全原子持久化
-  - **`<TASK_BOARD>` 上下文看板自动投影**：`BeforeModelCall` 决策点自动将当前未完成任务投影为 Markdown 看板注入模型临时视图（0 工具往返消耗，Session 历史零污染）
-  - **`BackgroundRunner` 后台异步执行引擎**：支持慢命令（`bash run_in_background=True`）非阻塞运行，结果自动送入 `MessageQueue` 安全点收割；强绑定进程生命周期（`agent.abort()` 与 `atexit` 自动强杀清理，彻底杜绝孤儿进程）
+  - **DAG 依赖状态机（`TaskItem` + `TaskStore`）**：支持单一标准入口 `todo` 工具（对标 Pi 与 Hermes-Agent，涵盖 create/update/list/get/clear/write 6 大动作）、深度传递性成环检测、单 `in_progress` 聚焦约束、自动解锁下游任务与崩溃安全原子持久化
+  - **随路看板回显投影（In-Band Echo via `ToolResult`）**：写操作工具执行后直接在返回值中回显最新紧凑 `<TASK_BOARD>`，100% 保护大模型 Prompt Prefix Cache，零额外查询往返，Session 磁盘历史绝对零污染
+  - **任务早退守卫（`TaskGuardHook`）**：对标 Pi 扩展事件哲学，解耦监听 `TurnEnd` 与 `AgentStart` 生命周期，在模型未结清在跑工单时自动调用 `steer()` 拦截并纠偏
+  - **`BackgroundRunner` 后台异步执行引擎**：支持慢命令（`bash run_in_background=True`）非阻塞运行，结果自动送入 `MessageQueue` Follow-up 队列安全点收割；跨平台整树强杀防御（Windows `taskkill /F /T` + Unix `os.killpg`，联动 `agent.abort()` 与 `atexit`，彻底杜绝孤儿进程）
 
 ### 3. 产品层 `my-coding-agent`
 
@@ -128,7 +129,9 @@
 
 ### 4. 架构设计与外部对标分析
 
-- **[docs/ 技术设计文档库](docs/README.md)**：包含 15 篇模块级技术架构规范（模型层、核心层、产品层与 Tau 深度对标分析）。
+- **[docs/ 技术设计文档库](docs/README.md)**：包含 17 篇模块级技术架构规范（模型层、核心层、产品层、Tau 深度对标分析、重构路线与缺陷修复规范）。
+  - 新增 `docs/core/13-tau-alignment-architecture-redesign.md`：Tau 对齐与核心框架深度重构设计（纯函数微内核、历史自愈、纯内存会话存储）。
+  - 新增 `docs/core/14-codebase-cleanup-and-defect-repair.md`：双路子 Agent 对抗式审查与关键缺陷修复规范（P0 进程组安全、P0 异步 Hook 协程包装、P1 L3 写放大消除等）。
 - **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**：深度解构 Python 版 Pi Harness 框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、会话历史自愈机制与演进路线。
 
 ---
