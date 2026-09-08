@@ -37,6 +37,13 @@ from my_agent_core.tools import ToolResult
 # 事件类型别名，对齐规范
 AgentEvent = Event
 
+__all__ = [
+    "AgentEvent",
+    "CancellationToken",
+    "_provider_context",
+    "run_agent_loop",
+]
+
 
 class CancellationToken:
     """协作式取消令牌，供宿主在流式过程中从外部主动请求安全中断。"""
