@@ -69,7 +69,9 @@ def _provider_context(messages: Sequence[Message]) -> list[Message]:
         for m in messages
         if not (
             m.role == "assistant"
-            and bool(m.metadata and m.metadata.get("stop_reason") in {"error", "aborted"})
+            and bool(
+                m.metadata and m.metadata.get("stop_reason") in {"error", "aborted"}
+            )
             and not m.content
         )
     )
@@ -175,10 +177,12 @@ async def run_agent_loop(
     if get_steering_messages is not None:
         init_steer = get_steering_messages()
         if init_steer:
-            pending_messages.extend([
-                Message(role="user", content=m) if isinstance(m, str) else m
-                for m in init_steer
-            ])
+            pending_messages.extend(
+                [
+                    Message(role="user", content=m) if isinstance(m, str) else m
+                    for m in init_steer
+                ]
+            )
 
     iteration = 0
     final_text: str | None = None
@@ -281,9 +285,7 @@ async def run_agent_loop(
                             cancelled = True
                             break
             elif hasattr(llm, "achat"):
-                resp = await llm.achat(
-                    messages=view, tools=tool_schemas, model=model
-                )
+                resp = await llm.achat(messages=view, tools=tool_schemas, model=model)
                 content_acc = resp.content or ""
                 final_tool_calls = resp.tool_calls
                 last_usage = resp.usage
@@ -297,9 +299,7 @@ async def run_agent_loop(
                     chunk=chunk,
                 )
             else:
-                resp = llm.chat(
-                    messages=view, tools=tool_schemas, model=model
-                )
+                resp = llm.chat(messages=view, tools=tool_schemas, model=model)
                 content_acc = resp.content or ""
                 final_tool_calls = resp.tool_calls
                 last_usage = resp.usage
@@ -341,10 +341,17 @@ async def run_agent_loop(
                 )
                 return
 
-            if last_usage and context_manager is not None and hasattr(context_manager, "record_usage"):
+            if (
+                last_usage
+                and context_manager is not None
+                and hasattr(context_manager, "record_usage")
+            ):
                 context_manager.record_usage(last_usage)
 
-            if context_manager is not None and getattr(context_manager, "pending_compaction", None) is not None:
+            if (
+                context_manager is not None
+                and getattr(context_manager, "pending_compaction", None) is not None
+            ):
                 info = context_manager.pending_compaction
                 yield ContextCompacted(
                     tokens_before=info.tokens_before,
@@ -355,9 +362,7 @@ async def run_agent_loop(
             assistant = Message(
                 role="assistant",
                 content=content_acc,
-                metadata={"tool_calls": final_tool_calls}
-                if final_tool_calls
-                else None,
+                metadata={"tool_calls": final_tool_calls} if final_tool_calls else None,
             )
             messages.append(assistant)
             yield MessageStart(assistant)
@@ -408,10 +413,15 @@ async def run_agent_loop(
                             hook = await hook_registry.emit(start_tool_ev)
                             if isinstance(hook, HookResult) and hook.block:
                                 err = f"Tool '{name}' blocked: {hook.reason}"
-                            elif isinstance(hook, HookResult) and hook.updated_args is not None:
+                            elif (
+                                isinstance(hook, HookResult)
+                                and hook.updated_args is not None
+                            ):
                                 args = hook.updated_args
                         except Exception as exc:
-                            err = f"Error in ToolExecutionStart hook for '{name}': {exc}"
+                            err = (
+                                f"Error in ToolExecutionStart hook for '{name}': {exc}"
+                            )
 
                     if err is not None:
                         direct_observations[idx] = ToolResult(ok=False, error=err)
@@ -435,7 +445,9 @@ async def run_agent_loop(
                     call_dicts_to_run = [c[1] for c in effective_calls]
                     batch_results = await registry.execute_batch(call_dicts_to_run)
 
-                    for (idx, _tc), res in zip(effective_calls, batch_results, strict=False):
+                    for (idx, _tc), res in zip(
+                        effective_calls, batch_results, strict=False
+                    ):
                         _tc_id = _tc.get("id", "")
                         _name = _tc.get("function", {}).get("name", "")
                         obs_str = res.serialize()
@@ -447,7 +459,10 @@ async def run_agent_loop(
                         if hook_registry is not None:
                             try:
                                 hook = await hook_registry.emit(end_tool_ev)
-                                if isinstance(hook, HookResult) and hook.updated_result is not None:
+                                if (
+                                    isinstance(hook, HookResult)
+                                    and hook.updated_result is not None
+                                ):
                                     obs_str = hook.updated_result
                                     is_err = False
                             except Exception as exc:

@@ -13,11 +13,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
-from my_agent_core.loop import (
-    CancellationToken,
-    _provider_context,
-    run_agent_loop,
-)
 from my_agent_llm import Message, Response, StreamChunk
 
 from my_agent_core.events import (
@@ -31,6 +26,11 @@ from my_agent_core.events import (
     ToolExecutionStart,
     TurnEnd,
     TurnStart,
+)
+from my_agent_core.loop import (
+    CancellationToken,
+    _provider_context,
+    run_agent_loop,
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import tool
@@ -130,7 +130,13 @@ def test_provider_context_filters_empty_error_aborted_assistant():
 
 def test_provider_context_repairs_tool_history():
     """验证 _provider_context 串联 repair_tool_history，补齐断头工具结果并丢弃孤儿结果。"""
-    tc = [{"id": "call_1", "type": "function", "function": {"name": "ping", "arguments": "{}"}}]
+    tc = [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "ping", "arguments": "{}"},
+        }
+    ]
     messages = [
         Message(role="user", content="run ping"),
         Message(role="assistant", content="", metadata={"tool_calls": tc}),
@@ -207,15 +213,19 @@ async def test_run_agent_loop_basic_lifecycle():
 @pytest.mark.anyio
 async def test_run_agent_loop_tool_execution_flow():
     """验证包含工具调用的多轮 ReAct 循环生命周期事件与保序写回。"""
-    tc = [{
-        "id": "call_mult",
-        "type": "function",
-        "function": {"name": "multiply", "arguments": json.dumps({"a": 3, "b": 7})},
-    }]
-    llm = FakeLLM([
-        _response(tool_calls=tc),
-        _response(content="Result is 21"),
-    ])
+    tc = [
+        {
+            "id": "call_mult",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": json.dumps({"a": 3, "b": 7})},
+        }
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(content="Result is 21"),
+        ]
+    )
     registry = _make_registry(multiply)
     messages: list[Message] = []
 
@@ -272,7 +282,9 @@ async def test_run_agent_loop_steering_message_harvesting():
                 steer_queue.append(Message(role="user", content="Wait, reconsider!"))
                 yield StreamChunk(content="Initial thought", finish_reason="end_turn")
             else:
-                yield StreamChunk(content="Steered correction", finish_reason="end_turn")
+                yield StreamChunk(
+                    content="Steered correction", finish_reason="end_turn"
+                )
 
     def get_steering() -> Sequence[Message]:
         nonlocal steer_queue
@@ -304,10 +316,12 @@ async def test_run_agent_loop_steering_message_harvesting():
 @pytest.mark.anyio
 async def test_run_agent_loop_follow_up_harvesting():
     """验证 get_follow_up_messages 在内层循环彻底结束后驱动外层大循环继续处理后置任务。"""
-    llm = FakeLLM([
-        _response(content="Done with step 1"),
-        _response(content="Done with follow-up"),
-    ])
+    llm = FakeLLM(
+        [
+            _response(content="Done with step 1"),
+            _response(content="Done with follow-up"),
+        ]
+    )
 
     follow_up_drained = False
 
@@ -341,11 +355,13 @@ async def test_run_agent_loop_follow_up_harvesting():
 @pytest.mark.anyio
 async def test_run_agent_loop_cancellation_with_token():
     """验证 CancellationToken 在工具执行前协作取消，合成中断结果并派发 stop_reason='cancelled'。"""
-    tc = [{
-        "id": "call_long",
-        "type": "function",
-        "function": {"name": "multiply", "arguments": json.dumps({"a": 2, "b": 2})},
-    }]
+    tc = [
+        {
+            "id": "call_long",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": json.dumps({"a": 2, "b": 2})},
+        }
+    ]
     llm = FakeLLM([_response(tool_calls=tc)])
     token = CancellationToken()
 
@@ -379,16 +395,20 @@ async def test_run_agent_loop_cancellation_with_token():
 @pytest.mark.anyio
 async def test_run_agent_loop_max_turns_limit():
     """验证超过 max_turns 限制时停止循环并派发 stop_reason='max_iterations'。"""
-    tc = [{
-        "id": "call_loop",
-        "type": "function",
-        "function": {"name": "ping", "arguments": "{}"},
-    }]
-    llm = FakeLLM([
-        _response(tool_calls=tc),
-        _response(tool_calls=tc),
-        _response(tool_calls=tc),
-    ])
+    tc = [
+        {
+            "id": "call_loop",
+            "type": "function",
+            "function": {"name": "ping", "arguments": "{}"},
+        }
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(tool_calls=tc),
+            _response(tool_calls=tc),
+        ]
+    )
     messages: list[Message] = []
     events = []
 
@@ -428,7 +448,10 @@ async def test_run_agent_loop_provider_context_cleaning_in_loop():
     call_msgs = llm.calls[0]["messages"]
     # 失败的空消息应已被 _provider_context 剔除
     assert not any(
-        m.role == "assistant" and m.content == "" and m.metadata and m.metadata.get("stop_reason") == "error"
+        m.role == "assistant"
+        and m.content == ""
+        and m.metadata
+        and m.metadata.get("stop_reason") == "error"
         for m in call_msgs
     )
     roles = [m.role for m in call_msgs]
