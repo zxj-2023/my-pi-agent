@@ -66,25 +66,25 @@
   - `entries_by_id(entries: Sequence[SessionEntry]) -> dict[str, SessionEntry]` (带重复 ID 防御)
   - `path_to_entry(entries: Sequence[SessionEntry], leaf_id: str) -> list[SessionEntry]` (带 `seen` 集合环路检测)
 
-- [ ] **Step 1: 编写 `test_session_tree_modular.py` 失败测试**
+- [x] **Step 1: 编写 `test_session_tree_modular.py` 失败测试**
   - 测试 9 种 `SessionEntry` 类型的 Pydantic v2 判别联合体序列化与反序列化；
   - 测试 `entries_by_id` 遇到重复 ID 抛出 `SessionTreeError`；
   - 测试 `path_to_entry` 正确提取根到叶节点路径，遇到缺失父节点报错，遇到循环死锁引用抛出 `Cycle detected`。
-- [ ] **Step 2: 运行测试并确认失败 (RED)**
+- [x] **Step 2: 运行测试并确认失败 (RED)**
   - 命令：`uv run python -m pytest tests/test_session_tree_modular.py`
   - 预期失败原因：`ModuleNotFoundError: No module named 'my_agent_core.session.entries'`。
-- [ ] **Step 3: 实现 `session/entries.py`**
+- [x] **Step 3: 实现 `session/entries.py`**
   - 使用 Pydantic v2 `BaseModel` 定义 `BaseSessionEntry`（`extra="forbid"`，驼峰别名与蛇形互转）；
   - 定义 9 种具体实体，使用 `type: Literal[...]` 作为判别字段；
   - 组装 `SessionEntry` 联合类型。
-- [ ] **Step 4: 实现 `session/tree.py`**
+- [x] **Step 4: 实现 `session/tree.py`**
   - 定义 `SessionTreeError(ValueError)`；
   - 实现纯内存纯函数 `entries_by_id`（重复 ID 校验）；
   - 实现 `path_to_entry`，采用循环迭代与 `seen: set[str]` 防死锁探测，零 I/O 依赖。
-- [ ] **Step 5: 运行单测验证绿灯 (GREEN)**
+- [x] **Step 5: 运行单测验证绿灯 (GREEN)**
   - 命令：`uv run python -m pytest tests/test_session_tree_modular.py`
   - 验证全部断言通过。
-- [ ] **Step 6: 提交代码**
+- [x] **Step 6: 提交代码**
   - `git add packages/my-agent-core/src/my_agent_core/session/ packages/my-agent-core/tests/test_session_tree_modular.py`
   - `git commit -m "feat(session): 实现 9 种多态判别实体与纯内存防环树算法"`
 
@@ -106,24 +106,24 @@
   - `SessionStorage(Protocol)`: 异步接口（`append(entry)`, `append_batch(entries)`, `read_all()`）
   - `InMemorySessionStorage`: 纯内存存储驱动，极速单测无磁盘文件
 
-- [ ] **Step 1: 编写 `test_session_memory_and_storage.py` 失败测试**
+- [x] **Step 1: 编写 `test_session_memory_and_storage.py` 失败测试**
   - 测试 `SessionState.from_entries` 顺次折叠 `SessionInfoEntry`、`MessageEntry`、`ModelChangeEntry`、`ThinkingLevelChangeEntry`；
   - 测试遇到 `CompactionEntry` 时自动将历史条目折叠为摘要消息；
   - 测试 `InMemorySessionStorage` 的异步 `append`、`append_batch` 与 `read_all` 契约。
-- [ ] **Step 2: 运行测试并确认失败 (RED)**
+- [x] **Step 2: 运行测试并确认失败 (RED)**
   - 命令：`uv run python -m pytest tests/test_session_memory_and_storage.py`
   - 预期失败：缺少 `memory.py` 与 `storage.py`。
-- [ ] **Step 3: 实现 `session/memory.py`**
+- [x] **Step 3: 实现 `session/memory.py`**
   - 编写不可变 dataclass `SessionState`；
   - 实现纯函数投影 `from_entries`：提取路径条目，线性模式匹配 `entry.type`；
   - 实现 `_apply_compaction`：将 `replaces_entry_ids` 范围内的消息折叠为一条 `UserMessage("Previous conversation summary:\n...")`。
-- [ ] **Step 4: 实现 `session/storage.py`**
+- [x] **Step 4: 实现 `session/storage.py`**
   - 定义 `SessionStorage(Protocol)` 异步存储契约（彻底移除 `rewrite_history`）；
   - 实现 `InMemorySessionStorage`，使用内部列表 `self._entries: list[SessionEntry]` 配合 `asyncio.Lock` 实现纯内存高性能读写。
-- [ ] **Step 5: 运行单测验证绿灯 (GREEN)**
+- [x] **Step 5: 运行单测验证绿灯 (GREEN)**
   - 命令：`uv run python -m pytest tests/test_session_memory_and_storage.py`
   - 验证所有状态折叠与内存存储逻辑通过。
-- [ ] **Step 6: 提交代码**
+- [x] **Step 6: 提交代码**
   - `git add packages/my-agent-core/src/my_agent_core/session/ packages/my-agent-core/tests/test_session_memory_and_storage.py`
   - `git commit -m "feat(session): 实现纯函数 SessionState 事件折叠与纯内存存储驱动"`
 
@@ -144,23 +144,23 @@
   - `JsonlSessionStorage(path: Path | str)`: 基于文件追加的 `SessionStorage` 实现，支持 `.{name}.lock` 跨进程锁与未完成 `.tmp` 自动自愈清理
   - 向后兼容导出：`Session`, `SessionTree`, `SessionEntry`，确保外部 312 项测试零断裂
 
-- [ ] **Step 1: 编写 `test_session_jsonl_modular.py` 测试**
+- [x] **Step 1: 编写 `test_session_jsonl_modular.py` 测试**
   - 测试行级 JSONL 追加写入与恢复；
   - 测试残留 `.tmp` 文件在初始化时被安全清理（自愈）；
   - 测试多进程锁竞争时安全排队。
-- [ ] **Step 2: 运行测试并确认失败 (RED)**
+- [x] **Step 2: 运行测试并确认失败 (RED)**
   - 命令：`uv run python -m pytest tests/test_session_jsonl_modular.py`
-- [ ] **Step 3: 实现 `session/jsonl.py`**
+- [x] **Step 3: 实现 `session/jsonl.py`**
   - 实现 `JsonlSessionStorage`，使用追加模式 `a+` 写入每行 JSON；
   - 引入 `_remove_incomplete_temp()` 在持有锁时清理异常中断遗留的临时碎片；
   - 实现 `_migrate_session_entry` 兼容旧版文件头与遗留格式。
-- [ ] **Step 4: 装配 `session/__init__.py` 与重构 `session.py` 门面**
+- [x] **Step 4: 装配 `session/__init__.py` 与重构 `session.py` 门面**
   - 将原 `Session` 内部重构为委托给 `SessionStorage` 与 `SessionState`；
   - 保持 `session.add_message`、`session.rewind`、`session.fork` 外部行为 100% 一致。
-- [ ] **Step 5: 运行全量会话测试验证 (GREEN)**
+- [x] **Step 5: 运行全量会话测试验证 (GREEN)**
   - 命令：`uv run python -m pytest tests/test_session.py tests/test_session_store.py tests/test_session_jsonl_modular.py`
   - 确保现有测试与新模块测试无缝全绿。
-- [ ] **Step 6: 提交代码**
+- [x] **Step 6: 提交代码**
   - `git add packages/my-agent-core/src/my_agent_core/session/ packages/my-agent-core/src/my_agent_core/session.py packages/my-agent-core/tests/test_session_jsonl_modular.py`
   - `git commit -m "refactor(session): 拆解 session 单文件为模块化子包并提供向后兼容门面"`
 
@@ -179,19 +179,19 @@
   - `_provider_context(messages: list[Message]) -> list[Message]`: 剔除空失败轮次并串联 `repair_tool_history`
   - `run_agent_loop(...) -> AsyncIterator[AgentEvent]`: 纯函数 ReAct 事件流生成器微内核
 
-- [ ] **Step 1: 编写 `test_agent_loop_pure.py` 失败测试**
+- [x] **Step 1: 编写 `test_agent_loop_pure.py` 失败测试**
   - 构造 `FakeLLM`，验证 `run_agent_loop` 独立运行并按序产生 `AgentStart`、`TurnStart`、`MessageUpdate`、`ToolExecutionStart`、`TurnEnd`、`AgentEnd`；
   - 验证 `_provider_context` 能安全剥离 `stop_reason="error"` 且 `content=""` 的中断失败消息；
   - 验证 `get_steering_messages` 与 `get_follow_up_messages` 在微内核内实现双层循环自动收割。
-- [ ] **Step 2: 运行测试并确认失败 (RED)**
+- [x] **Step 2: 运行测试并确认失败 (RED)**
   - 命令：`uv run python -m pytest tests/test_agent_loop_pure.py`
-- [ ] **Step 3: 实现 `packages/my-agent-core/src/my_agent_core/loop.py`**
+- [x] **Step 3: 实现 `packages/my-agent-core/src/my_agent_core/loop.py`**
   - 从 `agent.py:350-575` 剥离双层循环逻辑，提炼为纯无状态异步生成器 `run_agent_loop`；
   - 接入 `_provider_context` 保证送入 `achat_stream` 的消息 100% 合法；
   - 规范成对派发 `TurnEnd` 与 `AgentEnd`。
-- [ ] **Step 4: 运行微内核测试验证 (GREEN)**
+- [x] **Step 4: 运行微内核测试验证 (GREEN)**
   - 命令：`uv run python -m pytest tests/test_agent_loop_pure.py`
-- [ ] **Step 5: 提交代码**
+- [x] **Step 5: 提交代码**
   - `git add packages/my-agent-core/src/my_agent_core/loop.py packages/my-agent-core/tests/test_agent_loop_pure.py`
   - `git commit -m "feat(core): 提炼纯函数 ReAct 微内核 run_agent_loop 与 _provider_context 清洗"`
 
@@ -211,9 +211,9 @@
   - `Agent.run(user_input: str) -> str | None`: 经典便利接口（内部消费 `prompt_stream`）
   - 核心循环代码彻底委托给 `run_agent_loop`，`agent.py` 减少 200+ 行重复调度逻辑
 
-- [ ] **Step 1: 编写事件流验证测试**
+- [x] **Step 1: 编写事件流验证测试**
   - 在 `tests/test_agent.py` 中增加 `test_agent_prompt_stream_emits_events`，验证外部可直接 `async for event in agent.prompt_stream(...)`。
-- [ ] **Step 2: 重构 `Agent` 内部调度流**
+- [x] **Step 2: 重构 `Agent` 内部调度流**
   - `Agent.prompt_stream` 调用 `run_agent_loop`，同时更新内部 `self.messages` 与 `self.session`；
   - `Agent.run` 实现为：
 
@@ -226,7 +226,7 @@
         return final_text
     ```
 
-- [ ] **Step 3: 全仓库 312+ 测试全量回归验证**
+- [x] **Step 3: 全仓库 312+ 测试全量回归验证**
   - 运行：
 
     ```powershell
@@ -236,9 +236,9 @@
     ```
 
   - 保证每一个测试包 100% 绿灯，绝无任何回归退化。
-- [ ] **Step 4: 运行 `lens_diagnostics(mode="all")` 静态代码体检**
+- [x] **Step 4: 运行 `lens_diagnostics(mode="all")` 静态代码体检**
   - 确保新增与修改的所有文件零类型报错、零警告。
-- [ ] **Step 5: 提交最终重构成果**
+- [x] **Step 5: 提交最终重构成果**
   - `git add packages/my-agent-core/src/my_agent_core/agent.py packages/my-agent-core/tests/test_agent.py`
   - `git commit -m "refactor(agent): 将 Agent 瘦身为轻量 Harness，委托 run_agent_loop 并提供 prompt_stream 事件流"`
 
