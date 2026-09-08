@@ -543,6 +543,33 @@ my-pi-agent/
 
 ---
 
+### 阶段 18：Tau 对齐核心框架深度重塑（session/ 拆包、纯函数 loop.py 微内核与 prompt_stream 事件流）（2026-08-30）
+
+**目标**：对标 Tau `tau_agent`，将框架核心层彻底解耦重构为工业级深度微内核架构：拆解单文件 `session.py` 为 5 专职模块并引入纯内存驱动，提炼 `run_agent_loop` 纯函数生成器微内核，将 `Agent` 瘦身为轻量 Harness 并对外暴露 `prompt_stream` 一等公民事件流与 `subscribe()` 接口。
+
+- 提交：`f9c5f03` `ba109d0` `0b90f22` `0f5dac0` `c2eac4f` `74b8c27` `dae5474` `0ea849c` `73fba0d` `a8263c2` `a9a1d60` `9a93c42` `ac89076`
+- **改了什么**：
+  - `session/` 目录结构领域下沉（拆分为 5 大专职模块）：
+    1. `entries.py`：定义 9 种多态 Pydantic v2 条目实体（`SessionInfoEntry`, `MessageEntry`, `ModelChangeEntry`, `ThinkingLevelChangeEntry`, `CompactionEntry`, `BranchSummaryEntry`, `LabelEntry`, `LeafEntry`, `CustomEntry`），通过 `Field(discriminator="type")` 组成 `SessionEntry` 联合体，彻底废除脆弱的第 0 行文件头字典；
+    2. `tree.py`：实现纯内存 DAG 算法（`entries_by_id`, `path_to_entry`, `lowest_common_ancestor`），内置 `seen` 集合循环死锁检测与重复 ID 校验，零物理 I/O 依赖；
+    3. `memory.py`：实现 `SessionState` 不可变状态快照与纯函数折叠投影（`SessionState.from_entries`），沿路径线性折叠模型、思考深度、分支指针，并自动将 `CompactionEntry` 映射为单条摘要消息；
+    4. `storage.py`：定义只追加纯异步 `SessionStorage` 协议，实现 `InMemorySessionStorage` 纯内存存储驱动，赋能单测完全脱离物理文件极速运行；
+    5. `jsonl.py`：实现 `JsonlSessionStorage` 追加存储驱动，引入 `.{name}.lock` 跨进程文件锁（Windows `msvcrt` / POSIX `fcntl`）、未完成 `.tmp` 碎片自愈清理与 `_migrate_session_entry` 旧版格式平滑兼容迁移；
+    6. `session/__init__.py`：统一子包符号导出，动态桥接向后兼容门面，确保外部老代码与现有测试零断裂。
+  - `loop.py`（新增）：
+    - 提炼纯无状态异步生成器微内核 `run_agent_loop`，全面接管 ReAct 双层事件循环（内层工具执行 + steering 即时转向，外层 follow-up 自收割），消灭原 `agent.py` 内部 260+ 行重复内联循环逻辑；
+    - 接入 `_provider_context`，在调用模型前剥离空失败轮次并串联 `repair_tool_history`，彻底免疫大模型 API 400 校验死锁；
+    - 引入 `CancellationToken` 协作式取消信号，在流式及工具调用前即刻响应中断，并自动为悬空调用合成中断结果落盘。
+  - `agent.py`：
+    - 瘦身 Agent 为轻量 Harness，将核心调度流彻底委托给 `run_agent_loop`；
+    - 暴露一等公民 `async def prompt_stream(self, user_input: str) -> AsyncIterator[Event]` 事件流接口；
+    - 暴露 `subscribe(listener)` 观察者接口；
+    - 将 `run()` 重构为纯粹消费 `prompt_stream` 的便利门面，保持原有 100% 行为兼容。
+  - 测试：新增 `test_session_tree_modular.py`（14 项）、`test_session_memory_and_storage.py`（20 项）、`test_session_jsonl_modular.py`（19 项）、`test_agent_loop_pure.py`（11 项）、扩充 `test_agent.py`（2 项），全套重构新增 66 项高质量单测。
+- **验证**：三包全量 **378 个离线测试**（core 320 + llm 36 + coding 22）100% 绿灯全通，零回归，代码检查 100% clean。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）

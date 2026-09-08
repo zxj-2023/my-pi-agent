@@ -160,7 +160,7 @@ uv run python -m my_coding_agent.agent
 本项目所有单元测试均严格使用 FakeLLM 与模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```powershell
-# 运行全部三个包的单元测试（304 tests）
+# 运行全部三个包的单元测试（378 tests）
 cd packages/my-agent-core && uv run python -m pytest -q
 cd ../my-agent-llm && uv run python -m pytest -q
 cd ../my-coding-agent && uv run python -m pytest -q
@@ -172,10 +172,10 @@ cd ../my-coding-agent && uv run python -m pytest -q
 
 ```text
 my-pi-agent/
-├── docs/                           # 全套技术设计规范文档库 (15 篇模块规范 + 全景导航)
+├── docs/                           # 全套技术设计规范文档库 (17 篇模块规范 + 全景导航)
 │   ├── README.md                   # 架构全景与文档索引
 │   ├── llm/                        # 模型边界层规范 (01-llm-boundary.md)
-│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 12-task-system-and-background.md)
+│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 15-tau-alignment-implementation-plan.md)
 │   └── coding/                     # 产品与编码层规范 (01-file-tools.md, 02-mcp-client.md)
 │
 ├── packages/
