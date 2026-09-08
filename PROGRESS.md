@@ -9,20 +9,31 @@
 my-pi-agent/
 ├── packages/
 │   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
-│   │   ├── agent.py       # Agent（单层异步循环 + hook 注册表 + extension 装配 + abort 取消）
+│   │   ├── agent.py       # Agent 轻量 Harness 外壳（prompt_stream 与事件订阅）
+│   │   ├── loop.py        # 纯函数无状态微内核 run_agent_loop 与上下文清洗
+│   │   ├── tool_history.py # 对话转录本三阶段自愈与断头保护引擎 (repair_tool_history)
 │   │   ├── registry.py    # ToolRegistry（工具注册表，读写分流并发 + 保序回填）
 │   │   ├── events.py      # 事件 dataclass + HookResult + HookRegistry（异步 emit + 流式 Interceptable）
-│   │   ├── tools/         # 工具包（Tool / ToolResult / @tool / make_task_tool）
+│   │   ├── tools/         # 工具包（Tool / ToolResult / @tool / make_task_tool / task_tools）
 │   │   │   ├── __init__.py  # 核心符号统一导出
 │   │   │   ├── core.py      # Tool / ToolResult / @tool 装饰器实现
-│   │   │   └── builtin/     # task.py（子代理委派工具）
-│   │   ├── session.py     # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
+│   │   │   └── builtin/     # 内置工具 (task.py 子代理委派桥 / task_tools.py todo 标准工具)
+│   │   ├── session/       # 模块化会话存储子系统（9 种 Entry 判别实体 / 纯内存树 / 只追加存储驱动）
+│   │   │   ├── __init__.py  # 符号导出与门面
+│   │   │   ├── entries.py   # 9 种强类型多态 SessionEntry 实体
+│   │   │   ├── tree.py      # 纯内存 DAG 算法（环路检测与 LCA 计算）
+│   │   │   ├── memory.py    # SessionState 事件溯源折叠投影 (from_entries)
+│   │   │   ├── storage.py   # 纯异步只追加 SessionStorage 协议
+│   │   │   └── jsonl.py     # JsonlSessionStorage 追加驱动与跨进程锁
+│   │   ├── session.py     # 会话向下兼容门面（委托给 session/ 子包）
 │   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
 │   │   ├── context.py     # ContextManager + ContextSessionBridge（四层异步压缩管线）
 │   │   ├── memory.py      # MemoryStore + make_memory_tool（长期记忆存储与快照管理）
 │   │   ├── skills.py      # Skill + SkillManager（Repository：发现/清单/调用）
 │   │   ├── subagents.py   # Subagent + SubagentManager（agents/*.md 发现）
-│   │   ├── tasks.py       # Task + TaskStatus + TaskManager（委派生命周期，并发派发）
+│   │   ├── subagent_tasks.py # SubagentTask + SubagentTaskManager（子代理委派生命周期调度）
+│   │   ├── task_store.py  # TaskItem + TaskStore（DAG 依赖图与原子持久化）
+│   │   ├── background.py  # BackgroundRunner（后台异步调度与孤儿进程防御）
 │   │   ├── extensions/    # 扩展机制包（ExtensionAPI + ExtensionManager）
 │   │   │   ├── __init__.py  # 符号导出
 │   │   │   └── core.py      # 核心扩展管理器实现
@@ -586,6 +597,8 @@ my-pi-agent/
 - 阶段 13：Claude Code 风格 Plugin 插件系统（已完成，212 + 36 + 18 测试全绿）
 - 阶段 14：Pi 风格动态干预机制 Steer 与 Follow-up（已完成，223 + 36 + 18 测试全绿）
 - 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，246 + 36 + 22 = 304 测试全绿）
+- 阶段 17：对话转录本自愈与断头保护引擎（已完成，对标 Tau tool_history.py，312 测试全绿）
+- 阶段 18：Tau 对齐核心框架深度重塑（已完成，session/ 拆包、纯函数 loop.py 微内核与 prompt_stream 事件流，320 + 36 + 22 = 378 测试全绿）
 - 阶段 6：动态工具（未做）
 - 阶段 16：事件管道 A——只读轻量事件订阅管道（`session.subscribe` / `agent.subscribe`，fire-and-forget 同步非阻塞广播 + `unsubscribe()` 注销句柄）
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

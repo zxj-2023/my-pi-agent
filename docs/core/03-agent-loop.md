@@ -1,8 +1,13 @@
 # 单层 Agent 与原生异步 ReAct 循环设计规范 (`my_agent_core.agent`)
 
-- **定位**：Agent 核心执行中枢与内联状态机 (`packages/my-agent-core/src/my_agent_core/agent.py`)
-- **核心类**：`Agent`
-- **关键 API**：`run(user_input)`, `invoke_skill(name, instructions)`, `reset()`, `compact()`, `abort()`
+- **定位**：Agent 核心执行中枢与内联状态机 (`packages/my-agent-core/src/my_agent_core/agent.py`, `loop.py`)
+- **核心类**：`Agent`, `run_agent_loop`
+- **关键 API**：`run(user_input)`, `prompt_stream(user_input)`, `subscribe(handler)`, `invoke_skill(name, instructions)`, `reset()`, `compact()`, `abort()`
+
+> 💡 **Tau 微内核演进注记 (Phase 18)**：
+> 在阶段 18 的架构演进中，原内联在 `Agent` 类中的 ReAct 双层循环核心已深度重构并彻底下沉为 `packages/my-agent-core/src/my_agent_core/loop.py` 中的纯函数无状态异步生成器 `run_agent_loop`。
+> 此时 `Agent` 类演进为轻量有状态外壳（`AgentHarness`），主要负责持有对话状态、缓冲消息队列与管理事件订阅者，对外暴露 `prompt_stream(prompt)` 流式生成器与 `subscribe(handler)` 事件订阅接口，将事件流提升为系统级一等公民。
+> 详细设计与重构背景参见：[13. Tau 对齐与核心框架深度重构设计文档](13-tau-alignment-architecture-redesign.md)。
 
 ---
 

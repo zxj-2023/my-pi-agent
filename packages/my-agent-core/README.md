@@ -86,7 +86,7 @@ uv run python -m my_agent_core.main # 运行流式打字机 demo
 
 ```powershell
 uv run python -m pytest -q
-# 输出: 226 passed in ~4s
+# 输出: 320 passed in ~9s
 ```
 
 ---
@@ -98,15 +98,24 @@ packages/my-agent-core/
 ├── pyproject.toml            # 包名 my-agent-core，src 布局 + hatchling 构建
 ├── .env.example              # 环境变量模板
 ├── src/my_agent_core/        # 核心源码包
-│   ├── agent.py              # Agent 实体（状态机 + 异步两层循环 + 五大拦截点）
+│   ├── agent.py              # Agent 轻量 Harness 外壳（提供 prompt_stream 事件流与 subscribe）
+│   ├── loop.py               # 纯函数无状态微内核 run_agent_loop 与 _provider_context 清洗
+│   ├── tool_history.py       # 对话转录本三阶段自愈与断头保护引擎 (repair_tool_history)
 │   ├── message_queue.py      # MessageQueue 动态干预队列（Steering / Follow-up）
 │   ├── registry.py           # ToolRegistry（工具注册表，并发分流与保序回填）
 │   ├── events.py             # 12 大生命周期事件 + HookResult 统一干预模型
 │   ├── tools/                # 工具系统
 │   │   ├── __init__.py       # 核心符号统一导出
 │   │   ├── core.py           # Tool 实体、ToolResult 与 @tool 装饰器
-│   │   └── builtin/          # 内置工具（task.py 子代理委派桥）
-│   ├── session.py            # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
+│   │   └── builtin/          # 内置工具 (task.py 子代理委派桥 / task_tools.py todo 标准工具与 TaskGuardHook)
+│   ├── session/              # 模块化会话存储子系统
+│   │   ├── __init__.py       # 统一导出与向后兼容门面
+│   │   ├── entries.py        # 9 种强类型多态 SessionEntry 判别实体
+│   │   ├── tree.py           # 纯内存 DAG 算法（带环路检测与 LCA 祖先计算）
+│   │   ├── memory.py         # SessionState 不可变事件溯源折叠投影 (from_entries)
+│   │   ├── storage.py        # 纯异步只追加 SessionStorage 协议与 InMemory 驱动
+│   │   └── jsonl.py          # JsonlSessionStorage 追加驱动、跨进程锁与碎片自愈
+│   ├── session.py            # 向后兼容门面（委托给 session/ 子包）
 │   ├── session_store.py      # SessionStore（会话仓库，workspace 物理隔离）
 │   ├── context.py            # ContextManager（四层压缩管线）+ ContextSessionBridge
 │   ├── memory.py             # MemoryStore + make_memory_tool（长期记忆与快照管理）
@@ -120,8 +129,13 @@ packages/my-agent-core/
 │   │   └── core.py           # ExtensionAPI + ExtensionManager 核心实现
 │   ├── plugins.py            # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   └── main.py               # 异步流式打字机 demo
-└── tests/                    # 100% 离线单元测试 (246 tests)
-    ├── test_agent.py         # Agent 循环、状态与 5 大决策点拦截测试
+└── tests/                    # 100% 离线单元测试 (320 tests)
+    ├── test_agent.py         # Agent 循环、状态、prompt_stream 与事件订阅测试
+    ├── test_agent_loop_pure.py # 纯函数微内核 run_agent_loop 生命周期与双层循环测试
+    ├── test_tool_history.py  # 对话自愈三阶段状态机与断头中断补齐单测
+    ├── test_session_tree_modular.py # session/ 9 种多态实体与纯内存树算法单测
+    ├── test_session_memory_and_storage.py # SessionState 状态折叠与内存存储驱动单测
+    ├── test_session_jsonl_modular.py # Jsonl 追加存储驱动与跨进程锁单测
     ├── test_agent_steering.py # Steer 即时转向与 Follow-up 追问两层循环测试
     ├── test_agent_task_nudge.py # 早退拦截门禁与任务收尾自动提醒测试
     ├── test_message_queue.py # MessageQueue 动态干预队列单测
@@ -135,8 +149,8 @@ packages/my-agent-core/
     ├── test_subagents.py     # Subagent 发现与 frontmatter 测试
     ├── test_subagent_tasks.py # SubagentTask 任务委派与独立子会话沙箱测试 (含子代理 steer/followup)
     ├── test_task_store.py    # TaskItem 与 TaskStore DAG 依赖、环检测与并发测试
-    ├── test_task_tools.py    # 4 增量 CRUD 工具族与 todo_write 工具测试
-    ├── test_task_context_projection.py # 上下文看板自动投影测试
+    ├── test_task_tools.py    # 单一 todo 工具与 6 大 Action 测试
+    ├── test_task_context_projection.py # 上下文看板随路回显测试
     ├── test_background.py    # BackgroundRunner 异步执行与孤儿进程清理测试
     ├── test_extensions.py    # Extension 加载、覆盖与命令路由测试
     ├── test_memory.py        # MemoryStore、快照冻结与受控工具测试
@@ -235,7 +249,9 @@ def extension(api: ExtensionAPI):
   - 双层循环拓扑（外层任务流转 + 内层 ReAct 迭代）、交付模式分流（`one-at-a-time` / `all`）与子代理 `steer_task` 支持。
 - [x] **阶段 8：统一 Task / Todo 系统与后台异步执行**：
   - `TaskItem` 与 `TaskStore` DAG 依赖状态机、环检测与崩溃安全原子落盘；
-  - 标准 4 增量 CRUD 工具族（`task_create`, `task_update`, `task_get`, `task_list`）与 `todo_write` 便捷工具；
-  - `BeforeModelCall` 上下文看板自动投影（`<TASK_BOARD>`）；
-  - `BackgroundRunner` 异步调度与孤儿进程清理防御。
+  - 单一标准入口 `todo` 工具（对标 Pi & Hermes-Agent）与 `ToolResult` 随路看板回显（100% 保护前缀缓存）；
+  - `TaskGuardHook` 任务早退守卫（基于 `TurnEnd` 与 `AgentStart` 生命周期解耦）；
+  - `BackgroundRunner` 异步调度与跨平台整树强杀防御（`taskkill /F /T` + `killpg`）。
+- [x] **阶段 17：对话转录本自愈与断头保护引擎**（对标 Tau `tool_history.py` 三阶段确定性状态机与 `_provider_context` 清洗，彻底消除 Abort 后的 API 400 校验死锁）
+- [x] **阶段 18：Tau 对齐核心框架深度重塑**（`session/` 5 模块拆包、纯函数 `loop.py` 生成器微内核、`prompt_stream` 一等公民事件流与 `subscribe` 观察者接口，核心单测达 320 项）
 - [ ] **可靠性增强**：网络异常重试、429 指数退避、`stop_reason` 细粒度归一化。

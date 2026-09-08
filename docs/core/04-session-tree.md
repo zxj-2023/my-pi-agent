@@ -1,8 +1,19 @@
 # 树状会话与原子持久化设计规范 (`my_agent_core.session`)
 
-- **定位**：崩溃安全的树状对话历史与分支存储引擎 (`packages/my-agent-core/src/my_agent_core/session.py`, `session_store.py`)
-- **核心类**：`SessionEntry`, `SessionTree`, `Session`, `SessionStore`
-- **主要实现**：`session.py`, `session_store.py`
+- **定位**：崩溃安全的树状对话历史与分支存储引擎 (`packages/my-agent-core/src/my_agent_core/session/`, `session.py`, `session_store.py`)
+- **核心类**：`SessionEntry`（9 种多态实体）, `SessionTree`, `SessionState`, `SessionStorage`, `JsonlSessionStorage`, `Session`, `SessionStore`
+- **主要实现**：`session/` 子包 (`entries.py`, `tree.py`, `memory.py`, `storage.py`, `jsonl.py`), `session.py` (兼容门面), `session_store.py`
+
+> 💡 **模块化与只追加演进注记 (Phase 18)**：
+> 在阶段 18 的架构演进中，原单文件 `session.py` 已彻底拆解下沉为领域清晰的 `session/` 5 大专职子模块：
+>
+> 1. `entries.py`：9 种强类型判别多态实体（Message / Thinking / ToolCall / ToolResult 等）；
+> 2. `tree.py`：纯内存 DAG 算法（支持环路检测与最近公共祖先 LCA 计算，零 I/O）；
+> 3. `memory.py`：`SessionState` 不可变事件溯源折叠投影（`from_entries`）；
+> 4. `storage.py`：纯异步只追加 `SessionStorage` 抽象协议与 `InMemorySessionStorage` 驱动；
+> 5. `jsonl.py`：`JsonlSessionStorage` 追加驱动、跨进程文件锁与未完成 `.tmp` 碎片自愈。
+> 同时，存储机制由旧版“全量覆写整个 JSONL”升级为业界标准的**只追加（Append-only）纯异步协议**，根级 `session.py` 保留作为向下兼容门面。
+> 详细设计规格参见：[13. Tau 对齐与核心框架深度重构设计文档](13-tau-alignment-architecture-redesign.md)。
 
 ---
 

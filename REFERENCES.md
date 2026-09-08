@@ -1,9 +1,9 @@
 # my-pi-agent 架构参考溯源与设计复盘
 
 本项目（`my-pi-agent`）从零手写了一个最小但完整的 Python Agent 框架与编码智能体。
-为了保持极简、清晰、高内聚，我们在设计每一个核心模块时，深入研读并对比了开源领域中的多个顶级标杆项目（包括 **Pi**、**Hermes Agent**、**OpenHands (software-agent-sdk)**、**Learn-Claude-Code**、**pig-mono** 等）。
+为了保持极简、清晰、高内聚，我们在设计每一个核心模块时，深入研读并对比了开源领域中的多个顶级标杆项目（包括 **Pi**、**Tau (`tau-ai`)**、**Hermes Agent**、**OpenHands (software-agent-sdk)**、**Learn-Claude-Code**、**pig-mono** 等）。
 
-本文档对全套 12 个核心模块进行系统的溯源复盘，详细记录：
+本文档对全套 14 个核心模块进行系统的溯源复盘，详细记录：
 
 1. **参考的标杆项目与源码定位**；
 2. **核心借鉴的设计机制与工程思想**；
@@ -20,11 +20,13 @@
 - [五、树状会话与原子持久化 (`my_agent_core.session`)](#五树状会话与原子持久化-my_agent_coresession)
 - [六、上下文四层廉价优先压缩管线 (`my_agent_core.context`)](#六上下文四层廉价优先压缩管线-my_agent_corecontext)
 - [七、Skills 技能机制 (`my_agent_core.skills`)](#七skills-技能机制-my_agent_coreskills)
-- [八、Subagents 与 Task 任务委派 (`my_agent_core.subagents` & `tasks`)](#八subagents-与-task-任务委派-my_agent_coresubagents--tasks)
+- [八、Subagents 与 Task 任务委派 (`my_agent_core.subagents` & `subagent_tasks`)](#八subagents-与-task-任务委派-my_agent_coresubagents--subagent_tasks)
 - [九、Extension 扩展与命令路由机制 (`my_agent_core.extensions`)](#九extension-扩展与命令路由机制-my_agent_coreextensions)
 - [十、Memory 长期记忆系统 (`my_agent_core.memory`)](#十memory-长期记忆系统-my_agent_corememory)
 - [十一、Claude Code 风格 Plugin 插件系统 (`my_agent_core.plugins`)](#十一claude-code-风格-plugin-插件系统-my_agent_coreplugins)
 - [十二、产品层 Coding 工具与原生异步 MCP 客户端 (`my_coding_agent`)](#十二产品层-coding-工具与原生异步-mcp-客户端-my_coding_agent)
+- [十三、统一任务系统与后台异步执行 (`my_agent_core.task_store` & `background`)](#十三统一任务系统与后台异步执行-my_agent_coretask_store--background)
+- [十四、Tau 微内核演进与转录本自愈 (`my_agent_core.loop` & `tool_history`)](#十四tau-微内核演进与转录本自愈-my_agent_coreloop--tool_history)
 
 ---
 
@@ -102,16 +104,18 @@
 
 - **主要参考**：
   - **Pi (`packages/agent/src/agent-loop.ts`)**：轻量内联 ReAct 循环、事件发射时序、退出条件判定；
-  - **pig-mono (`agent.py`)**：单层类设计，将状态、工具派发与装配全部内聚在一个类中。
+  - **pig-mono (`agent.py`)**：单层类设计，将状态、工具派发与装配全部内聚在一个类中；
+  - **Tau (`tau-ai` / `tau_agent`)**：微内核无状态 ReAct 循环抽离（`loop.py`）与轻量 Harness 外壳设计。
 
 ### 2. 核心借鉴的设计机制
 
-- **扁平单层设计（Single-Layer Architecture）**：摒弃复杂的状态图框架（如 LangGraph），将 ReAct 循环（Reason ➔ Act ➔ Observe）直接以原生 `while` 循环内联在 `Agent.run()` 中，所有状态流转一目了然；
-- **100% 纯原生异步 API**：全流程基于 `async/await`，调用方通过 `await agent.run(prompt)` 无阻塞交互。
+- **扁平单层设计（Single-Layer Architecture）**：摒弃复杂的状态图框架（如 LangGraph），将 ReAct 循环（Reason ➔ Act ➔ Observe）直接以原生异步迭代方式运行，所有状态流转一目了然；
+- **100% 纯原生异步 API**：全流程基于 `async/await`，调用方通过 `await agent.run(prompt)` 或 `agent.prompt_stream(prompt)` 流式交互。
 
 ### 3. 我们的裁剪与创新
 
 - **彻底移除同步桥接（No `run_sync`）**：坚守纯协程架构，移除所有 `ThreadPoolExecutor` 伪同步封装，彻底杜绝多线程事件循环死锁；
+- **微内核生成器下沉（对标 Tau）**：核心 ReAct 双层循环抽离为纯函数无状态生成器 `run_agent_loop` (`loop.py`)，`Agent` 演进为暴露 `prompt_stream` 与 `subscribe` 的极窄 Harness 外壳，中间事件流成为一等公民；
 - **组件自动注入装配**：构造时按序完成 `MemoryStore` 快照捕获 ➔ `SkillManager` / `SubagentManager` 探测 ➔ 工具统一挂载 ➔ `<MEMORY_CONTEXT>` 拼装。
 
 ---
@@ -122,7 +126,8 @@
 
 - **主要参考**：
   - **Pi (`packages/agent/src/harness/session/jsonl-storage.ts` & `session.ts`)**：树状会话结构、`rewind` 指针回退、`fork` 分支派生与 JSONL 格式；
-  - **pig-mono (`session.py` & `session_store.py`)**：`SessionEntry` / `SessionTree` / `Session` / `SessionStore` 分层职责。
+  - **pig-mono (`session.py` & `session_store.py`)**：`SessionEntry` / `SessionTree` / `Session` / `SessionStore` 分层职责；
+  - **Tau (`tau-ai`)**：模块化会话架构与只追加异步存储驱动抽象。
 
 ### 2. 核心借鉴的设计机制
 
@@ -132,7 +137,8 @@
 
 ### 3. 我们的裁剪与创新
 
-- **逐条原子落盘（Crash-Safe Atomic Write）**：每次追加消息均通过 `tempfile.mkstemp` 写入 ➔ `os.fsync` 强制刷盘 ➔ `os.replace` 原子覆盖，即使进程强杀或断电，磁盘文件也永不损坏。
+- **逐条原子落盘（Crash-Safe Atomic Write）**：每次追加消息均通过临时文件刷盘与系统级替换原子覆盖，即使进程强杀或断电，磁盘文件也永不损坏；
+- **5 大专职子包解耦下沉（对标 Tau）**：会话模块下沉为 `session/` 子包（`entries.py`, `tree.py`, `memory.py`, `storage.py`, `jsonl.py`），算法、状态投影与只追加存储协议彻底解耦，零 I/O 纯内存树单测毫秒级运行。
 
 ---
 
@@ -181,7 +187,7 @@
 
 ---
 
-## 八、Subagents 与 Task 任务委派 (`my_agent_core.subagents` & `tasks`)
+## 八、Subagents 与 Task 任务委派 (`my_agent_core.subagents` & `subagent_tasks`)
 
 ### 1. 参考项目与源码定位
 
@@ -300,6 +306,63 @@
 
 ---
 
+## 十三、统一任务系统与后台异步执行 (`my_agent_core.task_store` & `background`)
+
+### 1. 参考项目与源码定位
+
+- **主要参考**：
+  - **Pi 官方后台扩展 (`pi-background-tasks`)**：非阻塞后台子进程调度机制与通知生命周期收割；
+  - **Claude Code (v2.1.142+) / Learn-Claude-Code (s10, s11)**：DAG 依赖状态机（`TaskItem` + `TaskStore`）与上下文看板自动投影（`<TASK_BOARD>`）。
+
+### 2. 核心借鉴的设计机制
+
+- **异步调度与优雅通知收割**：
+  - `BackgroundRunner` 驱动耗时命令（如单元测试、构建）在后台非阻塞运行，主 Agent 立即收到占位返回继续推进；
+  - 任务结束时自动封装为 `<task_notification>` 注入 `MessageQueue`，在两层循环的安全点（Turn 结束或工具批间隙）原子收割并驱动下一轮模型推理；
+- **孤儿进程防御（Orphan Process Defense）**：
+  - 对齐 Pi 规范，`BackgroundRunner` 维护活动子进程句柄树；
+  - 注册 `atexit` 清理钩子并与 `agent.abort()` 联动，当会话终止或程序退出时递归强杀后台进程，彻底杜绝僵尸进程残留；
+- **DAG 看板上下文投影（Session 零污染）**：
+  - `TaskStore` 支持带传递性成环检测与前置解锁回显的 DAG 工单管理；
+  - 在 `BeforeModelCall` 决策拦截点将未完成任务看板动态投影注入当前模型视图，0 工具往返消耗且不污染会话历史。
+
+### 3. 我们的裁剪与创新
+
+- **Task 与 Subagent 概念解耦**：遵循业界规范将跨会话持久的工程工单（`TaskItem`）与单次会话沙箱中的子代理实例（`SubagentTask`）彻底正交分离；
+- **串行调度消除锁竞争**：写操作工具严格声明为 `is_parallel_safe=False`，由工具注册表保证严格保序串行执行，使 `TaskStore` 内部无需维护复杂的互斥锁。
+
+---
+
+## 十四、Tau 微内核演进与转录本自愈 (`my_agent_core.loop` & `tool_history`)
+
+### 1. 参考项目与源码定位
+
+- **主要参考**：
+  - **Tau (`tau-ai` / `tau_agent`)**：纯函数无状态 ReAct 循环微内核 (`tau_agent/loop.py`)、转录本三阶段确定性自愈引擎 (`tau_agent/tool_history.py`) 与模块化存储驱动。
+
+### 2. 核心借鉴的设计机制
+
+- **纯函数生成器微内核 (`run_agent_loop`)**：
+  - 将 ReAct 双层循环从上帝类中彻底解耦下沉为 `loop.py` 中的纯函数异步生成器；
+  - `Agent` 类瘦身为暴露 `prompt_stream`、`subscribe`、`steer`、`follow_up` 的轻量有状态 Harness 外壳，使事件流成为一等公民；
+- **三阶段转录本确定性自愈状态机 (`repair_tool_history`)**：
+  - 针对进程中止、Ctrl+C 中断、网络截断等导致的“断头工具调用”（ToolCall 缺少对应 ToolResult），算法执行三阶段状态机：
+    1. 预留配对：精确匹配合法 tool_call_id 与 tool_result；
+    2. 补齐断头：为悬空的 ToolCall 自动合成标准报错 ToolResultMessage（带 `[INTERRUPTED]` 标记）；
+    3. 清理孤儿：移除无对应 call 的游离 result。
+  - 从根本上彻底消除了大模型 API 报 400 Bad Request（`tool_use without tool_result`）的顽疾；
+- **`_provider_context` 前置清洗**：
+  - 在模型调用前置边界，自动过滤掉空失败轮次与坏数据，确保送入模型的上下文转录本 100% 格式合法；
+- **会话存储领域下沉 (`session/`)**：
+  - 会话系统重构拆解为 5 大专职子包（`entries.py` 多态实体、`tree.py` 纯内存树算法与 LCA 计算、`memory.py` 事件溯源投影、`storage.py` 只追加协议、`jsonl.py` 追加存储驱动），全面转向只追加（Append-only）纯异步架构。
+
+### 3. 我们的裁剪与创新
+
+- **双向兼容门面**：保留根级 `session.py` 门面与老测试兼容层，在实现底层彻底模块化的同时实现 100% 存量测试平滑无感知升级；
+- **全离线确定性自愈单测**：针对各种断头中断场景编写了专职单测（`test_tool_history.py`），验证自愈算法对主流模型的跨厂商兼容性。
+
+---
+
 ## 全景参考映射总结表
 
 | 核心模块 | 对应源码路径 | 主要参考项目 | 核心借鉴机制 |
@@ -308,11 +371,13 @@
 | **工具系统** | `my_agent_core/tools/` | pig-mono, OpenHands, Pi | Pydantic 动态建模、Never-Throw 保证、`is_parallel_safe` 并发 |
 | **事件拦截** | `my_agent_core/events.py` | Pi (`hooks.md`) | 五大生命周期决策拦截点、HookResult 统一干预、流式熔断丢弃半截 |
 | **异步循环** | `my_agent_core/agent.py` | Pi (`agent-loop.ts`), pig-mono | 单层类内联 ReAct 循环、纯协程驱动、临时视图零污染 |
-| **会话持久化** | `my_agent_core/session.py` | Pi (`jsonl-storage.ts`), pig-mono | 树状分支存储、`rewind/fork`、逐条临时文件原子刷盘 |
+| **会话持久化** | `my_agent_core/session/` | Pi (`jsonl-storage.ts`), Tau (`tau-ai`) | 树状分支存储、只追加存储驱动、`rewind/fork` 纯内存树算法 |
 | **上下文压缩** | `my_agent_core/context.py` | Pi (`compaction.ts`), OpenHands | 四层廉价优先管线 (L3➔L1➔L2➔L4)、retainedTail 缓存、防注入标签剥离 |
 | **Skills 机制** | `my_agent_core/skills.py` | Pi (`skills.ts`), OpenHands | 渐进式披露、启动仅注入清单、`invoke_skill` 显式调用 |
-| **Subagents** | `my_agent_core/tasks.py` | Claude Code, OpenHands, Pi | 独立子会话树、防递归工具过滤、子代理沙箱隔离 |
+| **Subagents** | `my_agent_core/subagent_tasks.py` | Claude Code, OpenHands, Pi | 独立子会话树、防递归工具过滤、子代理沙箱隔离 |
 | **Extension** | `my_agent_core/extensions/` | Pi (`ExtensionAPI`) | 静态注册面 + 动态调度、本地 0 Token 命令行前置路由 |
 | **Memory 系统** | `my_agent_core/memory.py` | Hermes Agent (`memory_tool.py`) | 双 Store 分区、Frozen Snapshot 保护 Prefix Cache、唯一子串匹配 |
 | **Plugin 系统** | `my_agent_core/plugins.py` | Claude Code 官方, OpenHands | `.claude-plugin/plugin.json`、目录名兜底推断、单 Skill 根级简写 |
 | **Coding & MCP** | `packages/my-coding-agent/` | OpenHands, MCP SDK, Pi | `_safe_path` 路径安全、`AsyncExitStack` 异步双扇门管理、闭包工厂 |
+| **统一任务与后台** | `my_agent_core/task_store.py`, `background.py` | Pi (`pi-background-tasks`), Claude Code | 孤儿进程防御、MessageQueue 优雅收割、`<TASK_BOARD>` 零污染投影 |
+| **Tau 微内核与自愈** | `my_agent_core/loop.py`, `tool_history.py`, `session/` | Tau (`tau-ai` / `tau_agent`) | 纯函数无状态微内核、三阶段转录本自愈、只追加模块化存储驱动 |

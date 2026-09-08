@@ -188,16 +188,19 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (246 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (320 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
-│   │   │   ├── agent.py            # Agent 类（单层：异步两层循环 + 五大决策拦截点 + 看板自动投影）
+│   │   │   ├── agent.py            # Agent 轻量 Harness 外壳（prompt_stream 与事件订阅）
+│   │   │   ├── loop.py             # 纯函数无状态微内核 run_agent_loop 与上下文清洗
+│   │   │   ├── tool_history.py     # 对话转录本三阶段自愈与断头保护引擎 (repair_tool_history)
 │   │   │   ├── message_queue.py    # MessageQueue 动态干预队列（Steer & Follow-up）
 │   │   │   ├── task_store.py       # TaskItem + TaskStore（DAG 依赖图、环检测与原子落盘）
 │   │   │   ├── background.py       # BackgroundRunner（后台异步调度与孤儿进程防御）
 │   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult / task_tools）
 │   │   │   ├── events.py           # 12 个生命周期事件 + HookResult 统一干预模型
-│   │   │   ├── session.py          # SessionEntry + SessionTree + Session（树 + JSONL 原子落盘）
+│   │   │   ├── session/            # 模块化会话存储子系统（9 种 Entry 判别实体 / 纯内存树 / 只追加存储驱动）
+│   │   │   ├── session.py          # 会话向下兼容门面（委托给 session/ 子包）
 │   │   │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
 │   │   │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
 │   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
@@ -207,7 +210,7 @@ my-pi-agent/
 │   │   │   ├── extensions/         # ExtensionAPI + ExtensionManager（扩展加载与命令路由）
 │   │   │   ├── plugins.py          # Plugin + PluginManager（Claude Code 插件聚合分发）
 │   │   │   └── main.py             # 核心层 demo 入口
-│   │   └── tests/                  # 离线测试 (245 tests)
+│   │   └── tests/                  # 离线测试 (320 tests)
 │   │
 │   └── my-coding-agent/            # 产品层独立 uv 项目 (22 tests)
 │       ├── pyproject.toml          # src 布局 + 依赖 core, llm, mcp
