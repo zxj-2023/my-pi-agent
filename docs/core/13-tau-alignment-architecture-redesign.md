@@ -393,6 +393,7 @@ $$\text{delay} = \min(\text{max\_delay}, \text{base\_delay} \times 2^{\text{atte
 
 对标 Tau `_is_terminal_rate_limit(body)`：
 对 429 错误进行细分：
+
 - 临时并发限流（Rate Limit Exceeded）：执行退避重试；
 - 账户余额耗尽（`insufficient_quota`、`billing`、`monthly limit`）：**立即短路跳过重试**并抛出明确的账户充值提示，杜绝盲目重试白白阻塞系统数十秒。
 
@@ -424,6 +425,7 @@ $$\text{Total Tokens} = \text{System Prompt Tokens} + \text{Static Tools Tokens}
 #### 3. Context Overflow 异常拦截与自动压缩重试闭环
 
 当大模型突发抛出 `Context Overflow`（400 上下文超限）错误时：
+
 - Tau 的 `is_context_overflow_error` 机制在调度器内捕获该错误；
 - 自动抑制该错误不抛给用户，在当前轮次**立即触发紧急降级压缩（`_try_overflow_compact`）**；
 - 压缩完成后自动唤醒重试（`AutoRetryStartEvent`），实现大模型会话超限时的**静默自愈无缝接力**。
@@ -455,6 +457,7 @@ $$\text{Total Tokens} = \text{System Prompt Tokens} + \text{Static Tools Tokens}
 #### 2. 项目信任体系（`project_trust.py` 安全沙箱）
 
 针对开发者打开不受信任的开源仓库或第三方目录时设计的安全护盾：
+
 - 首次进入未知目录时，标记为 `Untrusted Workspace`；
 - 在非受信状态下，强制阻断破坏性 `bash` 命令、阻断任意扩展代码加载，防止通过 `AGENTS.md` 或恶意配置文件进行提示词注入与环境窃密；
 - 需用户显式批准后（持久化至 `.my_agent_core/trusted_projects.json`），才解除完全执行权限。
