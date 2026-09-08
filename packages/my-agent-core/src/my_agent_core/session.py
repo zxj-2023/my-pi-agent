@@ -319,14 +319,14 @@ class Session:
     def storage(self) -> Any:
         """底层只追加存储对象。"""
         if self._storage is None:
-            from .session.jsonl import JsonlSessionStorage
+            from my_agent_core.session.jsonl import JsonlSessionStorage
 
             self._storage = JsonlSessionStorage(self.path)
         return self._storage
 
     def get_state(self) -> Any:
         """获取从根到当前 current_id 的 SessionState 状态快照。"""
-        from .session.memory import SessionState
+        from my_agent_core.session.memory import SessionState
 
         return SessionState(
             messages=tuple(self.get_current_path_messages()),

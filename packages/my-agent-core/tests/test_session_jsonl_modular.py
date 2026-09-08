@@ -18,7 +18,6 @@ import multiprocessing as mp
 from pathlib import Path
 
 import pytest
-from my_agent_llm.models import Message
 
 from my_agent_core.session.entries import (
     BranchSummaryEntry,
@@ -37,6 +36,7 @@ from my_agent_core.session.jsonl import (
     entry_from_json_line,
     entry_to_json_line,
 )
+from my_agent_llm.models import Message
 
 # ============================================================================
 # 1. 强类型 SessionEntry 序列化与反序列化
@@ -523,3 +523,22 @@ async def test_interop_legacy_session_file_read_by_jsonl_storage(
     assert entries[2].message.content == "I am fine!"
     assert isinstance(entries[3], CompactionEntry)
     assert entries[3].summary == "## Summary"
+
+
+def test_session_facade_bridge_methods(tmp_path: Path) -> None:
+    """测试 Session 门面对象的 bridge 方法 (storage, get_state, fork)。"""
+    from my_agent_core.session import Session
+    from my_agent_core.session.jsonl import JsonlSessionStorage
+
+    s = Session(path=tmp_path / "facade.jsonl")
+    s.add_message("user", "hi")
+    assert isinstance(s.storage, JsonlSessionStorage)
+    state = s.get_state()
+    assert len(state.messages) == 1
+    assert state.messages[0].content == "hi"
+
+    forked = s.fork(s.tree.current_id)
+    assert forked.id != s.id
+    assert len(forked.tree.entries) == 1
+
+

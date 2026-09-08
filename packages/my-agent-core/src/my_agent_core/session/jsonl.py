@@ -50,13 +50,15 @@ class SessionJsonlError(ValueError):
     """JSONL 序列化、反序列化、文件损坏或锁获取异常。"""
 
 
+_ENTRY_ADAPTER: TypeAdapter[SessionEntry] = TypeAdapter(SessionEntry)
+
+
 def entry_to_json_line(entry: SessionEntry) -> str:
     """将 SessionEntry 序列化为单行 JSON 字符串（不带尾随换行符）。"""
     try:
         if isinstance(entry, BaseModel):
             return entry.model_dump_json(by_alias=True, exclude_none=True)
-        adapter = TypeAdapter(SessionEntry)
-        return adapter.dump_json(entry, by_alias=True, exclude_none=True).decode(
+        return _ENTRY_ADAPTER.dump_json(entry, by_alias=True, exclude_none=True).decode(
             "utf-8"
         )
     except Exception as exc:
@@ -167,8 +169,7 @@ def _migrate_session_entry(raw: dict[str, Any]) -> SessionEntry:
 
     # 4. 当前 9 种 SessionEntry 多态反序列化
     try:
-        adapter = TypeAdapter(SessionEntry)
-        return adapter.validate_python(data)
+        return _ENTRY_ADAPTER.validate_python(data)
     except Exception as exc:
         raise SessionJsonlError(
             f"Cannot parse JSON object as SessionEntry: {exc}"
@@ -213,9 +214,7 @@ class JsonlSessionStorage:
 
         patterns = [
             f".{self.path.name}*.tmp",
-            f".{self.path.name}.*.tmp",
             f"{self.path.name}*.tmp",
-            f"{self.path.stem}*.tmp",
         ]
         seen: set[Path] = set()
         for pattern in patterns:

@@ -5,6 +5,11 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    Session: Any
+    SessionTree: Any
 
 from .entries import (
     BaseSessionEntry,
