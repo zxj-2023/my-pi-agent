@@ -12,7 +12,7 @@ import tempfile
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from my_agent_llm import Message
@@ -115,6 +115,7 @@ class Session:
         self.metadata = (
             metadata or {}
         )  # 额外元数据（子代理：agent_type/parent_session_id），进 header
+        self._storage: Any | None = None
 
     @classmethod
     def load(cls, path: Path) -> Session:
@@ -122,7 +123,7 @@ class Session:
         非尾行 JSON 损坏 → ValueError（带行号）；尾行撕裂 → 丢弃该行（宽容兜底）。"""
         path = Path(path)
         with open(path, encoding="utf-8") as f:
-            lines = [ln for ln in f]
+            lines = list(f)
         if not lines:
             raise ValueError(f"Session file {path} is empty")
         try:
@@ -171,7 +172,7 @@ class Session:
         """当前路径 → list[Message]（Agent 上下文用）。"""
         return [
             Message(
-                role=e.role,
+                role=cast(Any, e.role),
                 content=e.content,
                 metadata=(dict(e.metadata) if e.metadata else None),
             )
@@ -216,7 +217,7 @@ class Session:
         """完整对话历史（排除 type='compaction' 节点）——宿主看历史、Agent 恢复上下文用。"""
         return [
             Message(
-                role=e.role,
+                role=cast(Any, e.role),
                 content=e.content,
                 metadata=(dict(e.metadata) if e.metadata else None),
             )
@@ -301,3 +302,33 @@ class Session:
         self.tree = SessionTree()
         self.compaction_floor = None
         self.save()
+
+    def fork(self, entry_id: str, new_path: Path | None = None) -> Session:
+        """从某 entry 分叉为新会话：复制根到 entry 的路径为新会话（新 id/路径，独立演化）。"""
+        if entry_id not in self.tree.entries:
+            raise ValueError(f"Entry {entry_id} not found")
+        if new_path is None:
+            sid = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+            new_path = self.path.parent / f"{sid}.jsonl"
+        new_session = Session(path=new_path, cwd=self.cwd, metadata=dict(self.metadata))
+        for entry in self.tree.get_path_to_entry(entry_id):
+            new_session.add_message(entry.role, entry.content, **entry.metadata)
+        return new_session
+
+    @property
+    def storage(self) -> Any:
+        """底层只追加存储对象。"""
+        if self._storage is None:
+            from .session.jsonl import JsonlSessionStorage
+
+            self._storage = JsonlSessionStorage(self.path)
+        return self._storage
+
+    def get_state(self) -> Any:
+        """获取从根到当前 current_id 的 SessionState 状态快照。"""
+        from .session.memory import SessionState
+
+        return SessionState(
+            messages=tuple(self.get_current_path_messages()),
+            active_leaf_id=self.tree.current_id,
+        )

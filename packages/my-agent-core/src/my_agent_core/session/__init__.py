@@ -19,6 +19,12 @@ from .entries import (
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
 )
+from .jsonl import (
+    JsonlSessionStorage,
+    SessionJsonlError,
+    entry_from_json_line,
+    entry_to_json_line,
+)
 from .memory import (
     SessionState,
 )
@@ -73,4 +79,8 @@ __all__ = [
     # Storage protocol & driver
     "SessionStorage",
     "InMemorySessionStorage",
+    "JsonlSessionStorage",
+    "SessionJsonlError",
+    "entry_to_json_line",
+    "entry_from_json_line",
 ]
