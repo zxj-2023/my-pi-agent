@@ -524,6 +524,25 @@ my-pi-agent/
 
 ---
 
+### 阶段 17：对话转录本自愈与断头保护引擎（对标 Tau tool_history.py）（2026-08-30）
+
+**目标**：对标 Tau `tau_agent/tool_history.py`，实现前置对话自愈纯函数模块，彻底消灭用户打断、网络超时导致的悬空断头 ToolCall 引发的大模型 API 400 校验死锁。
+
+- 提交：`580f98f`
+- **改了什么**：
+  - `tool_history.py`（新增）：定义 `ToolHistoryRepair` 结果模型与 `repair_tool_history(messages)` 纯函数，三阶段清洗算法：
+    1. 收集所有带 `tool_calls` 的 Assistant 节点并建立 `call_id` 字典索引；
+    2. 从后往前清理孤儿与重复 Tool 结果（丢弃无主结果或重复响应）；
+    3. 严格按调用声明顺序重排 Tool 结果，对缺失结果的断头调用合成为 `role="tool"` 的 `Tool call interrupted by user` 错误消息。
+  - `agent.py`：
+    - 在进入 ReAct 双层循环前，对从 Session 恢复的完整历史执行 `repair_tool_history` 自愈；
+    - 在流式接收被用户或 Hook 中止（`abort`）时，若 Assistant 消息已产生 `tool_calls`，立即为每个悬空调用生成合成中断结果并追加落盘，保证会话树拓扑时刻合法。
+  - `__init__.py`：导出 `ToolHistoryRepair` 与 `repair_tool_history`。
+  - 测试：新增 `test_tool_history.py`（8 项覆盖干净历史、悬空断头补齐、孤儿结果丢弃、乱序重排、重复清理、跨轮次同 ID 隔离、诊断报告以及 Agent 被 abort 取消后的端到端自愈恢复）。
+- **验证**：三包全量 **312 个离线测试**（core 254 + llm 36 + coding 22）100% 绿灯全通。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
