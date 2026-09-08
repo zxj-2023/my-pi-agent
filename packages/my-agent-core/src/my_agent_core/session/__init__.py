@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+
     class Session:
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
         def __getattr__(self, name: str) -> Any: ...
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     class SessionTree:
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
         def __getattr__(self, name: str) -> Any: ...
+
 
 from .entries import (
     BaseSessionEntry,
