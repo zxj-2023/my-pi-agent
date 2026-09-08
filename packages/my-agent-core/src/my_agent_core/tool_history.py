@@ -99,7 +99,10 @@ def repair_tool_history(messages: Sequence[Message]) -> ToolHistoryRepair:
         for cand_pos, cand_msg in candidates:
             if cand_pos in used_result_positions:
                 continue
-            if cand_pos > occurrence[0] and cand_msg.content != _INTERRUPTED_TOOL_RESULT:
+            if (
+                cand_pos > occurrence[0]
+                and cand_msg.content != _INTERRUPTED_TOOL_RESULT
+            ):
                 matched_pos, matched_msg = cand_pos, cand_msg
                 break
 
