@@ -9,8 +9,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from collections.abc import Callable, Sequence
+import contextlib
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,21 +23,16 @@ from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCall,
     ContextCompacted,
     Event,
     HookRegistry,
     HookResult,
     MessageEnd,
-    MessageStart,
-    MessageUpdate,
-    ToolExecutionEnd,
-    ToolExecutionStart,
     TurnEnd,
-    TurnStart,
     UserInput,
 )
 from my_agent_core.extensions import ExtensionManager
+from my_agent_core.loop import CancellationToken, run_agent_loop
 from my_agent_core.memory import MemoryStore, make_memory_tool
 from my_agent_core.message_queue import MessageQueue, QueuedMessage
 from my_agent_core.plugins import PluginManager
@@ -46,11 +41,8 @@ from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
 from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
-from my_agent_core.tool_history import (  # pyright: ignore[reportMissingImports]
-    _INTERRUPTED_TOOL_RESULT,
-    repair_tool_history,
-)
-from my_agent_core.tools import Tool, ToolResult
+from my_agent_core.tool_history import repair_tool_history
+from my_agent_core.tools import Tool
 from my_agent_core.tools.builtin.task import (
     make_task_tool,  # pyright: ignore[reportMissingImports]
 )
@@ -114,6 +106,8 @@ class Agent:
         self.session = session
         self._system_prompt = system_prompt  # 保存，reset 重拼用
         self._aborted = False  # 中止状态标记
+        self._current_signal: CancellationToken | None = None
+        self._subscribers: list[Callable[[Event], Any]] = []
         self.hooks = HookRegistry()
         self.registry = ToolRegistry()
         self.plugin_manager = PluginManager(plugin_dirs)
@@ -271,8 +265,20 @@ class Agent:
     def abort(self) -> None:
         """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本并清空干预队列）。"""
         self._aborted = True
+        if self._current_signal is not None:
+            self._current_signal.cancel()
         self.message_queue.clear()
         asyncio.create_task(self.background_runner.cancel_all())
+
+    def subscribe(self, listener: Callable[[Event], Any]) -> Callable[[], None]:
+        """订阅所有生命周期事件通知，返回取消订阅的回调函数。"""
+        self._subscribers.append(listener)
+
+        def unsubscribe() -> None:
+            if listener in self._subscribers:
+                self._subscribers.remove(listener)
+
+        return unsubscribe
 
     def steer(self, message: str) -> None:
         """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
@@ -290,19 +296,45 @@ class Agent:
         """返回当前消息队列排队状态。"""
         return self.message_queue.get_status()
 
-    async def run(self, user_input: str) -> str | None:
-        """追加 user 消息 → 异步内联双层循环 → 返回最终文本（max_iterations 耗尽时 None）。"""
+    def _get_steering_messages(self) -> Sequence[str]:
+        """为底层循环提取当前排队的 steer 消息。"""
+        if self.message_queue.has_steering():
+            return [m.content for m in self.message_queue.get_steering_messages()]
+        return []
+
+    def _get_follow_up_messages(self) -> Sequence[str]:
+        """为底层循环提取当前排队的 follow-up 消息。"""
+        if self.message_queue.has_followup():
+            return [m.content for m in self.message_queue.get_followup_messages()]
+        return []
+
+    async def prompt_stream(self, user_input: str) -> AsyncIterator[Event]:
+        """原生事件流一等公民接口：调用 run_agent_loop 执行 ReAct 循环，逐一产生生命周期事件，并更新 session 与 messages。"""
         self._aborted = False
+        self._current_signal = CancellationToken()
+
         if not self._extensions_loaded:
             await self.extension_manager.load()
             self._extensions_loaded = True
 
         # ── 决策点 1: UserInput 拦截与改写（在进入 Session 和消息历史之前触发）
-        input_hook = await self._emit(UserInput(input_text=user_input))
+        user_input_ev = UserInput(input_text=user_input)
+        input_hook = await self._emit(user_input_ev)
         if isinstance(input_hook, HookResult):
             if input_hook.block:
                 reason = f": {input_hook.reason}" if input_hook.reason else ""
-                return f"(blocked{reason})"
+                end_ev = AgentEnd(
+                    messages=list(self.messages),
+                    final_text=f"(blocked{reason})",
+                    iterations=0,
+                    stop_reason="blocked",
+                )
+                await self._emit(end_ev)
+                for sub in list(self._subscribers):
+                    with contextlib.suppress(Exception):
+                        sub(end_ev)
+                yield end_ev
+                return
             if input_hook.updated_input is not None:
                 user_input = input_hook.updated_input
 
@@ -312,299 +344,50 @@ class Agent:
         # 对齐 Tau: 执行对话历史自愈，保证送入模型的会话转录本没有悬空断头 ToolCall
         self.messages = list(repair_tool_history(restored).messages)
 
-        # ── 决策点 2: AgentStart 拦截与动态 System Prompt 改写
-        start_hook = await self._emit(
-            AgentStart(system_prompt=self.system_prompt or "", user_input=user_input)
+        # 委托核心 ReAct 纯函数微内核驱动事件流
+        loop_gen = run_agent_loop(
+            llm=self.llm,
+            messages=self.messages,
+            tools=self.registry,
+            context_manager=self._ctx,
+            model=self.model,
+            system=self.system_prompt or "",
+            prompts=[Message(role="user", content=user_input)],
+            max_iterations=self.max_iterations,
+            signal=self._current_signal,
+            get_steering_messages=self._get_steering_messages,
+            get_follow_up_messages=self._get_follow_up_messages,
+            hook_registry=self.hooks,
         )
-        if isinstance(start_hook, HookResult):
-            if start_hook.block:
-                reason = f": {start_hook.reason}" if start_hook.reason else ""
-                return f"(blocked{reason})"
-            if start_hook.updated_system_prompt is not None:
-                if self.messages and self.messages[0].role == "system":
-                    self.messages[0] = Message(
-                        role="system", content=start_hook.updated_system_prompt
+
+        async for event in loop_gen:
+            # 同步 Session 状态与压缩写回
+            if isinstance(event, MessageEnd):
+                msg = event.message
+                if msg.role != "system":
+                    self.session.add_message(
+                        msg.role, msg.content, **(msg.metadata or {})
                     )
-                else:
-                    self.messages.insert(
-                        0,
-                        Message(
-                            role="system",
-                            content=start_hook.updated_system_prompt,
-                        ),
-                    )
+            elif isinstance(event, ContextCompacted):
+                self._ctx_bridge.write_compaction(self._ctx)
 
-        user_msg = Message(role="user", content=user_input)
-        self.messages.append(user_msg)
-        self.session.add_message("user", user_input)
-        await self._emit(MessageStart(user_msg))
-        await self._emit(MessageEnd(user_msg))
+            # 分发到订阅者
+            for sub in list(self._subscribers):
+                with contextlib.suppress(Exception):
+                    sub(event)
 
-        pending_messages: list[str] = []
-        if self.message_queue.has_steering():
-            pending_messages.extend(
-                [m.content for m in self.message_queue.get_steering_messages()]
-            )
+            yield event
 
-        iteration = 0
-        final_text: str | None = None
-
-        # ══════════════════════════════════════════════════════════════
-        # 【外层循环】：处理 Follow-up 宏观任务衔接
-        # ══════════════════════════════════════════════════════════════
-        while True:
-            has_more_tool_calls = True
-
-            # ──────────────────────────────────────────────────────────
-            # 【内层循环】：处理单任务的 ReAct 迭代与 Steer 即时转向
-            # ──────────────────────────────────────────────────────────
-            while has_more_tool_calls or len(pending_messages) > 0:
-                iteration += 1
-                if self._aborted:
-                    await self._emit(
-                        AgentEnd(
-                            messages=list(self.messages),
-                            final_text=None,
-                            iterations=iteration,
-                            stop_reason="cancelled",
-                        )
-                    )
+    async def run(self, user_input: str) -> str | None:
+        """追加 user 消息 → 内部消费 prompt_stream 事件流 → 返回最终文本。"""
+        final_text = None
+        async for event in self.prompt_stream(user_input):
+            if isinstance(event, AgentEnd):
+                if event.stop_reason == "cancelled":
                     return "(cancelled)"
-
-                if self.max_iterations is not None and iteration > self.max_iterations:
-                    await self._emit(
-                        AgentEnd(
-                            messages=list(self.messages),
-                            final_text=final_text,
-                            iterations=iteration,
-                            stop_reason="max_iterations",
-                        )
-                    )
-                    return final_text
-
-                await self._emit(TurnStart(iteration))
-
-                # ① 安全点 1 (Turn 起始点注入 pending 消息并原子落盘)
-                if pending_messages:
-                    for text in pending_messages:
-                        msg = Message(role="user", content=text)
-                        self.messages.append(msg)
-                        self.session.add_message("user", text)
-                        await self._emit(MessageStart(msg))
-                        await self._emit(MessageEnd(msg))
-                    pending_messages = []
-
-                # ── Reason：准备上下文视图 + 异步流式调大模型
-                tools = self.registry.get_schemas()
-                view = await self._ctx.prepare(self.messages)
-
-                # ── 决策点 3: BeforeModelCall 临时视图改写（self.messages 与 Session 零污染）
-                ctx_hook = await self._emit(
-                    BeforeModelCall(messages=list(view), iteration=iteration)
-                )
-                if isinstance(ctx_hook, HookResult):
-                    if ctx_hook.block:
-                        reason = ctx_hook.reason or "blocked"
-                        await self._emit(
-                            AgentEnd(
-                                messages=list(self.messages),
-                                final_text=None,
-                                iterations=iteration,
-                                stop_reason="blocked",
-                            )
-                        )
-                        return f"(blocked: {reason})"
-                    if ctx_hook.updated_messages is not None:
-                        view = ctx_hook.updated_messages
-
-                content_acc = ""
-                final_tool_calls = None
-                last_usage = None
-                cancelled = False
-
-                if hasattr(self.llm, "achat_stream"):
-                    stream = self.llm.achat_stream(
-                        messages=view, tools=tools, model=self.model
-                    )
-                    async for chunk in stream:
-                        if chunk.content:
-                            content_acc += chunk.content
-                        if getattr(chunk, "tool_calls", None):
-                            final_tool_calls = chunk.tool_calls
-                        if getattr(chunk, "usage", None):
-                            last_usage = chunk.usage
-
-                        if self._aborted:
-                            cancelled = True
-                            break
-
-                        hook = await self._emit(
-                            MessageUpdate(
-                                message=Message(role="assistant", content=content_acc),
-                                chunk=chunk,
-                            )
-                        )
-                        if isinstance(hook, HookResult) and hook.block:
-                            self._aborted = True
-                            cancelled = True
-                            break
-                elif hasattr(self.llm, "achat"):
-                    resp = await self.llm.achat(
-                        messages=view, tools=tools, model=self.model
-                    )
-                    content_acc = resp.content or ""
-                    final_tool_calls = resp.tool_calls
-                    last_usage = resp.usage
-                else:
-                    resp = self._llm_chat(view, tools)
-                    content_acc = resp.content or ""
-                    final_tool_calls = resp.tool_calls
-                    last_usage = resp.usage
-
-                if cancelled or self._aborted:
-                    if final_tool_calls:
-                        # 记录被中断的 assistant 消息
-                        assistant = Message(
-                            role="assistant",
-                            content=content_acc,
-                            metadata={"tool_calls": final_tool_calls},
-                        )
-                        self.messages.append(assistant)
-                        self.session.add_message(
-                            "assistant", content_acc, tool_calls=final_tool_calls
-                        )
-                        # 立即自愈：补齐被中断的工具结果，防止悬空断头导致后续调用报 API 400
-                        for tc in final_tool_calls:
-                            synth = Message(
-                                role="tool",
-                                content=_INTERRUPTED_TOOL_RESULT,
-                                metadata={"tool_call_id": tc["id"], "is_error": True},
-                            )
-                            self.messages.append(synth)
-                            self.session.add_message(
-                                "tool", synth.content, **(synth.metadata or {})
-                            )
-                    await self._emit(
-                        AgentEnd(
-                            messages=list(self.messages),
-                            final_text=None,
-                            iterations=iteration,
-                            stop_reason="cancelled",
-                        )
-                    )
-                    return "(cancelled)"
-
-                if last_usage:
-                    self._ctx.record_usage(last_usage)
-                await self._handle_compaction()
-
-                assistant = Message(
-                    role="assistant",
-                    content=content_acc,
-                    metadata={"tool_calls": final_tool_calls}
-                    if final_tool_calls
-                    else None,
-                )
-                self.messages.append(assistant)
-                self.session.add_message(
-                    "assistant", assistant.content, **(assistant.metadata or {})
-                )
-                await self._emit(MessageStart(assistant))
-                await self._emit(MessageEnd(assistant))
-
-                # ── 检查是否有工具调用
-                if final_tool_calls:
-                    tool_call_dicts = final_tool_calls
-                    prepared_calls: list[
-                        tuple[int, dict[str, Any], dict[str, Any]]
-                    ] = []
-                    direct_observations: dict[int, ToolResult] = {}
-
-                    for idx, tc in enumerate(tool_call_dicts):
-                        name, args, err, _hook = await self._prepare_tool(tc)
-                        if err is not None:
-                            direct_observations[idx] = ToolResult(ok=False, error=err)
-                        else:
-                            prepared_calls.append((idx, tc, args))
-
-                    if prepared_calls:
-                        effective_calls = [
-                            (
-                                idx,
-                                {
-                                    **tc,
-                                    "function": {
-                                        **tc["function"],
-                                        "arguments": json.dumps(args),
-                                    },
-                                },
-                            )
-                            for idx, tc, args in prepared_calls
-                        ]
-                        call_dicts_to_run = [c[1] for c in effective_calls]
-                        batch_results = await self.registry.execute_batch(
-                            call_dicts_to_run
-                        )
-                        for (idx, _tc), res in zip(
-                            effective_calls, batch_results, strict=False
-                        ):
-                            obs, is_err = await self._post_execute_hook(_tc, res)
-                            direct_observations[idx] = (
-                                ToolResult(ok=not is_err, data=obs)
-                                if not is_err
-                                else ToolResult(ok=False, error=obs)
-                            )
-
-                    # 保序写回 messages 和 session
-                    tool_results: list[Message] = []
-                    for idx, tc in enumerate(tool_call_dicts):
-                        res = direct_observations[idx]
-                        observation = res.serialize()
-                        tool_msg = Message(
-                            role="tool",
-                            content=observation,
-                            metadata={"tool_call_id": tc["id"]},
-                        )
-                        self.messages.append(tool_msg)
-                        self.session.add_message(
-                            "tool", observation, tool_call_id=tc["id"]
-                        )
-                        await self._emit(MessageStart(tool_msg))
-                        await self._emit(MessageEnd(tool_msg))
-                        tool_results.append(tool_msg)
-
-                    has_more_tool_calls = True
-                else:
-                    tool_results = []
-                    has_more_tool_calls = False
-                    final_text = content_acc
-
-                # 每个 Turn 结束时统一派发 TurnEnd（对齐 Pi 标准生命周期：每轮必有配对的 TurnEnd）
-                await self._emit(TurnEnd(message=assistant, tool_results=tool_results))
-
-                # ② & ③ 安全点：在 Turn 结束时检查 Steer 转向
-                if self.message_queue.has_steering():
-                    steer_msgs = self.message_queue.get_steering_messages()
-                    pending_messages = [m.content for m in steer_msgs]
-
-            # ──────────────────────────────────────────────────────────
-            # 内层循环自然结束 (无 tool_calls 且无 steering)
-            # ──────────────────────────────────────────────────────────
-            if self.message_queue.has_followup():
-                followup_msgs = self.message_queue.get_followup_messages()
-                pending_messages = [m.content for m in followup_msgs]
-                continue  # 开启外层循环新一轮任务
-
-            break  # 队列全清空，任务彻底完成
-
-        await self._emit(
-            AgentEnd(
-                messages=list(self.messages),
-                final_text=final_text,
-                iterations=iteration,
-                stop_reason="end_turn",
-            )
-        )
+                if event.stop_reason == "blocked":
+                    return event.final_text or "(blocked)"
+                final_text = event.final_text
         return final_text
 
     async def invoke_skill(self, name: str, instructions: str = "") -> str | None:
@@ -626,53 +409,7 @@ class Agent:
         await self._ctx.force_compact(self.messages)
         await self._handle_compaction()
 
-    # ── 内部实现（run 循环辅助）──────────────────────────────
-
-    def _llm_chat(self, messages, tools):
-        """封装 llm.chat：透传 model（SDK 通用参数）。"""
-        return self.llm.chat(messages=messages, tools=tools, model=self.model)
-
-    async def _prepare_tool(
-        self, tc: dict
-    ) -> tuple[str, dict, str | None, HookResult | None]:
-        """解析 JSON + ToolExecutionStart hook 阶段：返回 (name, args, 错误文本或 None, hook)。永不抛。"""
-        name = tc["function"]["name"]
-        try:
-            args = json.loads(tc["function"]["arguments"])
-        except (json.JSONDecodeError, TypeError) as exc:
-            return name, {}, f"Invalid JSON arguments for tool '{name}': {exc}", None
-
-        try:
-            hook = await self._emit(ToolExecutionStart(tc["id"], name, args))
-        except Exception as exc:
-            return (
-                name,
-                args,
-                f"Error in ToolExecutionStart hook for '{name}': {exc}",
-                None,
-            )
-
-        if isinstance(hook, HookResult) and hook.block:
-            return name, args, f"Tool '{name}' blocked: {hook.reason}", hook
-        if isinstance(hook, HookResult) and hook.updated_args is not None:
-            args = hook.updated_args
-        return name, args, None, hook
-
-    async def _post_execute_hook(
-        self, tc: dict, result: ToolResult
-    ) -> tuple[str, bool]:
-        """执行后处理阶段：ToolExecutionEnd hook 改写结果。永不抛。"""
-        name = tc["function"]["name"]
-        try:
-            hook = await self._emit(
-                ToolExecutionEnd(tc["id"], name, result.serialize(), not result.ok)
-            )
-        except Exception as exc:
-            return f"Error in ToolExecutionEnd hook for '{name}': {exc}", True
-
-        if isinstance(hook, HookResult) and hook.updated_result is not None:
-            return hook.updated_result, False
-        return result.serialize(), not result.ok
+    # ── 内部实现 ─────────────────────────────────────────────
 
     async def _handle_compaction(self) -> None:
         """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""

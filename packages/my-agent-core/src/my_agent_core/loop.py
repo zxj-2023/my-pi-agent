@@ -112,12 +112,15 @@ async def run_agent_loop(
 
     # 初始化协作取消检查
     if signal is not None and signal.is_cancelled():
-        yield AgentEnd(
+        end_ev = AgentEnd(
             messages=list(messages),
             final_text=None,
             iterations=0,
             stop_reason="cancelled",
         )
+        yield end_ev
+        if hook_registry is not None:
+            await hook_registry.emit(end_ev)
         return
 
     # system prompt 初始化
@@ -153,12 +156,15 @@ async def run_agent_loop(
         start_hook = await hook_registry.emit(start_event)
         if isinstance(start_hook, HookResult):
             if start_hook.block:
-                yield AgentEnd(
+                reason = f": {start_hook.reason}" if start_hook.reason else ""
+                end_ev = AgentEnd(
                     messages=list(messages),
-                    final_text=None,
+                    final_text=f"(blocked{reason})",
                     iterations=0,
                     stop_reason="blocked",
                 )
+                yield end_ev
+                await hook_registry.emit(end_ev)
                 return
             if start_hook.updated_system_prompt is not None:
                 system = start_hook.updated_system_prompt
@@ -170,8 +176,14 @@ async def run_agent_loop(
     # 将初始 prompts 注入 messages 并派发消息事件
     for p_msg in converted_prompts:
         messages.append(p_msg)
-        yield MessageStart(p_msg)
-        yield MessageEnd(p_msg)
+        s_ev = MessageStart(p_msg)
+        yield s_ev
+        if hook_registry is not None:
+            await hook_registry.emit(s_ev)
+        e_ev = MessageEnd(p_msg)
+        yield e_ev
+        if hook_registry is not None:
+            await hook_registry.emit(e_ev)
 
     pending_messages: list[Message] = []
     if get_steering_messages is not None:
@@ -200,31 +212,46 @@ async def run_agent_loop(
             iteration += 1
 
             if signal is not None and signal.is_cancelled():
-                yield AgentEnd(
+                end_ev = AgentEnd(
                     messages=list(messages),
                     final_text=final_text,
                     iterations=iteration,
                     stop_reason="cancelled",
                 )
+                yield end_ev
+                if hook_registry is not None:
+                    await hook_registry.emit(end_ev)
                 return
 
             if effective_max is not None and iteration > effective_max:
-                yield AgentEnd(
+                end_ev = AgentEnd(
                     messages=list(messages),
                     final_text=final_text,
                     iterations=iteration,
                     stop_reason="max_iterations",
                 )
+                yield end_ev
+                if hook_registry is not None:
+                    await hook_registry.emit(end_ev)
                 return
 
-            yield TurnStart(iteration)
+            turn_start_ev = TurnStart(iteration)
+            yield turn_start_ev
+            if hook_registry is not None:
+                await hook_registry.emit(turn_start_ev)
 
             # Turn 起始点注入 pending 消息
             if pending_messages:
                 for p_msg in pending_messages:
                     messages.append(p_msg)
-                    yield MessageStart(p_msg)
-                    yield MessageEnd(p_msg)
+                    s_ev = MessageStart(p_msg)
+                    yield s_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(s_ev)
+                    e_ev = MessageEnd(p_msg)
+                    yield e_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(e_ev)
                 pending_messages = []
 
             # 前置清洗与上下文准备
@@ -241,12 +268,15 @@ async def run_agent_loop(
                 ctx_hook = await hook_registry.emit(before_call_ev)
                 if isinstance(ctx_hook, HookResult):
                     if ctx_hook.block:
-                        yield AgentEnd(
+                        reason = f": {ctx_hook.reason}" if ctx_hook.reason else ""
+                        end_ev = AgentEnd(
                             messages=list(messages),
-                            final_text=None,
+                            final_text=f"(blocked{reason})",
                             iterations=iteration,
                             stop_reason="blocked",
                         )
+                        yield end_ev
+                        await hook_registry.emit(end_ev)
                         return
                     if ctx_hook.updated_messages is not None:
                         view = ctx_hook.updated_messages
@@ -284,6 +314,9 @@ async def run_agent_loop(
                         if isinstance(hook, HookResult) and hook.block:
                             cancelled = True
                             break
+                    if signal is not None and signal.is_cancelled():
+                        cancelled = True
+                        break
             elif hasattr(llm, "achat"):
                 resp = await llm.achat(messages=view, tools=tool_schemas, model=model)
                 content_acc = resp.content or ""
@@ -294,10 +327,17 @@ async def run_agent_loop(
                     tool_calls=final_tool_calls,
                     usage=last_usage,
                 )
-                yield MessageUpdate(
+                update_ev = MessageUpdate(
                     message=Message(role="assistant", content=content_acc),
                     chunk=chunk,
                 )
+                yield update_ev
+                if hook_registry is not None:
+                    hook = await hook_registry.emit(update_ev)
+                    if isinstance(hook, HookResult) and hook.block:
+                        cancelled = True
+                if signal is not None and signal.is_cancelled():
+                    cancelled = True
             else:
                 resp = llm.chat(messages=view, tools=tool_schemas, model=model)
                 content_acc = resp.content or ""
@@ -308,10 +348,17 @@ async def run_agent_loop(
                     tool_calls=final_tool_calls,
                     usage=last_usage,
                 )
-                yield MessageUpdate(
+                update_ev = MessageUpdate(
                     message=Message(role="assistant", content=content_acc),
                     chunk=chunk,
                 )
+                yield update_ev
+                if hook_registry is not None:
+                    hook = await hook_registry.emit(update_ev)
+                    if isinstance(hook, HookResult) and hook.block:
+                        cancelled = True
+                if signal is not None and signal.is_cancelled():
+                    cancelled = True
 
             # 中途取消处理与断头补齐
             if cancelled or (signal is not None and signal.is_cancelled()):
@@ -322,6 +369,15 @@ async def run_agent_loop(
                         metadata={"tool_calls": final_tool_calls},
                     )
                     messages.append(assistant)
+                    s_ev = MessageStart(assistant)
+                    yield s_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(s_ev)
+                    e_ev = MessageEnd(assistant)
+                    yield e_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(e_ev)
+
                     for tc in final_tool_calls:
                         synth = Message(
                             role="tool",
@@ -329,16 +385,24 @@ async def run_agent_loop(
                             metadata={"tool_call_id": tc["id"], "is_error": True},
                         )
                         messages.append(synth)
-                elif content_acc:
-                    assistant = Message(role="assistant", content=content_acc)
-                    messages.append(assistant)
+                        s_ev = MessageStart(synth)
+                        yield s_ev
+                        if hook_registry is not None:
+                            await hook_registry.emit(s_ev)
+                        e_ev = MessageEnd(synth)
+                        yield e_ev
+                        if hook_registry is not None:
+                            await hook_registry.emit(e_ev)
 
-                yield AgentEnd(
+                end_ev = AgentEnd(
                     messages=list(messages),
                     final_text=None,
                     iterations=iteration,
                     stop_reason="cancelled",
                 )
+                yield end_ev
+                if hook_registry is not None:
+                    await hook_registry.emit(end_ev)
                 return
 
             if (
@@ -353,11 +417,14 @@ async def run_agent_loop(
                 and getattr(context_manager, "pending_compaction", None) is not None
             ):
                 info = context_manager.pending_compaction
-                yield ContextCompacted(
+                compact_ev = ContextCompacted(
                     tokens_before=info.tokens_before,
                     tokens_after=info.tokens_after,
                     summarized_count=info.summarized_count,
                 )
+                yield compact_ev
+                if hook_registry is not None:
+                    await hook_registry.emit(compact_ev)
 
             assistant = Message(
                 role="assistant",
@@ -365,8 +432,14 @@ async def run_agent_loop(
                 metadata={"tool_calls": final_tool_calls} if final_tool_calls else None,
             )
             messages.append(assistant)
-            yield MessageStart(assistant)
-            yield MessageEnd(assistant)
+            s_ev = MessageStart(assistant)
+            yield s_ev
+            if hook_registry is not None:
+                await hook_registry.emit(s_ev)
+            e_ev = MessageEnd(assistant)
+            yield e_ev
+            if hook_registry is not None:
+                await hook_registry.emit(e_ev)
 
             # 工具执行阶段
             if final_tool_calls:
@@ -378,12 +451,24 @@ async def run_agent_loop(
                             metadata={"tool_call_id": tc["id"], "is_error": True},
                         )
                         messages.append(synth)
-                    yield AgentEnd(
+                        s_ev = MessageStart(synth)
+                        yield s_ev
+                        if hook_registry is not None:
+                            await hook_registry.emit(s_ev)
+                        e_ev = MessageEnd(synth)
+                        yield e_ev
+                        if hook_registry is not None:
+                            await hook_registry.emit(e_ev)
+
+                    end_ev = AgentEnd(
                         messages=list(messages),
                         final_text=None,
                         iterations=iteration,
                         stop_reason="cancelled",
                     )
+                    yield end_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(end_ev)
                     return
 
                 tool_call_dicts = final_tool_calls
@@ -485,8 +570,14 @@ async def run_agent_loop(
                         metadata={"tool_call_id": tc["id"]},
                     )
                     messages.append(tool_msg)
-                    yield MessageStart(tool_msg)
-                    yield MessageEnd(tool_msg)
+                    s_ev = MessageStart(tool_msg)
+                    yield s_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(s_ev)
+                    e_ev = MessageEnd(tool_msg)
+                    yield e_ev
+                    if hook_registry is not None:
+                        await hook_registry.emit(e_ev)
                     tool_results.append(tool_msg)
 
                 has_more_tool_calls = True
@@ -495,7 +586,10 @@ async def run_agent_loop(
                 has_more_tool_calls = False
                 final_text = content_acc
 
-            yield TurnEnd(message=assistant, tool_results=tool_results)
+            turn_end_ev = TurnEnd(message=assistant, tool_results=tool_results)
+            yield turn_end_ev
+            if hook_registry is not None:
+                await hook_registry.emit(turn_end_ev)
 
             # 消费 steering messages
             if get_steering_messages is not None:
@@ -518,9 +612,12 @@ async def run_agent_loop(
 
         break
 
-    yield AgentEnd(
+    agent_end_ev = AgentEnd(
         messages=list(messages),
         final_text=final_text,
         iterations=iteration,
         stop_reason="end_turn",
     )
+    yield agent_end_ev
+    if hook_registry is not None:
+        await hook_registry.emit(agent_end_ev)

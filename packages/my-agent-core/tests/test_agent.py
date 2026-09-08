@@ -15,6 +15,7 @@ from my_agent_core.events import (
     AgentEnd,
     AgentStart,
     BeforeModelCall,
+    Event,
     HookResult,
     MessageEnd,
     MessageStart,
@@ -607,3 +608,79 @@ async def test_agent_before_model_call_hook_temporary_view_rewrite():
     # 3. session 磁盘中绝不包含 ephemeral reminder
     session_contents = [e.content for e in session.tree.entries.values()]
     assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in c for c in session_contents)
+
+
+@pytest.mark.anyio
+async def test_agent_prompt_stream_emits_events():
+    """Agent.prompt_stream 原生事件流一等公民接口：逐一产生完整生命周期事件，并更新 session 与 messages。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    tc = [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": '{"a": 3, "b": 4}'},
+        }
+    ]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="The answer is 12")])
+    agent = _agent(llm, session=session, system_prompt="You are a math bot")
+
+    events: list[Event] = []
+    async for ev in agent.prompt_stream("calculate 3 * 4"):
+        events.append(ev)
+
+    # 1. 验证事件流产生的事件类型与顺序完整
+    event_types = [type(e) for e in events]
+    assert AgentStart in event_types
+    assert MessageStart in event_types
+    assert MessageEnd in event_types
+    assert TurnStart in event_types
+    assert BeforeModelCall in event_types
+    assert MessageUpdate in event_types
+    assert ToolExecutionStart in event_types
+    assert ToolExecutionEnd in event_types
+    assert TurnEnd in event_types
+    assert AgentEnd in event_types
+
+    # 2. 验证末尾事件为 AgentEnd 且包含最终文本和正常结束状态
+    agent_end = [e for e in events if isinstance(e, AgentEnd)][0]
+    assert agent_end.final_text == "The answer is 12"
+    assert agent_end.stop_reason == "end_turn"
+
+    # 3. 验证 agent.messages 同步更新
+    assert len(agent.messages) >= 4
+    assert agent.messages[-1].content == "The answer is 12"
+
+    # 4. 验证 session 同步持久化了完整对话记录
+    session_messages = session.get_current_path_messages()
+    assert len(session_messages) >= 4
+    contents = [m.content for m in session_messages]
+    assert "calculate 3 * 4" in contents
+    assert "The answer is 12" in contents
+
+
+@pytest.mark.anyio
+async def test_agent_subscribe_listener():
+    """Agent.subscribe 订阅事件流通知并支持注销回调。"""
+    session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
+    llm = FakeLLM(
+        [
+            _response(content="Hello subscriber"),
+            _response(content="Hello again"),
+        ]
+    )
+    agent = _agent(llm, session=session)
+
+    observed: list[Event] = []
+    unsub = agent.subscribe(observed.append)
+
+    res = await agent.run("say hello")
+    assert res == "Hello subscriber"
+    assert len(observed) >= 3
+    assert any(isinstance(e, AgentStart) for e in observed)
+    assert any(isinstance(e, AgentEnd) for e in observed)
+
+    # 注销后不再收到新事件
+    unsub()
+    pre_len = len(observed)
+    await agent.run("say hello again")
+    assert len(observed) == pre_len
