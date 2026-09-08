@@ -18,6 +18,7 @@ import multiprocessing as mp
 from pathlib import Path
 
 import pytest
+from my_agent_llm.models import Message
 
 from my_agent_core.session.entries import (
     BranchSummaryEntry,
@@ -36,7 +37,6 @@ from my_agent_core.session.jsonl import (
     entry_from_json_line,
     entry_to_json_line,
 )
-from my_agent_llm.models import Message
 
 # ============================================================================
 # 1. 强类型 SessionEntry 序列化与反序列化
@@ -540,5 +540,3 @@ def test_session_facade_bridge_methods(tmp_path: Path) -> None:
     forked = s.fork(s.tree.current_id)
     assert forked.id != s.id
     assert len(forked.tree.entries) == 1
-
-
