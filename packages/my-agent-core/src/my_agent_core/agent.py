@@ -46,6 +46,10 @@ from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
 from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
+from my_agent_core.tool_history import (  # pyright: ignore[reportMissingImports]
+    _INTERRUPTED_TOOL_RESULT,
+    repair_tool_history,
+)
 from my_agent_core.tools import Tool, ToolResult
 from my_agent_core.tools.builtin.task import (
     make_task_tool,  # pyright: ignore[reportMissingImports]
@@ -304,7 +308,9 @@ class Agent:
 
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
-        self.messages = system + self.session.get_current_path_messages()
+        restored = system + self.session.get_current_path_messages()
+        # 对齐 Tau: 执行对话历史自愈，保证送入模型的会话转录本没有悬空断头 ToolCall
+        self.messages = list(repair_tool_history(restored).messages)
 
         # ── 决策点 2: AgentStart 拦截与动态 System Prompt 改写
         start_hook = await self._emit(
@@ -421,16 +427,16 @@ class Agent:
                         messages=view, tools=tools, model=self.model
                     )
                     async for chunk in stream:
-                        if self._aborted:
-                            cancelled = True
-                            break
-
                         if chunk.content:
                             content_acc += chunk.content
                         if getattr(chunk, "tool_calls", None):
                             final_tool_calls = chunk.tool_calls
                         if getattr(chunk, "usage", None):
                             last_usage = chunk.usage
+
+                        if self._aborted:
+                            cancelled = True
+                            break
 
                         hook = await self._emit(
                             MessageUpdate(
@@ -456,6 +462,28 @@ class Agent:
                     last_usage = resp.usage
 
                 if cancelled or self._aborted:
+                    if final_tool_calls:
+                        # 记录被中断的 assistant 消息
+                        assistant = Message(
+                            role="assistant",
+                            content=content_acc,
+                            metadata={"tool_calls": final_tool_calls},
+                        )
+                        self.messages.append(assistant)
+                        self.session.add_message(
+                            "assistant", content_acc, tool_calls=final_tool_calls
+                        )
+                        # 立即自愈：补齐被中断的工具结果，防止悬空断头导致后续调用报 API 400
+                        for tc in final_tool_calls:
+                            synth = Message(
+                                role="tool",
+                                content=_INTERRUPTED_TOOL_RESULT,
+                                metadata={"tool_call_id": tc["id"], "is_error": True},
+                            )
+                            self.messages.append(synth)
+                            self.session.add_message(
+                                "tool", synth.content, **(synth.metadata or {})
+                            )
                     await self._emit(
                         AgentEnd(
                             messages=list(self.messages),
