@@ -371,6 +371,96 @@ class ToolExecutor(Protocol):
 
 ---
 
+### 3.7 模块七：模型边界网络弹性、流式中断保护与抖动重试 (`my-agent-llm/`)
+
+#### 1. 带抖动的指数退避重试 (`retry.py`)
+
+对齐 Tau `tau_ai/retry.py`，实现符合分布式容错标准的重试调度：
+
+$$\text{delay} = \min(\text{max\_delay}, \text{base\_delay} \times 2^{\text{attempt}}) \times (1 \pm \text{jitter})$$
+
+- 随机抖动（Jitter）：防止瞬时网络故障或 503 恢复时成百上千个并发请求形成“惊群效应（Thundering Herd）”；
+- `Retry-After` 优先：自动解析 HTTP 429 响应头中的 `Retry-After` 秒数或 HTTP 日期，精准等待。
+
+#### 2. `emitted_content` 流式保护伞状态机
+
+对标 `tau_ai/openai_compatible.py:355-370`，解决长文本流式传输中断时的重试死穴：
+
+- **首字前断流（Safe Retry）**：若在模型输出第一个 Token / 思考块之前发生网络断线或 503，安全透明重试；
+- **吐字后断流（No Re-emission Invariant）**：若大模型已经向客户端 yield 了部分文本或发起了部分工具调用，**严禁从头重新请求**（否则会导致同一个工具被执行两次，如重复扣款或重复写入文件）。此时立即封口发射 `AssistantErrorEvent(reason="stream_disconnected")`，转交由 `tool_history.py` 自动修复并安全保存现场。
+
+#### 3. 429 终态配额耗尽短路机制
+
+对标 Tau `_is_terminal_rate_limit(body)`：
+对 429 错误进行细分：
+- 临时并发限流（Rate Limit Exceeded）：执行退避重试；
+- 账户余额耗尽（`insufficient_quota`、`billing`、`monthly limit`）：**立即短路跳过重试**并抛出明确的账户充值提示，杜绝盲目重试白白阻塞系统数十秒。
+
+#### 4. HTTP 结构化错误诊断与凭据脱敏 (`http_errors.py`)
+
+实现递归解析错误详情：自动剥离上游返回的长篇 HTML 报错页面，清洗掉 Authorization 鉴权头与敏感路径，仅提取出纯净的结构化错误信息。
+
+---
+
+### 3.8 模块八：真实模型上下文窗口动态计量与超限自愈 (`my_agent_core/context.py` 升级)
+
+#### 1. 全口径上下文预算计量（消除工具 Schema 盲区）
+
+目前系统仅按 `messages` 字符估算 Token，对齐 Tau `context_window.py`，实现**全口径动态估算**：
+
+$$\text{Total Tokens} = \text{System Prompt Tokens} + \text{Static Tools Tokens} + \text{Added Tools Tokens} + \text{Messages Tokens}$$
+
+- **工具 Schema 动态计入**：将 `ToolRegistry.get_schemas()` 中的数十个工具定义预先计算 Token 开销（约 5k~15k tokens）；
+- **动态新开放工具跟踪**：从后续轮次的 `ToolResultMessage.added_tool_names` 中提取增量工具，动态补算开销。
+
+#### 2. 模型上下文上限动态探测与安全 Headroom 预留
+
+- 摒弃静态写死的 `100_000` 上限，根据所选模型（Claude 3.7 200k、DeepSeek 64k/128k、Gemini 1M）动态绑定 `context_window_tokens`；
+- **强制预留输出缓冲空间**（对标 Tau `DEFAULT_COMPACTION_RESERVE_TOKENS = 16_384`）：
+  自动压缩阈值设定为：
+  $$\text{Auto Compact Threshold} = \max(1, \text{Context Window} - 16384)$$
+  确保即便会话接近上限，始终有 16k tokens 保障大模型能够完整输出深思熟虑的推理链与长代码。
+
+#### 3. Context Overflow 异常拦截与自动压缩重试闭环
+
+当大模型突发抛出 `Context Overflow`（400 上下文超限）错误时：
+- Tau 的 `is_context_overflow_error` 机制在调度器内捕获该错误；
+- 自动抑制该错误不抛给用户，在当前轮次**立即触发紧急降级压缩（`_try_overflow_compact`）**；
+- 压缩完成后自动唤醒重试（`AutoRetryStartEvent`），实现大模型会话超限时的**静默自愈无缝接力**。
+
+---
+
+### 3.9 模块九：产品层外部驱动 RPC 协议与项目信任沙箱 (`my-coding-agent/`)
+
+#### 1. Stdio JSONL RPC 双向协议 (`rpc.py`)
+
+对齐 Tau `tau_coding/rpc.py`，为 `my-coding-agent` 提供面向 IDE（如 VS Code 扩展）与外部 Web UI 的工业级 Stdio RPC 服务：
+
+```text
+ 外部客户端 (IDE / UI)                  my-coding-agent RpcServer
+          │                                         │
+          ├─► {"type": "prompt", "text": "重构代码"} ─►│ 内部消费标准输入
+          │                                         ├─► 16 MiB 消息上限截断防御
+          │                                         │
+          │◄─ {"type": "event", "event": "turn_start"}◄─┤ 标准输出带 Lock 原子 flush
+          │◄─ {"type": "event", "event": "text_delta"}◄─┤
+          │                                         │
+          ├─► {"type": "steer", "text": "停下，别删"} ─►│ 动态干预通道
+          ├─► {"type": "cancel"}                   ─►│ 协作式取消信号
+```
+
+- **单行安全上限**：设定 `_MAX_RECORD_BYTES = 16 * 1024 * 1024`（16 MiB），杜绝外部输入恶意超大单行打爆内存；
+- **输出原子锁**：标准输出写入统一受 `asyncio.Lock()` 保护并强制 `stdout.flush()`，保证流式打字机事件与响应报文绝不交错撕裂。
+
+#### 2. 项目信任体系（`project_trust.py` 安全沙箱）
+
+针对开发者打开不受信任的开源仓库或第三方目录时设计的安全护盾：
+- 首次进入未知目录时，标记为 `Untrusted Workspace`；
+- 在非受信状态下，强制阻断破坏性 `bash` 命令、阻断任意扩展代码加载，防止通过 `AGENTS.md` 或恶意配置文件进行提示词注入与环境窃密；
+- 需用户显式批准后（持久化至 `.my_agent_core/trusted_projects.json`），才解除完全执行权限。
+
+---
+
 ## 四、渐进式重构路线图 (Implementation Roadmap)
 
 为了保证“改动重大但步步为营、全量测试时刻保持绿灯”，整个重构划分为 **4 个独立里程碑**：
