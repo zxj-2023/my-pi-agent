@@ -56,9 +56,13 @@ def entry_to_json_line(entry: SessionEntry) -> str:
         if isinstance(entry, BaseModel):
             return entry.model_dump_json(by_alias=True, exclude_none=True)
         adapter = TypeAdapter(SessionEntry)
-        return adapter.dump_json(entry, by_alias=True, exclude_none=True).decode("utf-8")
+        return adapter.dump_json(entry, by_alias=True, exclude_none=True).decode(
+            "utf-8"
+        )
     except Exception as exc:
-        raise SessionJsonlError(f"Failed to serialize entry to JSON line: {exc}") from exc
+        raise SessionJsonlError(
+            f"Failed to serialize entry to JSON line: {exc}"
+        ) from exc
 
 
 def _parse_timestamp(raw: Any) -> float:
@@ -87,7 +91,12 @@ def _migrate_session_entry(raw: dict[str, Any]) -> SessionEntry:
     is_legacy_header = (entry_type == "session") or (
         entry_type is None
         and "role" not in data
-        and ("created_at" in data or "cwd" in data or "current_id" in data or "root_id" in data)
+        and (
+            "created_at" in data
+            or "cwd" in data
+            or "current_id" in data
+            or "root_id" in data
+        )
     )
     if is_legacy_header:
         entry_id = str(data.get("id") or uuid4().hex)
@@ -124,7 +133,9 @@ def _migrate_session_entry(raw: dict[str, Any]) -> SessionEntry:
         parent_id = data.get("parent_id") or data.get("parentId")
         ts_float = _parse_timestamp(data.get("timestamp"))
         summary = str(data["content"])
-        replaces = list(data.get("replaces_entry_ids") or data.get("replacesEntryIds") or [])
+        replaces = list(
+            data.get("replaces_entry_ids") or data.get("replacesEntryIds") or []
+        )
         meta = dict(data.get("metadata") or {})
         return CompactionEntry(
             id=entry_id,
@@ -136,7 +147,9 @@ def _migrate_session_entry(raw: dict[str, Any]) -> SessionEntry:
         )
 
     # 3. 遗留对话消息条目检查 (role at top level, no nested 'message')
-    is_legacy_message = "role" in data and "message" not in data and entry_type in ("message", None)
+    is_legacy_message = (
+        "role" in data and "message" not in data and entry_type in ("message", None)
+    )
     if is_legacy_message:
         entry_id = str(data.get("id") or uuid4().hex)
         parent_id = data.get("parent_id") or data.get("parentId")
@@ -157,7 +170,9 @@ def _migrate_session_entry(raw: dict[str, Any]) -> SessionEntry:
         adapter = TypeAdapter(SessionEntry)
         return adapter.validate_python(data)
     except Exception as exc:
-        raise SessionJsonlError(f"Cannot parse JSON object as SessionEntry: {exc}") from exc
+        raise SessionJsonlError(
+            f"Cannot parse JSON object as SessionEntry: {exc}"
+        ) from exc
 
 
 def entry_from_json_line(line: str) -> SessionEntry:
@@ -285,7 +300,7 @@ class JsonlSessionStorage:
 
             entries: list[SessionEntry] = []
             for i, line in enumerate(lines):
-                is_last = (i == len(lines) - 1)
+                is_last = i == len(lines) - 1
                 try:
                     entry = entry_from_json_line(line)
                     entries.append(entry)

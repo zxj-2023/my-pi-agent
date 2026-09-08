@@ -18,12 +18,6 @@ import multiprocessing as mp
 from pathlib import Path
 
 import pytest
-from my_agent_core.session.jsonl import (
-    JsonlSessionStorage,
-    SessionJsonlError,
-    entry_from_json_line,
-    entry_to_json_line,
-)
 from my_agent_llm.models import Message
 
 from my_agent_core.session.entries import (
@@ -36,6 +30,12 @@ from my_agent_core.session.entries import (
     ModelChangeEntry,
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
+)
+from my_agent_core.session.jsonl import (
+    JsonlSessionStorage,
+    SessionJsonlError,
+    entry_from_json_line,
+    entry_to_json_line,
 )
 
 # ============================================================================
@@ -117,12 +117,14 @@ def test_entry_to_json_line_and_from_json_line_aliases() -> None:
     assert data["parentId"] == "root"
 
     # snake_case 手动传入也能正确解析
-    snake_json = json.dumps({
-        "type": "message",
-        "id": "m2",
-        "parent_id": "root2",
-        "message": {"role": "user", "content": "hi"},
-    })
+    snake_json = json.dumps(
+        {
+            "type": "message",
+            "id": "m2",
+            "parent_id": "root2",
+            "message": {"role": "user", "content": "hi"},
+        }
+    )
     recovered = entry_from_json_line(snake_json)
     assert isinstance(recovered, MessageEntry)
     assert recovered.parent_id == "root2"
@@ -135,15 +137,17 @@ def test_entry_to_json_line_and_from_json_line_aliases() -> None:
 
 def test_migrate_legacy_header_without_type() -> None:
     """旧版 Header（无 type 字段，含 id, created_at, cwd, current_id, root_id）能迁移为 SessionInfoEntry。"""
-    legacy_header = json.dumps({
-        "id": "20260830-120000-abcd1234",
-        "created_at": "2026-08-30T12:00:00.000000",
-        "cwd": "/workspace/project",
-        "current_id": "m1",
-        "root_id": "m0",
-        "compaction_floor": "m1",
-        "metadata": {"custom_meta": 1},
-    })
+    legacy_header = json.dumps(
+        {
+            "id": "20260830-120000-abcd1234",
+            "created_at": "2026-08-30T12:00:00.000000",
+            "cwd": "/workspace/project",
+            "current_id": "m1",
+            "root_id": "m0",
+            "compaction_floor": "m1",
+            "metadata": {"custom_meta": 1},
+        }
+    )
     entry = entry_from_json_line(legacy_header)
     assert isinstance(entry, SessionInfoEntry)
     assert entry.id == "20260830-120000-abcd1234"
@@ -156,15 +160,17 @@ def test_migrate_legacy_header_without_type() -> None:
 
 def test_migrate_legacy_header_with_type_session() -> None:
     """带 type='session' 与 version=1 的旧版 Header 迁移为 SessionInfoEntry。"""
-    legacy_header = json.dumps({
-        "type": "session",
-        "version": 1,
-        "id": "s-legacy",
-        "created_at": "2026-08-01T00:00:00",
-        "cwd": ".",
-        "current_id": None,
-        "root_id": None,
-    })
+    legacy_header = json.dumps(
+        {
+            "type": "session",
+            "version": 1,
+            "id": "s-legacy",
+            "created_at": "2026-08-01T00:00:00",
+            "cwd": ".",
+            "current_id": None,
+            "root_id": None,
+        }
+    )
     entry = entry_from_json_line(legacy_header)
     assert isinstance(entry, SessionInfoEntry)
     assert entry.id == "s-legacy"
@@ -173,16 +179,20 @@ def test_migrate_legacy_header_with_type_session() -> None:
 
 def test_migrate_legacy_message_entry() -> None:
     """旧版 Message 条目（扁平 role, content, metadata，无嵌套 message 对象）能迁移为 MessageEntry。"""
-    legacy_msg = json.dumps({
-        "id": "msg-old",
-        "parent_id": "msg-root",
-        "timestamp": "2026-08-30T12:01:00",
-        "role": "assistant",
-        "content": "thinking output",
-        "metadata": {
-            "tool_calls": [{"id": "tc1", "type": "function", "function": {"name": "read"}}],
-        },
-    })
+    legacy_msg = json.dumps(
+        {
+            "id": "msg-old",
+            "parent_id": "msg-root",
+            "timestamp": "2026-08-30T12:01:00",
+            "role": "assistant",
+            "content": "thinking output",
+            "metadata": {
+                "tool_calls": [
+                    {"id": "tc1", "type": "function", "function": {"name": "read"}}
+                ],
+            },
+        }
+    )
     entry = entry_from_json_line(legacy_msg)
     assert isinstance(entry, MessageEntry)
     assert entry.id == "msg-old"
@@ -195,17 +205,19 @@ def test_migrate_legacy_message_entry() -> None:
 
 def test_migrate_legacy_compaction_entry() -> None:
     """旧版 Compaction 条目（使用 content 存放 summary 文本，role='system'）能迁移为 CompactionEntry。"""
-    legacy_compaction = json.dumps({
-        "type": "compaction",
-        "id": "comp-old",
-        "parent_id": "prev-1",
-        "role": "system",
-        "content": "## Summary of previous steps",
-        "metadata": {
-            "covered_count": 5,
-            "tokens_before": 10000,
-        },
-    })
+    legacy_compaction = json.dumps(
+        {
+            "type": "compaction",
+            "id": "comp-old",
+            "parent_id": "prev-1",
+            "role": "system",
+            "content": "## Summary of previous steps",
+            "metadata": {
+                "covered_count": 5,
+                "tokens_before": 10000,
+            },
+        }
+    )
     entry = entry_from_json_line(legacy_compaction)
     assert isinstance(entry, CompactionEntry)
     assert entry.id == "comp-old"
@@ -251,7 +263,9 @@ async def test_jsonl_storage_append_and_read_all(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(file_path)
 
     e0 = SessionInfoEntry(id="info1", cwd=str(tmp_path))
-    m1 = MessageEntry(id="m1", parent_id="info1", message=Message(role="user", content="hello"))
+    m1 = MessageEntry(
+        id="m1", parent_id="info1", message=Message(role="user", content="hello")
+    )
 
     await storage.append(e0)
     await storage.append(m1)
@@ -277,8 +291,12 @@ async def test_jsonl_storage_append_batch(tmp_path: Path) -> None:
 
     batch = [
         SessionInfoEntry(id="i1", cwd="."),
-        MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="q1")),
-        MessageEntry(id="m2", parent_id="m1", message=Message(role="assistant", content="a1")),
+        MessageEntry(
+            id="m1", parent_id="i1", message=Message(role="user", content="q1")
+        ),
+        MessageEntry(
+            id="m2", parent_id="m1", message=Message(role="assistant", content="a1")
+        ),
     ]
     await storage.append_batch(batch)
 
@@ -334,7 +352,9 @@ async def test_jsonl_storage_removes_temp_on_append(tmp_path: Path) -> None:
     assert tmp_file.exists()
 
     await storage.append(
-        MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="hi"))
+        MessageEntry(
+            id="m1", parent_id="i1", message=Message(role="user", content="hi")
+        )
     )
     assert not tmp_file.exists()
 
@@ -351,7 +371,9 @@ async def test_jsonl_storage_tolerates_torn_last_line(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(file_path)
 
     e0 = SessionInfoEntry(id="i1", cwd=".")
-    m1 = MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="fine"))
+    m1 = MessageEntry(
+        id="m1", parent_id="i1", message=Message(role="user", content="fine")
+    )
     await storage.append_batch([e0, m1])
 
     # 手动在文件末尾追加半截撕裂行
@@ -370,7 +392,9 @@ async def test_jsonl_storage_rejects_corrupted_middle_line(tmp_path: Path) -> No
     storage = JsonlSessionStorage(file_path)
 
     e0 = SessionInfoEntry(id="i1", cwd=".")
-    m1 = MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="ok"))
+    m1 = MessageEntry(
+        id="m1", parent_id="i1", message=Message(role="user", content="ok")
+    )
     await storage.append_batch([e0, m1])
 
     # 在中间插入损坏行，最后仍有有效行
@@ -415,6 +439,7 @@ def test_cross_process_locking_concurrency(tmp_path: Path) -> None:
     assert storage.lock_path == lock_file
 
     import asyncio
+
     asyncio.run(storage.append(SessionInfoEntry(id="root", cwd=".")))
 
     p1 = mp.Process(target=_mp_worker, args=(str(session_file), 1, 5))
@@ -466,7 +491,9 @@ def test_package_reexports_jsonl_subsystem() -> None:
 
 
 @pytest.mark.anyio
-async def test_interop_legacy_session_file_read_by_jsonl_storage(tmp_path: Path) -> None:
+async def test_interop_legacy_session_file_read_by_jsonl_storage(
+    tmp_path: Path,
+) -> None:
     """使用 legacy Session 保存文件后，JsonlSessionStorage 能无缝读取其全量历史。"""
     from my_agent_core.session import Session
 
