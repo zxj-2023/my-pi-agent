@@ -60,7 +60,9 @@ class ModelChangeEntry(BaseSessionEntry):
 class ThinkingLevelChangeEntry(BaseSessionEntry):
     """记录推理思考等级调整。"""
 
-    type: Literal["thinking_level_change", "thinkingLevelChange"] = "thinking_level_change"
+    type: Literal["thinking_level_change", "thinkingLevelChange"] = (
+        "thinking_level_change"
+    )
     thinking_level: str
 
 
@@ -105,7 +107,15 @@ class CustomEntry(BaseSessionEntry):
 
 
 SessionEntry = Annotated[
-    SessionInfoEntry | MessageEntry | ModelChangeEntry | ThinkingLevelChangeEntry | CompactionEntry | BranchSummaryEntry | LabelEntry | LeafEntry | CustomEntry,
+    SessionInfoEntry
+    | MessageEntry
+    | ModelChangeEntry
+    | ThinkingLevelChangeEntry
+    | CompactionEntry
+    | BranchSummaryEntry
+    | LabelEntry
+    | LeafEntry
+    | CustomEntry,
     Field(discriminator="type"),
 ]
 

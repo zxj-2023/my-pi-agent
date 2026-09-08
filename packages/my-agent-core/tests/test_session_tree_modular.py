@@ -3,6 +3,9 @@
 import time
 
 import pytest
+from my_agent_llm.models import Message
+from pydantic import TypeAdapter, ValidationError
+
 from my_agent_core.session.entries import (
     BaseSessionEntry,
     BranchSummaryEntry,
@@ -22,8 +25,6 @@ from my_agent_core.session.tree import (
     lowest_common_ancestor,
     path_to_entry,
 )
-from my_agent_llm.models import Message
-from pydantic import TypeAdapter, ValidationError
 
 # ============================================================================
 # 1. 9 种 SessionEntry 多态判别实体测试
@@ -39,7 +40,9 @@ def test_base_session_entry_defaults_and_forbid_extra() -> None:
     assert entry.timestamp > 0
 
     # 支持驼峰 parentId 反序列化
-    entry_camel = BaseSessionEntry.model_validate({"parentId": "p1", "timestamp": 123.4})
+    entry_camel = BaseSessionEntry.model_validate(
+        {"parentId": "p1", "timestamp": 123.4}
+    )
     assert entry_camel.parent_id == "p1"
     assert entry_camel.timestamp == 123.4
 
@@ -67,13 +70,17 @@ def test_all_9_entries_instantiation_and_types() -> None:
     assert msg_entry.message.content == "Hello agent"
 
     # 3. ModelChangeEntry
-    model_entry = ModelChangeEntry(parent_id=msg_entry.id, model="gpt-4o", provider="openai")
+    model_entry = ModelChangeEntry(
+        parent_id=msg_entry.id, model="gpt-4o", provider="openai"
+    )
     assert model_entry.type in ("model_change", "modelChange")
     assert model_entry.model == "gpt-4o"
     assert model_entry.provider == "openai"
 
     # 4. ThinkingLevelChangeEntry
-    think_entry = ThinkingLevelChangeEntry(parent_id=model_entry.id, thinking_level="high")
+    think_entry = ThinkingLevelChangeEntry(
+        parent_id=model_entry.id, thinking_level="high"
+    )
     assert think_entry.type in ("thinking_level_change", "thinkingLevelChange")
     assert think_entry.thinking_level == "high"
 
@@ -98,7 +105,9 @@ def test_all_9_entries_instantiation_and_types() -> None:
     assert branch_entry.details == {"status": "explored"}
 
     # 7. LabelEntry
-    label_entry = LabelEntry(parent_id=branch_entry.id, label="checkpoint-1", target_id=branch_entry.id)
+    label_entry = LabelEntry(
+        parent_id=branch_entry.id, label="checkpoint-1", target_id=branch_entry.id
+    )
     assert label_entry.type == "label"
     assert label_entry.label == "checkpoint-1"
     assert label_entry.target_id == branch_entry.id
@@ -109,7 +118,9 @@ def test_all_9_entries_instantiation_and_types() -> None:
     assert leaf_entry.leaf_id == label_entry.id
 
     # 9. CustomEntry
-    custom_entry = CustomEntry(parent_id=leaf_entry.id, namespace="telemetry", data={"tokens": 100})
+    custom_entry = CustomEntry(
+        parent_id=leaf_entry.id, namespace="telemetry", data={"tokens": 100}
+    )
     assert custom_entry.type == "custom"
     assert custom_entry.namespace == "telemetry"
     assert custom_entry.data == {"tokens": 100}
@@ -121,17 +132,52 @@ def test_discriminated_union_serialization_and_deserialization() -> None:
 
     raw_items = [
         {"type": "session_info", "id": "e0", "title": "Init", "cwd": "/root"},
-        {"type": "message", "id": "e1", "parentId": "e0", "message": {"role": "user", "content": "hi"}},
-        {"type": "model_change", "id": "e2", "parentId": "e1", "model": "claude-3-5-sonnet", "provider": "anthropic"},
-        {"type": "thinking_level_change", "id": "e3", "parentId": "e2", "thinking_level": "medium"},
-        {"type": "compaction", "id": "e4", "parentId": "e3", "summary": "ctx", "replaces_entry_ids": ["e1"]},
-        {"type": "branch_summary", "id": "e5", "parentId": "e4", "summary": "br summary"},
+        {
+            "type": "message",
+            "id": "e1",
+            "parentId": "e0",
+            "message": {"role": "user", "content": "hi"},
+        },
+        {
+            "type": "model_change",
+            "id": "e2",
+            "parentId": "e1",
+            "model": "claude-3-5-sonnet",
+            "provider": "anthropic",
+        },
+        {
+            "type": "thinking_level_change",
+            "id": "e3",
+            "parentId": "e2",
+            "thinking_level": "medium",
+        },
+        {
+            "type": "compaction",
+            "id": "e4",
+            "parentId": "e3",
+            "summary": "ctx",
+            "replaces_entry_ids": ["e1"],
+        },
+        {
+            "type": "branch_summary",
+            "id": "e5",
+            "parentId": "e4",
+            "summary": "br summary",
+        },
         {"type": "label", "id": "e6", "parentId": "e5", "label": "v1.0"},
         {"type": "leaf", "id": "e7", "parentId": "e6", "leaf_id": "e6"},
-        {"type": "custom", "id": "e8", "parentId": "e7", "namespace": "plugin_x", "data": {"key": "val"}},
+        {
+            "type": "custom",
+            "id": "e8",
+            "parentId": "e7",
+            "namespace": "plugin_x",
+            "data": {"key": "val"},
+        },
     ]
 
-    parsed_entries: list[SessionEntry] = [adapter.validate_python(item) for item in raw_items]
+    parsed_entries: list[SessionEntry] = [
+        adapter.validate_python(item) for item in raw_items
+    ]
 
     assert isinstance(parsed_entries[0], SessionInfoEntry)
     assert isinstance(parsed_entries[1], MessageEntry)
@@ -162,12 +208,14 @@ def test_entries_extra_fields_forbidden() -> None:
     """各具体 SessionEntry 均继承 extra='forbid' 特性。"""
     adapter = TypeAdapter(SessionEntry)
     with pytest.raises(ValidationError):
-        adapter.validate_python({
-            "type": "model_change",
-            "id": "m1",
-            "model": "gpt-4o",
-            "unsupported_extra_key": "fail",
-        })
+        adapter.validate_python(
+            {
+                "type": "model_change",
+                "id": "m1",
+                "model": "gpt-4o",
+                "unsupported_extra_key": "fail",
+            }
+        )
 
 
 # ============================================================================
@@ -178,7 +226,9 @@ def test_entries_extra_fields_forbidden() -> None:
 def test_entries_by_id_normal() -> None:
     """entries_by_id 将条目列表转换为 ID 索引字典。"""
     e1 = SessionInfoEntry(id="info1")
-    e2 = MessageEntry(id="msg1", parent_id="info1", message=Message(role="user", content="hello"))
+    e2 = MessageEntry(
+        id="msg1", parent_id="info1", message=Message(role="user", content="hello")
+    )
     by_id = entries_by_id([e1, e2])
     assert by_id == {"info1": e1, "msg1": e2}
 
@@ -187,7 +237,9 @@ def test_entries_by_id_duplicate_id_raises_error() -> None:
     """遇到重复 ID 时必须抛出 SessionTreeError，并继承自 ValueError。"""
     e1 = SessionInfoEntry(id="dup_id", title="first")
     e2 = MessageEntry(id="dup_id", message=Message(role="user", content="second"))
-    with pytest.raises(SessionTreeError, match="Duplicate entry id: dup_id") as exc_info:
+    with pytest.raises(
+        SessionTreeError, match="Duplicate entry id: dup_id"
+    ) as exc_info:
         entries_by_id([e1, e2])
     assert isinstance(exc_info.value, ValueError)
 
@@ -201,7 +253,9 @@ def test_path_to_entry_linear_chain() -> None:
     """单链线性溯源返回根到叶的完整路径。"""
     e0 = SessionInfoEntry(id="0", parent_id=None)
     e1 = MessageEntry(id="1", parent_id="0", message=Message(role="user", content="q1"))
-    e2 = MessageEntry(id="2", parent_id="1", message=Message(role="assistant", content="a1"))
+    e2 = MessageEntry(
+        id="2", parent_id="1", message=Message(role="assistant", content="a1")
+    )
     e3 = LeafEntry(id="3", parent_id="2", leaf_id="2")
 
     path = path_to_entry([e0, e1, e2, e3], "3")
@@ -217,10 +271,18 @@ def test_path_to_entry_branching() -> None:
     #    |    |
     #    e3   e4
     e0 = SessionInfoEntry(id="e0")
-    e1 = MessageEntry(id="e1", parent_id="e0", message=Message(role="user", content="b1"))
-    e3 = MessageEntry(id="e3", parent_id="e1", message=Message(role="assistant", content="b1_ans"))
-    e2 = MessageEntry(id="e2", parent_id="e0", message=Message(role="user", content="b2"))
-    e4 = MessageEntry(id="e4", parent_id="e2", message=Message(role="assistant", content="b2_ans"))
+    e1 = MessageEntry(
+        id="e1", parent_id="e0", message=Message(role="user", content="b1")
+    )
+    e3 = MessageEntry(
+        id="e3", parent_id="e1", message=Message(role="assistant", content="b1_ans")
+    )
+    e2 = MessageEntry(
+        id="e2", parent_id="e0", message=Message(role="user", content="b2")
+    )
+    e4 = MessageEntry(
+        id="e4", parent_id="e2", message=Message(role="assistant", content="b2_ans")
+    )
 
     path_b1 = path_to_entry([e0, e1, e2, e3, e4], "e3")
     assert [e.id for e in path_b1] == ["e0", "e1", "e3"]
@@ -238,7 +300,9 @@ def test_path_to_entry_missing_leaf_id() -> None:
 
 def test_path_to_entry_missing_parent_id() -> None:
     """条目的父节点缺失抛出 SessionTreeError。"""
-    e1 = MessageEntry(id="e1", parent_id="missing_parent", message=Message(role="user", content="hi"))
+    e1 = MessageEntry(
+        id="e1", parent_id="missing_parent", message=Message(role="user", content="hi")
+    )
     with pytest.raises(SessionTreeError, match="Missing parent entry.*missing_parent"):
         path_to_entry([e1], "e1")
 
@@ -254,7 +318,9 @@ def test_path_to_entry_multi_node_cycle_detected() -> None:
     """多节点循环死锁探测到环路抛出 SessionTreeError(Cycle detected)。"""
     # a -> b -> c -> a
     ea = MessageEntry(id="a", parent_id="c", message=Message(role="user", content="a"))
-    eb = MessageEntry(id="b", parent_id="a", message=Message(role="assistant", content="b"))
+    eb = MessageEntry(
+        id="b", parent_id="a", message=Message(role="assistant", content="b")
+    )
     ec = MessageEntry(id="c", parent_id="b", message=Message(role="user", content="c"))
 
     with pytest.raises(SessionTreeError, match="Cycle detected"):
@@ -274,13 +340,24 @@ def test_lowest_common_ancestor() -> None:
     #    |      |
     #   b1_leaf b2_leaf
     root = SessionInfoEntry(id="root")
-    b1 = MessageEntry(id="b1", parent_id="root", message=Message(role="user", content="b1"))
-    b1_leaf = MessageEntry(id="b1_leaf", parent_id="b1", message=Message(role="assistant", content="b1_leaf"))
-    b2 = MessageEntry(id="b2", parent_id="root", message=Message(role="user", content="b2"))
-    b2_leaf = MessageEntry(id="b2_leaf", parent_id="b2", message=Message(role="assistant", content="b2_leaf"))
+    b1 = MessageEntry(
+        id="b1", parent_id="root", message=Message(role="user", content="b1")
+    )
+    b1_leaf = MessageEntry(
+        id="b1_leaf",
+        parent_id="b1",
+        message=Message(role="assistant", content="b1_leaf"),
+    )
+    b2 = MessageEntry(
+        id="b2", parent_id="root", message=Message(role="user", content="b2")
+    )
+    b2_leaf = MessageEntry(
+        id="b2_leaf",
+        parent_id="b2",
+        message=Message(role="assistant", content="b2_leaf"),
+    )
 
     entries = [root, b1, b1_leaf, b2, b2_leaf]
     assert lowest_common_ancestor(entries, "b1_leaf", "b2_leaf") == "root"
     assert lowest_common_ancestor(entries, "b1_leaf", "b1") == "b1"
     assert lowest_common_ancestor(entries, "b1_leaf", "root") == "root"
-
