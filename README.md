@@ -199,8 +199,7 @@ my-pi-agent/
 │   │   │   ├── background.py       # BackgroundRunner（后台异步调度与孤儿进程防御）
 │   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult / task_tools）
 │   │   │   ├── events.py           # 12 个生命周期事件 + HookResult 统一干预模型
-│   │   │   ├── session/            # 模块化会话存储子系统（9 种 Entry 判别实体 / 纯内存树 / 只追加存储驱动）
-│   │   │   ├── session.py          # 会话向下兼容门面（委托给 session/ 子包）
+│   │   │   ├── session/            # 模块化会话存储子系统（9 种 Entry / 纯内存树 / 只追加存储驱动）
 │   │   │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
 │   │   │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
 │   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
@@ -237,7 +236,7 @@ my-pi-agent/
 | **工具系统** | `my_agent_core/tools/` | [my-pi-agent--工具系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/) |
 | **生命周期与 Hook** | `my_agent_core/events.py` | [my-pi-agent--agent类与hook系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/) |
 | **原生异步驱动** | `my_agent_core/agent.py` | [my-pi-agent--异步支持](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%BC%82%E6%AD%A5%E6%94%AF%E6%8C%81/) |
-| **会话持久化** | `my_agent_core/session.py` | [my-pi-agent--session管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) |
+| **会话持久化** | `my_agent_core/session/` | [my-pi-agent--session管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) |
 | **上下文四层压缩** | `my_agent_core/context.py` | [my-pi-agent--context管理](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/) |
 | **Skills 机制** | `my_agent_core/skills.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
 | **Subagents 委派** | `my_agent_core/subagent_tasks.py` | [my-pi-agent--subagent与task委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) |

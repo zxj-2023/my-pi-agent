@@ -20,12 +20,12 @@ my-pi-agent/
 │   │   │   └── builtin/     # 内置工具 (task.py 子代理委派桥 / task_tools.py todo 标准工具)
 │   │   ├── session/       # 模块化会话存储子系统（9 种 Entry 判别实体 / 纯内存树 / 只追加存储驱动）
 │   │   │   ├── __init__.py  # 符号导出与门面
+│   │   │   ├── session.py   # 高级 Session / SessionTree 门面实现
 │   │   │   ├── entries.py   # 9 种强类型多态 SessionEntry 实体
 │   │   │   ├── tree.py      # 纯内存 DAG 算法（环路检测与 LCA 计算）
 │   │   │   ├── memory.py    # SessionState 事件溯源折叠投影 (from_entries)
 │   │   │   ├── storage.py   # 纯异步只追加 SessionStorage 协议
 │   │   │   └── jsonl.py     # JsonlSessionStorage 追加驱动与跨进程锁
-│   │   ├── session.py     # 会话向下兼容门面（委托给 session/ 子包）
 │   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
 │   │   ├── context.py     # ContextManager + ContextSessionBridge（四层异步压缩管线）
 │   │   ├── memory.py      # MemoryStore + make_memory_tool（长期记忆存储与快照管理）

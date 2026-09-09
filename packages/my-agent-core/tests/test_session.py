@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportOptionalSubscript=false
 """SessionTree 树结构测试（会话设计文档 §8 #1–#3）。"""
 
 import json
@@ -107,7 +108,7 @@ def test_atomic_write_failure_keeps_snapshot(tmp_path, monkeypatch):
     def boom(src, dst):
         raise OSError("disk full")
 
-    monkeypatch.setattr("my_agent_core.session.os.replace", boom)
+    monkeypatch.setattr("my_agent_core.session.session.os.replace", boom)
     try:
         session.add_message("user", "q2")
     except OSError:

@@ -1,22 +1,6 @@
-"""Session package: entries, tree, state projection, and storage abstractions."""
+"""Session package: entries, tree, state projection, storage abstractions, and Session manager."""
 
 from __future__ import annotations
-
-import importlib.util
-import sys
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-
-    class Session:
-        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-        def __getattr__(self, name: str) -> Any: ...
-
-    class SessionTree:
-        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-        def __getattr__(self, name: str) -> Any: ...
-
 
 from .entries import (
     BaseSessionEntry,
@@ -40,6 +24,11 @@ from .jsonl import (
 from .memory import (
     SessionState,
 )
+from .session import (
+    LegacySessionEntry,
+    Session,
+    SessionTree,
+)
 from .storage import (
     InMemorySessionStorage,
     SessionStorage,
@@ -51,25 +40,12 @@ from .tree import (
     path_to_entry,
 )
 
-# ---------------------------------------------------------------------------
-# 向后兼容支持：在 Milestone 2 拆解期间，桥接原有 session.py 门面对象
-# ---------------------------------------------------------------------------
-_legacy_file = Path(__file__).parent.parent / "session.py"
-if _legacy_file.exists():
-    _spec = importlib.util.spec_from_file_location("_legacy_session", _legacy_file)
-    if _spec and _spec.loader:
-        _mod = importlib.util.module_from_spec(_spec)
-        sys.modules["_legacy_session"] = _mod
-        _spec.loader.exec_module(_mod)
-        for _k, _v in _mod.__dict__.items():
-            if not _k.startswith("__") and _k not in globals():
-                globals()[_k] = _v
-
 __all__ = [
-    # Legacy exports
+    # Session manager & tree
     "Session",
     "SessionTree",
-    # New modular entries
+    "LegacySessionEntry",
+    # Modular entries
     "BaseSessionEntry",
     "SessionInfoEntry",
     "MessageEntry",

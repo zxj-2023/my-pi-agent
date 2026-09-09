@@ -19,7 +19,7 @@ from my_agent_llm import Message
 from pydantic import BaseModel, Field
 
 
-class SessionEntry(BaseModel):
+class LegacySessionEntry(BaseModel):
     """树的一个节点：一条消息 + 树关系。"""
 
     id: str = Field(default_factory=lambda: uuid4().hex[:8])
@@ -31,21 +31,25 @@ class SessionEntry(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+# 向后兼容别名
+SessionEntry = LegacySessionEntry
+
+
 class SessionTree:
     """树：entries（id→entry）+ current_id 指针 + root_id。"""
 
     def __init__(self) -> None:
-        self.entries: dict[str, SessionEntry] = {}
+        self.entries: dict[str, LegacySessionEntry] = {}
         self.current_id: str | None = None
         self.root_id: str | None = None
 
     def add_entry(
         self, role: str, content: str, parent_id: str | None = None, **metadata: Any
-    ) -> SessionEntry:
+    ) -> LegacySessionEntry:
         """追加到 current 下（或指定 parent）。首个 entry 成为根。"""
         if parent_id is None:
             parent_id = self.current_id
-        entry = SessionEntry(
+        entry = LegacySessionEntry(
             parent_id=parent_id, role=role, content=content, metadata=metadata
         )
         self.entries[entry.id] = entry
@@ -54,17 +58,17 @@ class SessionTree:
             self.root_id = entry.id
         return entry
 
-    def get_current_path(self) -> list[SessionEntry]:
+    def get_current_path(self) -> list[LegacySessionEntry]:
         """根 → current 的路径（Agent 上下文用）。空树返回 []。"""
         if self.current_id is None:
             return []
         return self.get_path_to_entry(self.current_id)
 
-    def get_path_to_entry(self, entry_id: str) -> list[SessionEntry]:
+    def get_path_to_entry(self, entry_id: str) -> list[LegacySessionEntry]:
         """根 → entry_id 的路径（fork 用）。不存在抛 ValueError。"""
         if entry_id not in self.entries:
             raise ValueError(f"Entry {entry_id} not found")
-        path: list[SessionEntry] = []
+        path: list[LegacySessionEntry] = []
         cur = self.entries.get(entry_id)
         while cur is not None:
             path.insert(0, cur)
@@ -72,35 +76,36 @@ class SessionTree:
         return path
 
     def rewind(self, entry_id: str) -> None:
-        """把 current 移到 entry_id（回退）。旧分支保留。"""
+        """移动 current 指针到已有节点；新 entry 将在其下追加（长新枝）。不存在抛 ValueError。"""
         if entry_id not in self.entries:
             raise ValueError(f"Entry {entry_id} not found")
         self.current_id = entry_id
 
-    def to_jsonl(self) -> str:
-        """整棵树 → JSONL 字符串（每行一个 entry）。"""
-        return "\n".join(e.model_dump_json() for e in self.entries.values())
-
     @classmethod
     def from_jsonl_iter(cls, lines: Iterable[str]) -> SessionTree:
-        """从 entry 行重建树。任一行损坏抛 ValueError（带行号）。head 之后从 2 起算。"""
+        """从迭代器恢复树。中途某行损坏抛 ValueError（带行号），尾行由 load 处理。"""
         tree = cls()
-        for line_no, line in enumerate(lines, start=2):
+        for idx, line in enumerate(lines, start=2):  # start=2 因为 line 1 是 header
             line = line.strip()
             if not line:
                 continue
             try:
-                entry = SessionEntry.model_validate_json(line)
+                data = json.loads(line)
+                entry = LegacySessionEntry.model_validate(data)
             except Exception as exc:
-                raise ValueError(f"Line {line_no}: invalid entry JSON: {exc}") from exc
+                raise ValueError(f"Corrupted entry at line {idx}: {exc}") from exc
             tree.entries[entry.id] = entry
-            if tree.root_id is None and entry.parent_id is None:
+            tree.current_id = entry.id
+            if tree.root_id is None:
                 tree.root_id = entry.id
         return tree
 
 
 class Session:
-    """树 + 文件持久化（逐条原子全量重写）。"""
+    """一个会话 = 树 + 路径 + JSONL 文件（pig-mono 式，配合 my-agent-llm Message）。
+
+    文件第 1 行是 header（id / created_at / current_id / root_id），后续每行一个 entry。
+    """
 
     def __init__(
         self, *, path: Path, cwd: str | None = None, metadata: dict | None = None
@@ -121,9 +126,12 @@ class Session:
     def load(cls, path: Path) -> Session:
         """从 JSONL 文件恢复整棵树。header 缺失/非法/缺必要字段 → ValueError；
         非尾行 JSON 损坏 → ValueError（带行号）；尾行撕裂 → 丢弃该行（宽容兜底）。"""
-        path = Path(path)
-        with open(path, encoding="utf-8") as f:
-            lines = list(f)
+        path = Path(path).resolve()
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = list(f)
+        except OSError as exc:
+            raise ValueError(f"Failed to read session file {path}: {exc}") from exc
         if not lines:
             raise ValueError(f"Session file {path} is empty")
         try:
@@ -141,7 +149,7 @@ class Session:
         tree_lines = lines[1:]
         if tree_lines and tree_lines[-1].strip():
             try:
-                SessionEntry.model_validate_json(tree_lines[-1])
+                LegacySessionEntry.model_validate_json(tree_lines[-1])
             except Exception:
                 tree_lines = tree_lines[:-1]
         tree = SessionTree.from_jsonl_iter(tree_lines)
@@ -162,7 +170,7 @@ class Session:
 
     def add_message(
         self, role: str, content: str, parent_id: str | None = None, **metadata: Any
-    ) -> SessionEntry:
+    ) -> LegacySessionEntry:
         """加到树 + save()（逐条原子全量重写）。"""
         entry = self.tree.add_entry(role, content, parent_id, **metadata)
         self.save()
@@ -202,7 +210,7 @@ class Session:
             metadata["summary_usage"] = summary_usage
         if summary_model is not None:
             metadata["summary_model"] = summary_model
-        entry = SessionEntry(
+        entry = LegacySessionEntry(
             parent_id=self.tree.current_id,
             type="compaction",
             role="system",
@@ -239,16 +247,23 @@ class Session:
             cache_entries, key=lambda e: len(self.tree.get_path_to_entry(e.id))
         )
         md = latest.metadata
+        try:
+            covered_count = int(md.get("covered_count", 0))
+        except (ValueError, TypeError):
+            covered_count = 0
         return {
             "summary": latest.content,
-            "covered_count": int(md.get("covered_count", 0)),
+            "covered_count": covered_count,
             "retained_tail": list(md.get("retained_tail", [])),
         }
 
     def rewind(self, entry_id: str) -> None:
         """移动 current 指针（旧分支保留）+ save。压缩后只能回 floor（含）之后，否则 ValueError。"""
         if self.compaction_floor is not None and not self._after_floor(entry_id):
-            raise ValueError(f"Cannot rewind to before compaction point: {entry_id}")
+            raise ValueError(
+                f"Cannot rewind past compaction floor {self.compaction_floor}: "
+                f"entry {entry_id} is prior to compacted history"
+            )
         self.tree.rewind(entry_id)
         self.save()
 
@@ -332,3 +347,7 @@ class Session:
             messages=tuple(self.get_current_path_messages()),
             active_leaf_id=self.tree.current_id,
         )
+
+    def get_history(self) -> list[Message]:
+        """获取当前路径的对话历史列表。"""
+        return self.get_current_path_messages()
