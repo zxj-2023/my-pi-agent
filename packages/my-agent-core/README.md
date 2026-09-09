@@ -167,7 +167,7 @@ packages/my-agent-core/
 import asyncio
 from my_agent_llm import LLM, Config
 from my_agent_core.tools import tool
-from my_agent_core.session_store import SessionStore
+from my_agent_core.session import SessionStore
 from my_agent_core.agent import Agent
 
 # 1. 声明业务工具

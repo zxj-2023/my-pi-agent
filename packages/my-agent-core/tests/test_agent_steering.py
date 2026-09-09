@@ -15,7 +15,7 @@ class SequenceFakeLLM:
         self.call_count = 0
         self.received_messages: list[list] = []
 
-    async def achat_stream(self, messages, tools=None, model=None):
+    async def achat_stream(self, messages, tools=None, model=None, **kwargs):
         self.received_messages.append(list(messages))
         if self.responses:
             resp = self.responses.pop(0)
@@ -98,7 +98,7 @@ async def test_agent_steer_during_final_text(tmp_path):
             self.agent_holder = agent_holder
             self.turn = 0
 
-        async def achat_stream(self, messages, tools=None, model=None):
+        async def achat_stream(self, _messages, _tools=None, _model=None):
             self.turn += 1
             if self.turn == 1:
                 # 模拟流式输出期间用户 steer
@@ -231,7 +231,7 @@ async def test_agent_abort_clears_queue(tmp_path):
     agent_holder = {}
 
     class AbortLLM:
-        async def achat_stream(self, messages, tools=None, model=None):
+        async def achat_stream(self, _messages, _tools=None, _model=None):
             agent_holder["agent"].follow_up("Should not run")
             agent_holder["agent"].abort()
             yield Response(content="aborting", model="fake")
