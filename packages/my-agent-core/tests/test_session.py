@@ -1,8 +1,6 @@
 # pyright: reportArgumentType=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false
 """SessionTree 树结构测试（会话设计文档 §8 #1–#3）。"""
 
-import json
-
 import pytest
 from my_agent_llm import Message, Response
 

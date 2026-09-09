@@ -81,7 +81,9 @@ class SessionTree:
     def from_jsonl_iter(cls, lines: Iterable[str]) -> SessionTree:
         """从迭代器恢复树。中途某行损坏抛 ValueError（带行号），尾行由 load 处理。"""
         tree = cls()
-        for idx, line in enumerate(lines, start=2):  # start=2 因为 line 1 是 session_info
+        for idx, line in enumerate(
+            lines, start=2
+        ):  # start=2 因为 line 1 是 session_info
             line = line.strip()
             if not line:
                 continue
@@ -133,7 +135,9 @@ class Session:
         try:
             first_entry = entry_from_json_line(lines[0])
         except Exception as exc:
-            raise ValueError(f"Session file {path}: invalid header/info: {exc}") from exc
+            raise ValueError(
+                f"Session file {path}: invalid header/info: {exc}"
+            ) from exc
 
         if not isinstance(first_entry, SessionInfoEntry):
             raise ValueError(
@@ -292,12 +296,19 @@ class Session:
         meta["root_id"] = self.tree.root_id
         meta["compaction_floor"] = self.compaction_floor
 
+        created_at_val: float | None = None
+        try:
+            if isinstance(self.created_at, str):
+                created_at_val = datetime.fromisoformat(self.created_at).timestamp()
+            elif isinstance(self.created_at, (int, float)):
+                created_at_val = float(self.created_at)
+        except Exception:
+            created_at_val = None
+
         info_entry = SessionInfoEntry(
             id=self.id,
             cwd=self.cwd,
-            created_at=datetime.fromisoformat(self.created_at).timestamp()
-            if isinstance(self.created_at, str)
-            else float(self.created_at),
+            created_at=created_at_val,
             metadata=meta,
         )
 
@@ -346,7 +357,7 @@ class Session:
     def storage(self) -> Any:
         """底层只追加存储对象。"""
         if self._storage is None:
-            from my_agent_core.session.jsonl import JsonlSessionStorage
+            from my_agent_core.session.storage import JsonlSessionStorage
 
             self._storage = JsonlSessionStorage(self.path)
         return self._storage
