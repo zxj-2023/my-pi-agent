@@ -135,8 +135,8 @@ def test_entry_to_json_line_and_from_json_line_aliases() -> None:
 # ============================================================================
 
 
-def test_migrate_legacy_header_without_type() -> None:
-    """旧版 Header（无 type 字段，含 id, created_at, cwd, current_id, root_id）能迁移为 SessionInfoEntry。"""
+def test_entry_from_json_line_rejects_legacy_header_without_type() -> None:
+    """无 type 的旧版 Header 严格报错。"""
     legacy_header = json.dumps(
         {
             "id": "20260830-120000-abcd1234",
@@ -148,19 +148,13 @@ def test_migrate_legacy_header_without_type() -> None:
             "metadata": {"custom_meta": 1},
         }
     )
-    entry = entry_from_json_line(legacy_header)
-    assert isinstance(entry, SessionInfoEntry)
-    assert entry.id == "20260830-120000-abcd1234"
-    assert entry.cwd == "/workspace/project"
-    assert entry.metadata["current_id"] == "m1"
-    assert entry.metadata["root_id"] == "m0"
-    assert entry.metadata["compaction_floor"] == "m1"
-    assert entry.metadata["custom_meta"] == 1
+    with pytest.raises(SessionJsonlError):
+        entry_from_json_line(legacy_header)
 
 
-def test_migrate_legacy_header_with_type_session() -> None:
-    """带 type='session' 与 version=1 的旧版 Header 迁移为 SessionInfoEntry。"""
-    legacy_header = json.dumps(
+def test_entry_from_json_line_rejects_legacy_header_with_type_session() -> None:
+    """type='session' 的旧版 Header 严格报错。"""
+    legacy_session = json.dumps(
         {
             "type": "session",
             "version": 1,
@@ -171,14 +165,12 @@ def test_migrate_legacy_header_with_type_session() -> None:
             "root_id": None,
         }
     )
-    entry = entry_from_json_line(legacy_header)
-    assert isinstance(entry, SessionInfoEntry)
-    assert entry.id == "s-legacy"
-    assert entry.cwd == "."
+    with pytest.raises(SessionJsonlError):
+        entry_from_json_line(legacy_session)
 
 
-def test_migrate_legacy_message_entry() -> None:
-    """旧版 Message 条目（扁平 role, content, metadata，无嵌套 message 对象）能迁移为 MessageEntry。"""
+def test_entry_from_json_line_rejects_legacy_flat_message() -> None:
+    """扁平旧版 Message 严格报错。"""
     legacy_msg = json.dumps(
         {
             "id": "msg-old",
@@ -193,18 +185,12 @@ def test_migrate_legacy_message_entry() -> None:
             },
         }
     )
-    entry = entry_from_json_line(legacy_msg)
-    assert isinstance(entry, MessageEntry)
-    assert entry.id == "msg-old"
-    assert entry.parent_id == "msg-root"
-    assert entry.message.role == "assistant"
-    assert entry.message.content == "thinking output"
-    assert entry.message.metadata is not None
-    assert "tool_calls" in entry.message.metadata
+    with pytest.raises(SessionJsonlError):
+        entry_from_json_line(legacy_msg)
 
 
-def test_migrate_legacy_compaction_entry() -> None:
-    """旧版 Compaction 条目（使用 content 存放 summary 文本，role='system'）能迁移为 CompactionEntry。"""
+def test_entry_from_json_line_rejects_legacy_compaction_content() -> None:
+    """旧版 Compaction 严格报错。"""
     legacy_compaction = json.dumps(
         {
             "type": "compaction",
@@ -218,11 +204,8 @@ def test_migrate_legacy_compaction_entry() -> None:
             },
         }
     )
-    entry = entry_from_json_line(legacy_compaction)
-    assert isinstance(entry, CompactionEntry)
-    assert entry.id == "comp-old"
-    assert entry.summary == "## Summary of previous steps"
-    assert entry.metadata["covered_count"] == 5
+    with pytest.raises(SessionJsonlError):
+        entry_from_json_line(legacy_compaction)
 
 
 # ============================================================================
@@ -537,6 +520,7 @@ def test_session_facade_bridge_methods(tmp_path: Path) -> None:
     assert len(state.messages) == 1
     assert state.messages[0].content == "hi"
 
+    assert s.tree.current_id is not None
     forked = s.fork(s.tree.current_id)
     assert forked.id != s.id
     assert len(forked.tree.entries) == 1

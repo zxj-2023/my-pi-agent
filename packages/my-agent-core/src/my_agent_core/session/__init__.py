@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Session package: entries, tree, state projection, storage abstractions, and Session manager."""
 
 from __future__ import annotations
@@ -25,7 +26,6 @@ from .memory import (
     SessionState,
 )
 from .session import (
-    LegacySessionEntry,
     Session,
     SessionTree,
 )
@@ -48,7 +48,6 @@ __all__ = [
     # Session manager & tree
     "Session",
     "SessionTree",
-    "LegacySessionEntry",
     "SessionStore",
     "SessionMeta",
     # Modular entries

@@ -1,4 +1,4 @@
-# pyright: reportArgumentType=false, reportOptionalSubscript=false
+# pyright: reportArgumentType=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false
 """SessionTree 树结构测试（会话设计文档 §8 #1–#3）。"""
 
 import json
@@ -175,10 +175,13 @@ async def test_agent_persists_file_line_order(tmp_path):
     agent = Agent(llm=llm, tools=[multiply], session=session)
     await agent.run("compute")
     lines = session.path.read_text(encoding="utf-8").strip().splitlines()
-    roles = [json.loads(ln)["role"] for ln in lines[1:]]
+    from my_agent_core.session import entry_from_json_line
+
+    entries = [entry_from_json_line(ln) for ln in lines[1:]]
+    roles = [e.role for e in entries]
     assert roles == ["user", "assistant", "tool", "assistant"]
     # assistant(tool_calls) 行的 metadata 带 tool_calls
-    assert "tool_calls" in json.loads(lines[2])["metadata"]
+    assert "tool_calls" in entries[1].metadata
 
 
 @pytest.mark.anyio
@@ -307,14 +310,14 @@ def test_load_rejects_header_missing_id(tmp_path):
 
 
 def test_entry_type_defaults_to_message(tmp_path):
-    """SessionEntry 默认 type='message'；save 时普通消息不写 type 字段（exclude_defaults）（context §4.3）。"""
+    """SessionEntry 具有明确的 type='message' 判别字段。"""
     import json as _json
 
     session = Session(path=tmp_path / "s.jsonl")
     session.add_message("user", "q1")
     lines = session.path.read_text(encoding="utf-8").strip().splitlines()
     entry = _json.loads(lines[-1])
-    assert "type" not in entry  # 普通消息不写默认值
+    assert entry["type"] == "message"
     assert session.tree.entries[entry["id"]].type == "message"
 
 

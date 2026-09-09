@@ -48,6 +48,18 @@ class MessageEntry(BaseSessionEntry):
     type: Literal["message"] = "message"
     message: Message
 
+    @property
+    def role(self) -> str:
+        return self.message.role
+
+    @property
+    def content(self) -> str:
+        return self.message.content
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return self.message.metadata or {}
+
 
 class ModelChangeEntry(BaseSessionEntry):
     """记录运行时大模型变更。"""
@@ -73,6 +85,14 @@ class CompactionEntry(BaseSessionEntry):
     summary: str
     replaces_entry_ids: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def role(self) -> str:
+        return "system"
+
+    @property
+    def content(self) -> str:
+        return self.summary
 
 
 class BranchSummaryEntry(BaseSessionEntry):

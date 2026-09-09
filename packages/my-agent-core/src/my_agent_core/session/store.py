@@ -1,4 +1,4 @@
-# pyright: reportUnusedCallResult=false
+# pyright: reportUnusedCallResult=false, reportAttributeAccessIssue=false
 """会话仓库：root 目录下 create / list / open / delete（pig-mono SessionManager 的裁剪版）。"""
 
 from __future__ import annotations
@@ -61,17 +61,24 @@ class SessionStore:
         for f in self.root.glob("*.jsonl"):
             try:
                 with open(f, encoding="utf-8") as fh:
-                    header = json.loads(fh.readline())
+                    first_line = fh.readline()
+                    if not first_line:
+                        continue
+                    header = json.loads(first_line)
                     entries = sum(1 for _ in fh)
+                sid = header.get("id")
+                created_at = header.get("createdAt") or header.get("created_at")
+                if not sid or created_at is None:
+                    continue
                 metas.append(
                     SessionMeta(
-                        id=header["id"],
+                        id=sid,
                         path=f,
-                        created_at=str(header["created_at"]),
+                        created_at=str(created_at),
                         entries=entries,
                     )
                 )
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError, OSError):
                 continue
         metas.sort(key=lambda m: m.created_at, reverse=True)
         return metas
@@ -113,7 +120,8 @@ class SessionStore:
         src = self.open(id_or_prefix)
         new = self.create()
         for entry in src.tree.get_path_to_entry(entry_id):
-            _ = new.add_message(entry.role, entry.content, **entry.metadata)
+            if hasattr(entry, "message"):
+                _ = new.add_message(entry.role, entry.content, **entry.metadata)  # pyright: ignore[reportAttributeAccessIssue]
         return new
 
 

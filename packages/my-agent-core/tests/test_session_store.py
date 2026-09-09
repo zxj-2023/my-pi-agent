@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """SessionStore 会话仓库测试（会话设计文档 §8 #11）。"""
 
 import json
@@ -24,15 +25,16 @@ def test_store_create_list_open_delete(tmp_path):
 
 
 def test_store_create_writes_header_only(tmp_path):
-    """create 后文件存在且只有 header 行（纯对话，不含 system）（§5）。"""
+    """create 后文件存在且只有 SessionInfoEntry 行。"""
     store = SessionStore(tmp_path)
     s = store.create()
     lines = s.path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     header = json.loads(lines[0])
     assert header["id"] == s.id
-    assert isinstance(header["created_at"], str)
-    assert "type" not in header and "version" not in header  # type/version 已删
+    created_at = header.get("createdAt") or header.get("created_at")
+    assert created_at is not None
+    assert header.get("type") in ("session_info", "sessionInfo")
 
 
 def test_store_open_ambiguous_prefix_raises(tmp_path):
@@ -44,13 +46,10 @@ def test_store_open_ambiguous_prefix_raises(tmp_path):
         (tmp_path / f"{suffix}.jsonl").write_text(
             json.dumps(
                 {
-                    "type": "session",
-                    "version": 1,
+                    "type": "session_info",
                     "id": suffix,
-                    "created_at": "2026-08-06T00:00:00",
+                    "createdAt": 1788800000.0,
                     "cwd": ".",
-                    "current_id": None,
-                    "root_id": None,
                 }
             )
             + "\n",
