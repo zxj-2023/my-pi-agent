@@ -41,8 +41,7 @@ from my_agent_core.plugins import (
     PluginManifest,
 )
 from my_agent_core.registry import ToolRegistry
-from my_agent_core.session import Session, SessionTree
-from my_agent_core.session_store import SessionStore
+from my_agent_core.session import Session, SessionStore, SessionTree
 from my_agent_core.subagent_tasks import (  # pyright: ignore[reportMissingImports]
     SubagentTask,
     SubagentTaskManager,

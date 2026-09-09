@@ -1,4 +1,5 @@
 """会话仓库：root 目录下 create / list / open / delete（pig-mono SessionManager 的裁剪版）。"""
+
 from __future__ import annotations
 
 import json
@@ -8,7 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from my_agent_core.session import Session
+from .session import Session
 
 
 class SessionMeta(BaseModel):
@@ -23,8 +24,11 @@ class SessionMeta(BaseModel):
 class SessionStore:
     """会话仓库：一个会话一个 <workspace/root>/<id>.jsonl 文件（pig-mono 式 workspace 隔离）。"""
 
-    def __init__(self, root: str | Path = ".my_agent_core/sessions",
-                 workspace: str | Path | None = None):
+    def __init__(
+        self,
+        root: str | Path = ".my_agent_core/sessions",
+        workspace: str | Path | None = None,
+    ):
         """workspace 默认 Path.cwd()。会话目录 = workspace/root（root 为绝对路径则直接用）。
 
         每个项目在 <workspace>/.my_agent_core/sessions/ 下建自己的会话目录，
@@ -56,8 +60,10 @@ class SessionStore:
                     entries = sum(1 for _ in fh)
                 metas.append(
                     SessionMeta(
-                        id=header["id"], path=f,
-                        created_at=header["created_at"], entries=entries,
+                        id=header["id"],
+                        path=f,
+                        created_at=str(header["created_at"]),
+                        entries=entries,
                     )
                 )
             except (json.JSONDecodeError, KeyError):
@@ -100,3 +106,9 @@ class SessionStore:
         for entry in src.tree.get_path_to_entry(entry_id):
             new.add_message(entry.role, entry.content, **entry.metadata)
         return new
+
+
+__all__ = [
+    "SessionMeta",
+    "SessionStore",
+]

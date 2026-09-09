@@ -199,8 +199,7 @@ my-pi-agent/
 │   │   │   ├── background.py       # BackgroundRunner（后台异步调度与孤儿进程防御）
 │   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult / task_tools）
 │   │   │   ├── events.py           # 12 个生命周期事件 + HookResult 统一干预模型
-│   │   │   ├── session/            # 模块化会话存储子系统（9 种 Entry / 纯内存树 / 只追加存储驱动）
-│   │   │   ├── session_store.py    # SessionStore（会话仓库，workspace 隔离）
+│   │   │   ├── session/            # 模块化会话存储子系统（9 种 Entry / 纯内存树 / 只追加存储驱动 / SessionStore 仓库）
 │   │   │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
 │   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │   │   │   ├── skills.py           # Skill / SkillManager（.agents/skills 发现与提示词注入）

@@ -1,8 +1,9 @@
+# pyright: reportArgumentType=false, reportMissingTypeArgument=false, reportUnusedVariable=false
 import pytest
 from my_agent_llm import Response
 
 from my_agent_core.agent import Agent
-from my_agent_core.session_store import SessionStore
+from my_agent_core.session import SessionStore
 from my_agent_core.tools import tool
 
 
@@ -33,7 +34,7 @@ async def test_agent_steer_during_tool_execution(tmp_path):
     agent_ref = {}
 
     @tool(name="search", description="搜索工具")
-    def search(query: str) -> str:
+    def search(_query: str) -> str:
         # 在工具执行期间用户插入 steering
         if "agent" in agent_ref:
             agent_ref["agent"].steer("请停止搜索，直接回答结果是 42")

@@ -25,8 +25,8 @@ my-pi-agent/
 │   │   │   ├── tree.py      # 纯内存 DAG 算法（环路检测与 LCA 计算）
 │   │   │   ├── memory.py    # SessionState 事件溯源折叠投影 (from_entries)
 │   │   │   ├── storage.py   # 纯异步只追加 SessionStorage 协议
-│   │   │   └── jsonl.py     # JsonlSessionStorage 追加驱动与跨进程锁
-│   │   ├── session_store.py  # SessionStore（会话仓库，workspace 隔离）
+│   │   │   ├── jsonl.py     # JsonlSessionStorage 追加驱动与跨进程锁
+│   │   │   └── store.py     # SessionStore（会话仓库，workspace 隔离）
 │   │   ├── context.py     # ContextManager + ContextSessionBridge（四层异步压缩管线）
 │   │   ├── memory.py      # MemoryStore + make_memory_tool（长期记忆存储与快照管理）
 │   │   ├── skills.py      # Skill + SkillManager（Repository：发现/清单/调用）

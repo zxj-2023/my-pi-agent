@@ -115,8 +115,8 @@ packages/my-agent-core/
 │   │   ├── tree.py           # 纯内存 DAG 算法（带环路检测与 LCA 祖先计算）
 │   │   ├── memory.py         # SessionState 不可变事件溯源折叠投影 (from_entries)
 │   │   ├── storage.py        # 纯异步只追加 SessionStorage 协议与 InMemory 驱动
-│   │   └── jsonl.py          # JsonlSessionStorage 追加驱动、跨进程锁与碎片自愈
-│   ├── session_store.py      # SessionStore（会话仓库，workspace 物理隔离）
+│   │   ├── jsonl.py          # JsonlSessionStorage 追加驱动、跨进程锁与碎片自愈
+│   │   └── store.py          # SessionStore 会话仓库与物理隔离
 │   ├── context.py            # ContextManager（四层压缩管线）+ ContextSessionBridge
 │   ├── memory.py             # MemoryStore + make_memory_tool（长期记忆与快照管理）
 │   ├── skills.py             # Skill + SkillManager（技能发现与清单注入）

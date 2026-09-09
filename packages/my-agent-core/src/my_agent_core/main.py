@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """demo 入口：跑三个固定问题，展示原生异步 ReAct 循环、流式打字机与并发工具执行。
 
 运行：uv run python -m my_agent_core.main（在项目根目录执行，需要 .env 里的 OPENAI_API_KEY）
@@ -9,6 +10,7 @@ import asyncio
 import os
 import sys
 from datetime import datetime
+from typing import Any
 
 from dotenv import load_dotenv
 from my_agent_llm import LLM, Config  # pyright: ignore[reportMissingImports]
@@ -22,7 +24,7 @@ from my_agent_core.events import (
     ToolExecutionStart,
     TurnStart,
 )
-from my_agent_core.session_store import SessionStore
+from my_agent_core.session import SessionStore
 from my_agent_core.tools import tool
 
 QUESTIONS = [
@@ -82,7 +84,7 @@ def build_llm() -> LLM:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is missing. Add it to .env.")
-    options: dict[str, str] = {"provider": "openai", "api_key": api_key}
+    options: dict[str, Any] = {"provider": "openai", "api_key": api_key}
     if base_url := os.getenv("OPENAI_BASE_URL"):
         options["base_url"] = base_url
     if model := os.getenv("OPENAI_MODEL"):

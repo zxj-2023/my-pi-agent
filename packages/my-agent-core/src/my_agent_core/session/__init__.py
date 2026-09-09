@@ -33,6 +33,10 @@ from .storage import (
     InMemorySessionStorage,
     SessionStorage,
 )
+from .store import (
+    SessionMeta,
+    SessionStore,
+)
 from .tree import (
     SessionTreeError,
     entries_by_id,
@@ -45,6 +49,8 @@ __all__ = [
     "Session",
     "SessionTree",
     "LegacySessionEntry",
+    "SessionStore",
+    "SessionMeta",
     # Modular entries
     "BaseSessionEntry",
     "SessionInfoEntry",
