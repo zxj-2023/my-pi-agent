@@ -182,9 +182,7 @@ class JsonlSessionStorage:
                 with open(self.path, encoding="utf-8") as f:
                     raw_lines = f.readlines()
             except OSError as exc:
-                raise SessionJsonlError(
-                    f"Failed to read {self.path}: {exc}"
-                ) from exc
+                raise SessionJsonlError(f"Failed to read {self.path}: {exc}") from exc
 
             lines = [ln.strip() for ln in raw_lines if ln.strip()]
             if not lines:
