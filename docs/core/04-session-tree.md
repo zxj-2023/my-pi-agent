@@ -1,18 +1,20 @@
 # 树状会话与原子持久化设计规范 (`my_agent_core.session`)
 
-- **定位**：崩溃安全的树状对话历史与分支存储引擎 (`packages/my-agent-core/src/my_agent_core/session/`, `session.py`, `session_store.py`)
-- **核心类**：`SessionEntry`（9 种多态实体）, `SessionTree`, `SessionState`, `SessionStorage`, `JsonlSessionStorage`, `Session`, `SessionStore`
-- **主要实现**：`session/` 子包 (`entries.py`, `tree.py`, `memory.py`, `storage.py`, `jsonl.py`), `session.py` (兼容门面), `session_store.py`
+- **定位**：崩溃安全的树状对话历史与分支存储引擎 (`packages/my-agent-core/src/my_agent_core/session/`)
+- **核心类**：`SessionEntry`（9 种多态实体）, `SessionTree`, `SessionState`, `SessionStorage`, `JsonlSessionStorage`, `Session`, `SessionStore`, `SessionMeta`
+- **主要实现**：`session/` 子包 (`entries.py`, `tree.py`, `memory.py`, `storage.py`, `jsonl.py`, `session.py`, `store.py`)
 
 > 💡 **模块化与只追加演进注记 (Phase 18)**：
-> 在阶段 18 的架构演进中，原单文件 `session.py` 已彻底拆解下沉为领域清晰的 `session/` 5 大专职子模块：
+> 在阶段 18 的架构演进中，原单文件 `session.py` 与 `session_store.py` 已彻底拆解下沉为领域高内聚的 `session/` 统一子包：
 >
 > 1. `entries.py`：9 种强类型判别多态实体（Message / Thinking / ToolCall / ToolResult 等）；
-> 2. `tree.py`：纯内存 DAG 算法（支持环路检测与最近公共祖先 LCA 计算，零 I/O）；
-> 3. `memory.py`：`SessionState` 不可变事件溯源折叠投影（`from_entries`）；
+> 2. `tree.py`：纯内存 DAG 算法（支持 `seen` 集合死锁环路检测与最近公共祖先 LCA 计算，零 I/O）；
+> 3. `memory.py`：`SessionState` 不可变事件溯源折叠投影（`from_entries` 纯函数）；
 > 4. `storage.py`：纯异步只追加 `SessionStorage` 抽象协议与 `InMemorySessionStorage` 驱动；
-> 5. `jsonl.py`：`JsonlSessionStorage` 追加驱动、跨进程文件锁与未完成 `.tmp` 碎片自愈。
-> 同时，存储机制由旧版“全量覆写整个 JSONL”升级为业界标准的**只追加（Append-only）纯异步协议**，根级 `session.py` 保留作为向下兼容门面。
+> 5. `jsonl.py`：`JsonlSessionStorage` 追加驱动、跨进程文件锁与未完成 `.tmp` 碎片自愈；
+> 6. `session.py`：高级 `Session` 与 `SessionTree` 树状分支会话门面；
+> 7. `store.py`：工作区天然物理隔离的会话仓库管理器 `SessionStore`（支持短前缀模糊寻址）。
+> 同时，存储机制由旧版“全量覆写整个 JSONL”升级为业界标准的**只追加（Append-only）纯异步协议**，外层冗余单体文件已全部物理清除。
 > 详细设计规格参见：[13. Tau 对齐与核心框架深度重构设计文档](13-tau-alignment-architecture-redesign.md)。
 
 ---
@@ -87,10 +89,13 @@ class SessionEntry:
 
 ---
 
-## 三、`SessionStore` 与 Workspace 目录隔离
+## 三、`SessionStore` 与 Workspace 目录隔离 (`session/store.py`)
 
 `SessionStore` 负责在 `<workspace>/.my_agent_core/sessions/` 目录下创建、检索、枚举与管理所有 `.jsonl` 文件：
 
-- **`create_session(metadata)`**：生成以时间戳和 UUID 命名的持久化会话；
-- **`open_session(session_id)`**：加载已有会话；
+- **`create() / create_session()`**：生成以时间戳和 UUID 命名的持久化会话；
+- **`open(id_or_prefix) / open_session(id_or_prefix)`**：根据全 ID 或短前缀模糊匹配加载已有会话；
+- **`list() -> list[SessionMeta]`**：扫描目录并按 `created_at` 倒序返回会话元信息列表；
+- **`delete(id_or_prefix)`**：安全物理删除会话文件；
+- **`fork(id_or_prefix, entry_id)`**：从某会话的指定节点分叉出独立演化的新会话；
 - **子代理独立目录**：子代理的会话统一存放在 `<session_dir>/subagents/`，与主会话天然隔离。

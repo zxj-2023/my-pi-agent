@@ -167,7 +167,7 @@ packages/my-agent-core/
 import asyncio
 from my_agent_llm import LLM, Config
 from my_agent_core.tools import tool
-from my_agent_core.session import SessionStore
+from my_agent_core.session import Session, SessionStore
 from my_agent_core.agent import Agent
 
 # 1. 声明业务工具
@@ -183,7 +183,7 @@ def get_weather(city: str) -> str:
 async def main():
     # 2. 初始化会话与 Agent
     store = SessionStore()
-    session = store.create_session()
+    session = store.create()
     llm = LLM(Config(provider="openai", model="gpt-4o"))
     
     agent = Agent(
