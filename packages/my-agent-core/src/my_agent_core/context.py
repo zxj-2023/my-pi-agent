@@ -1,3 +1,4 @@
+# pyright: reportUnusedImport=false, reportMissingTypeArgument=false
 """Context 管理：四层压缩管线（cheap-first）+ usage 锚定估算。
 
 设计文档：docs/superpowers/specs/2026-08-01-my-agent-context-design.md（2026-08-11 修订版）。
@@ -9,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from my_agent_llm import Message  # pyright: ignore[reportMissingImports]
 
@@ -100,7 +101,7 @@ def budget_tool_results(
             results_dir.mkdir(parents=True, exist_ok=True)
             tid = str(m.metadata.get("tool_call_id", i)) if m.metadata else str(i)
             path = results_dir / f"{tid}.txt"
-            path.write_text(m.content, encoding="utf-8")
+            _ = path.write_text(m.content, encoding="utf-8")
         except OSError:
             continue  # 降级：保留原 content
         result[i] = result[i].model_copy(
@@ -243,8 +244,8 @@ class CompactionInfo:
         summarized_count: int,
         summary: str,
         covered_count: int,
-        retained_tail: list[dict],
-        summary_usage: dict | None,
+        retained_tail: list[dict[str, Any]],
+        summary_usage: dict[str, Any] | None,
         summary_model: str | None,
     ):
         # ── 事件组：ContextCompacted(tokens_before, tokens_after, summarized_count) ──
@@ -299,25 +300,28 @@ class ContextManager:
             keep_recent_tokens if keep_recent_tokens is not None else budget // 4
         )
         self.results_dir = Path(results_dir) if results_dir else None
+        self.budget_threshold = (self.budget * 4) // 5
         self._summary: str | None = None
         self._covered_count: int | None = None
-        self._retained_tail: list[dict] | None = None
+        self._retained_tail: list[dict[str, Any]] | None = None
         self._ratio: float | None = None
         self._last_view_chars = 0
         self.pending_compaction: CompactionInfo | None = None
 
     def restore_cache(
-        self, *, summary: str, covered_count: int, retained_tail: list[dict]
+        self, *, summary: str, covered_count: int, retained_tail: list[dict[str, Any]]
     ) -> None:
         """从 session 缓存 entry 恢复（Agent 构造时调用）。"""
         self._summary = summary
         self._covered_count = covered_count
         self._retained_tail = retained_tail
 
-    def record_usage(self, usage: dict | None) -> None:
+    def record_usage(self, usage: dict[str, Any] | None) -> None:
         """每轮 llm.chat 后喂 usage → 更新锚定比例（ratio = 实测 prompt_tokens / 上次视图字符数）。"""
-        if usage and usage.get("prompt_tokens") and self._last_view_chars:
-            self._ratio = int(usage["prompt_tokens"]) / self._last_view_chars
+        if usage and self._last_view_chars > 0:
+            prompt_tokens = usage.get("prompt_tokens")
+            if isinstance(prompt_tokens, (int, float)):
+                self._ratio = prompt_tokens / self._last_view_chars
 
     async def prepare(self, messages: list[Message]) -> list[Message]:
         """四层管线 → 返回发送视图（非破坏）。有缓存先试缓存视图；仍超阈 → 迭代再摘要。"""
@@ -325,7 +329,7 @@ class ContextManager:
         if self._summary is not None:
             view = self._prepare_with_cache(messages)
             self._last_view_chars = _chars_of(view)
-            if estimate_tokens(view, self._ratio) <= int(self.budget * 0.8):
+            if estimate_tokens(view, self._ratio) <= self.budget_threshold:
                 return view
             # 缓存视图仍超阈 → 迭代再摘要（_call_summarizer 附旧摘要）
             return await self._do_summarize(messages)
@@ -334,7 +338,7 @@ class ContextManager:
         view = snip_messages(view)
         view = micro_compact(view)
         self._last_view_chars = _chars_of(view)
-        if estimate_tokens(view, self._ratio) <= int(self.budget * 0.8):
+        if estimate_tokens(view, self._ratio) <= self.budget_threshold:
             return view
         return await self._do_summarize(messages)
 
@@ -453,7 +457,7 @@ class ContextManager:
 
     async def _call_summarizer(
         self, messages: list[Message]
-    ) -> tuple[str, dict | None, str | None]:
+    ) -> tuple[str, dict[str, Any] | None, str | None]:
         """调 self.llm 做摘要调用（tools=[]）→ (摘要, usage, model)。迭代：附旧摘要 + 文件足迹。"""
         conversation = _serialize_messages(messages)
         user_content = SUMMARIZATION_PROMPT_TEMPLATE.format(

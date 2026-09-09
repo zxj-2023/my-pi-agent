@@ -1,3 +1,4 @@
+# pyright: reportImportCycles=false
 """单层 Agent —— 状态 + 循环 + 工具执行全在一个类（原生异步驱动）。
 
 模型调用 → 检查 tool_calls → 执行工具 → 观察结果写回消息 → 循环，
@@ -76,7 +77,7 @@ class Agent:
         task_store: TaskStore | Path | str | None | Literal[False] = None,
         steering_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         followup_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
-        hooks: list[tuple[type[Event], Callable]] | None = None,
+        hooks: list[tuple[type[Event], Callable[..., Any]]] | None = None,
     ):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 

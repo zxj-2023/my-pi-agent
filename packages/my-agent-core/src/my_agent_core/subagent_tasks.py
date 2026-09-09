@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from my_agent_core.session import Session
 from my_agent_core.subagents import DEFAULT_SUBAGENT, Subagent, SubagentManager
+from my_agent_core.tools import Tool
 
 if TYPE_CHECKING:
     from my_agent_core.agent import Agent
@@ -65,7 +66,7 @@ def _system_for(sub: Subagent, parent: Agent) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def _filter_tools(parent: Agent, sub: Subagent) -> list:
+def _filter_tools(parent: Agent, sub: Subagent) -> list[Tool]:  # pyright: ignore[reportUndefinedVariable]
     """父工具集按白/黑名单过滤；task、memory 与 task_* 永不出现（防递归与隔离）。"""
     builtins = (
         "task",
@@ -124,7 +125,7 @@ class SubagentTaskManager:
             task.set_error(str(exc))
         return task
 
-    def _create_task(self, subagent_type: str) -> SubagentTask:
+    def _create_task(self, _subagent_type: str) -> SubagentTask:
         self._counter += 1
         return SubagentTask(
             id=f"task_{self._counter:08x}", status=SubagentTaskStatus.RUNNING
@@ -174,7 +175,7 @@ class SubagentTaskManager:
         except Exception as exc:
             raise RuntimeError(f"Subagent '{subagent_type}' failed: {exc}") from exc
         finally:
-            self._active_agents.pop(task_id, None)
+            _ = self._active_agents.pop(task_id, None)
 
 
 # 兼容别名
