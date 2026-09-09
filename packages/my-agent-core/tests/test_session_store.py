@@ -1,4 +1,5 @@
 """SessionStore 会话仓库测试（会话设计文档 §8 #11）。"""
+
 import json
 
 import pytest
@@ -14,8 +15,8 @@ def test_store_create_list_open_delete(tmp_path):
     assert s1.id != s2.id
     metas = store.list()
     assert [m.id for m in metas] == [s2.id, s1.id]  # 倒序（新→旧）
-    assert store.open(s1.id).id == s1.id            # 全 id
-    assert store.open(s1.id[:20]).id == s1.id       # 唯一前缀（时间戳段相同，前缀须含 hex）
+    assert store.open(s1.id).id == s1.id  # 全 id
+    assert store.open(s1.id[:20]).id == s1.id  # 唯一前缀（时间戳段相同，前缀须含 hex）
     store.delete(s1.id)
     assert [m.id for m in store.list()] == [s2.id]
     with pytest.raises(ValueError):
@@ -42,9 +43,15 @@ def test_store_open_ambiguous_prefix_raises(tmp_path):
     for suffix in ("abc11111", "abc22222"):
         (tmp_path / f"{suffix}.jsonl").write_text(
             json.dumps(
-                {"type": "session", "version": 1, "id": suffix,
-                 "created_at": "2026-08-06T00:00:00", "cwd": ".",
-                 "current_id": None, "root_id": None}
+                {
+                    "type": "session",
+                    "version": 1,
+                    "id": suffix,
+                    "created_at": "2026-08-06T00:00:00",
+                    "cwd": ".",
+                    "current_id": None,
+                    "root_id": None,
+                }
             )
             + "\n",
             encoding="utf-8",
@@ -90,7 +97,11 @@ def test_store_fork_sessions_evolve_independently(tmp_path):
     re_forked = store.open(forked.id)
     re_forked.add_message("user", "新枝")
     assert [e.content for e in session.tree.get_current_path()] == ["q1", "a1", "q2"]
-    assert [e.content for e in re_forked.tree.get_current_path()] == ["q1", "a1", "新枝"]
+    assert [e.content for e in re_forked.tree.get_current_path()] == [
+        "q1",
+        "a1",
+        "新枝",
+    ]
 
 
 def test_store_fork_missing_entry_raises(tmp_path):
@@ -110,8 +121,12 @@ def test_store_workspace_isolation(tmp_path):
     assert [m.id for m in store_a.list()] == [sa.id]
     assert [m.id for m in store_b.list()] == [sb.id]  # 互不可见
     # 各自目录独立
-    assert (tmp_path / "proj-a" / ".my_agent_core" / "sessions" / f"{sa.id}.jsonl").exists()
-    assert (tmp_path / "proj-b" / ".my_agent_core" / "sessions" / f"{sb.id}.jsonl").exists()
+    assert (
+        tmp_path / "proj-a" / ".my_agent_core" / "sessions" / f"{sa.id}.jsonl"
+    ).exists()
+    assert (
+        tmp_path / "proj-b" / ".my_agent_core" / "sessions" / f"{sb.id}.jsonl"
+    ).exists()
     # Session.cwd = workspace
     assert sa.cwd == str(tmp_path / "proj-a")
     assert sb.cwd == str(tmp_path / "proj-b")

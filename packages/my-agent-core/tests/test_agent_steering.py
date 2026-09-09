@@ -100,7 +100,9 @@ async def test_agent_steer_during_final_text(tmp_path):
             self.agent_holder = agent_holder
             self.turn = 0
 
-        async def achat_stream(self, *, messages=None, tools=None, model=None, **kwargs):
+        async def achat_stream(
+            self, *, messages=None, tools=None, model=None, **kwargs
+        ):
             _ = (messages, tools, model, kwargs)
             self.turn += 1
             if self.turn == 1:
@@ -234,7 +236,9 @@ async def test_agent_abort_clears_queue(tmp_path):
     agent_holder = {}
 
     class AbortLLM:
-        async def achat_stream(self, *, messages=None, tools=None, model=None, **kwargs):
+        async def achat_stream(
+            self, *, messages=None, tools=None, model=None, **kwargs
+        ):
             _ = (messages, tools, model, kwargs)
             agent_holder["agent"].follow_up("Should not run")
             agent_holder["agent"].abort()
