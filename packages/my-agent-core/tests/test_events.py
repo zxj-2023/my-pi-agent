@@ -61,15 +61,21 @@ def test_all_event_subclasses_frozen_with_timestamp():
     msg = Message(role="assistant", content="hello")
     all_event_instances: list[Event] = [
         AgentStart(system_prompt="sys", user_input="in"),
-        AgentEnd(messages=[msg], final_text="bye", iterations=1, stop_reason="end_turn"),
+        AgentEnd(
+            messages=[msg], final_text="bye", iterations=1, stop_reason="end_turn"
+        ),
         TurnStart(iteration=1),
         TurnEnd(message=msg, tool_results=[]),
         MessageStart(message=msg),
         MessageUpdate(message=msg, chunk=StreamChunk(content="hi")),
         MessageEnd(message=msg),
         ToolExecutionStart(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"}),
-        ToolExecutionUpdate(tool_call_id="call_1", tool_name="bash", args={}, partial_result="out"),
-        ToolExecutionEnd(tool_call_id="call_1", tool_name="bash", result="done", is_error=False),
+        ToolExecutionUpdate(
+            tool_call_id="call_1", tool_name="bash", args={}, partial_result="out"
+        ),
+        ToolExecutionEnd(
+            tool_call_id="call_1", tool_name="bash", result="done", is_error=False
+        ),
         ContextCompacted(tokens_before=100, tokens_after=50, summarized_count=2),
         ToolsChanged(action="register", name="bash"),
     ]
@@ -134,7 +140,9 @@ def test_decision_points_attributes_and_frozen():
     assert is_dataclass(tcd) and tcd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
     assert not isinstance(tcd, Event)
 
-    trd = ToolResultDecision(tool_call_id="call_1", tool_name="bash", result="output", is_error=False)
+    trd = ToolResultDecision(
+        tool_call_id="call_1", tool_name="bash", result="output", is_error=False
+    )
     assert trd.tool_call_id == "call_1"
     assert trd.tool_name == "bash"
     assert trd.result == "output"
@@ -266,7 +274,9 @@ async def test_decision_registry_never_throw_guarantee():
     reg.register(ToolCallDecision, successful_hook)
 
     # 绝不能抛出异常
-    res = await reg.emit(ToolCallDecision(tool_call_id="call_x", tool_name="bash", args={}))
+    res = await reg.emit(
+        ToolCallDecision(tool_call_id="call_x", tool_name="bash", args={})
+    )
     assert res is not None
     assert res.block is True
     assert res.reason == "blocked after errors"
@@ -283,5 +293,9 @@ async def test_decision_registry_never_throw_all_fail():
 
     reg.register(ToolResultDecision, crashing_hook)
 
-    res = await reg.emit(ToolResultDecision(tool_call_id="1", tool_name="bash", result="err", is_error=True))
+    res = await reg.emit(
+        ToolResultDecision(
+            tool_call_id="1", tool_name="bash", result="err", is_error=True
+        )
+    )
     assert res is None

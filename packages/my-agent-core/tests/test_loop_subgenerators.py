@@ -72,10 +72,14 @@ class FakeSyncChatLLM:
 
 @pytest.mark.anyio
 async def test_stream_llm_with_achat_stream():
-    llm = FakeStreamLLM([
-        StreamChunk(content="chunk1"),
-        StreamChunk(content="chunk2", usage={"prompt_tokens": 10, "completion_tokens": 5}),
-    ])
+    llm = FakeStreamLLM(
+        [
+            StreamChunk(content="chunk1"),
+            StreamChunk(
+                content="chunk2", usage={"prompt_tokens": 10, "completion_tokens": 5}
+            ),
+        ]
+    )
     chunks = []
     async for chunk in _stream_llm(llm, [Message(role="user", content="hi")], []):
         chunks.append(chunk)
@@ -101,7 +105,9 @@ async def test_stream_llm_with_achat():
 
     assert len(chunks) == 1
     assert chunks[0].content == "async non-streaming reply"
-    assert chunks[0].tool_calls == [{"id": "c1", "function": {"name": "f", "arguments": "{}"}}]
+    assert chunks[0].tool_calls == [
+        {"id": "c1", "function": {"name": "f", "arguments": "{}"}}
+    ]
     assert chunks[0].usage == {"prompt_tokens": 8, "completion_tokens": 4}
 
 
@@ -165,9 +171,13 @@ async def test_assistant_turn_with_usage_and_context_manager():
             self.recorded = usage
 
     cm = DummyContextManager()
-    llm = FakeStreamLLM([
-        StreamChunk(content="reply", usage={"prompt_tokens": 20, "completion_tokens": 10})
-    ])
+    llm = FakeStreamLLM(
+        [
+            StreamChunk(
+                content="reply", usage={"prompt_tokens": 20, "completion_tokens": 10}
+            )
+        ]
+    )
     events = []
     async for ev in _assistant_turn(
         llm=llm,
@@ -273,7 +283,10 @@ async def test_execute_tools_turn_pi_timing_and_blocking():
 
     tool_calls = [
         {"id": "call_1", "function": {"name": "echo", "arguments": '{"text": "safe"}'}},
-        {"id": "call_2", "function": {"name": "echo", "arguments": '{"text": "blocked"}'}},
+        {
+            "id": "call_2",
+            "function": {"name": "echo", "arguments": '{"text": "blocked"}'},
+        },
     ]
 
     async def guard(decision: ToolCallDecision):
@@ -305,7 +318,9 @@ async def test_execute_tools_turn_pi_timing_and_blocking():
     assert "blocked: policy violation" in ends[1].result
 
     # 3. MessageStart and MessageEnd yielded in source order
-    tool_ends = [e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"]
+    tool_ends = [
+        e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
+    ]
     assert len(tool_ends) == 2
     assert tool_ends[0].message.metadata["tool_call_id"] == "call_1"
     assert tool_ends[1].message.metadata["tool_call_id"] == "call_2"
@@ -359,7 +374,10 @@ async def test_execute_tools_turn_args_and_result_rewriting():
     reg.register(greet)
 
     tool_calls = [
-        {"id": "call_1", "function": {"name": "greet", "arguments": '{"name": "Alice"}'}},
+        {
+            "id": "call_1",
+            "function": {"name": "greet", "arguments": '{"name": "Alice"}'},
+        },
     ]
 
     async def rewrite_args(decision: ToolCallDecision):
@@ -383,7 +401,9 @@ async def test_execute_tools_turn_args_and_result_rewriting():
     assert end_ev.result == "welcome Bob"
     assert end_ev.is_error is False
 
-    msg_ev = [e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"][0]
+    msg_ev = [
+        e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
+    ][0]
     assert msg_ev.message.content == "welcome Bob"
 
 
@@ -418,7 +438,9 @@ async def test_execute_tools_turn_cancellation_synthesizes_interrupted():
     assert end_ev.is_error is True
     assert end_ev.result == _INTERRUPTED_TOOL_RESULT
 
-    msg_ev = [e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"][0]
+    msg_ev = [
+        e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
+    ][0]
     assert msg_ev.message.content == _INTERRUPTED_TOOL_RESULT
     assert msg_ev.message.metadata["is_error"] is True
 
