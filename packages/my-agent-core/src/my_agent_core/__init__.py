@@ -21,6 +21,7 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
+from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
     AgentStartHook,
     BeforeModelCallHook,
@@ -30,7 +31,6 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
     ToolResultHook,
     UserInputHook,
 )
-from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.loop import (
     CancellationToken,
     _provider_context,
