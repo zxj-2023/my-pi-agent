@@ -15,7 +15,6 @@ from my_agent_core.events import (
     AgentEnd,
     AgentStart,
     AgentStartDecision,
-    BeforeModelCall,
     BeforeModelCallDecision,
     Event,
     HookResult,
@@ -28,7 +27,6 @@ from my_agent_core.events import (
     ToolResultDecision,
     TurnEnd,
     TurnStart,
-    UserInput,
     UserInputDecision,
 )
 from my_agent_core.session import Session
@@ -559,7 +557,9 @@ async def test_agent_user_input_hook_rewrite():
     # LLM 收到的 user 消息为改写后的文本
     assert llm.calls[0]["messages"][-1].content == "hello bar"
     # Session 记录的也是改写后的文本
-    assert getattr(list(session.tree.entries.values())[0], "content", None) == "hello bar"
+    assert (
+        getattr(list(session.tree.entries.values())[0], "content", None) == "hello bar"
+    )
 
 
 @pytest.mark.anyio

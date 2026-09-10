@@ -257,17 +257,16 @@ class Agent:
         if self.task_store:
             guard = TaskGuardHook(self.task_store, self.steer)
             self.subscribe(
-                lambda ev: guard.on_agent_start(ev)
-                if isinstance(ev, AgentStart)
-                else None
+                lambda ev: (
+                    guard.on_agent_start(ev) if isinstance(ev, AgentStart) else None
+                )
             )
             self.subscribe(
-                lambda ev: guard.on_turn_end(ev)
-                if isinstance(ev, TurnEnd)
-                else None
+                lambda ev: guard.on_turn_end(ev) if isinstance(ev, TurnEnd) else None
             )
         for target, callback in hooks or []:
             if isinstance(target, type) and issubclass(target, Event):
+
                 def make_listener(cls, cb):
                     def listener(ev: Event):
                         if isinstance(ev, cls):
@@ -386,11 +385,7 @@ class Agent:
         )
         if isinstance(start_decision, HookResult):
             if start_decision.block:
-                reason = (
-                    f": {start_decision.reason}"
-                    if start_decision.reason
-                    else ""
-                )
+                reason = f": {start_decision.reason}" if start_decision.reason else ""
                 end_ev = AgentEnd(
                     messages=list(self.messages),
                     final_text=f"(blocked{reason})",

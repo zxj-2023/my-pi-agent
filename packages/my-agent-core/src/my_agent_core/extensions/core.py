@@ -42,9 +42,7 @@ class ExtensionAPI:
     @overload
     def on(self, target: type, handler: Callable[..., Any]) -> None: ...
 
-    def on(
-        self, target: type, handler: Callable[..., Any] | None = None
-    ) -> Any:
+    def on(self, target: type, handler: Callable[..., Any] | None = None) -> Any:
         """注册事件订阅（Event 只读监听）或决策点回调（Decision 拦截干预）。
 
         handler 签名统一为 (payload, api)。
@@ -54,6 +52,7 @@ class ExtensionAPI:
 
         def _register(h: Callable[..., Any]) -> Callable[..., Any]:
             if isinstance(target, type) and issubclass(target, Event):
+
                 def event_listener(event: Event) -> Any:
                     if isinstance(event, target):
                         return h(event, self)
@@ -61,11 +60,13 @@ class ExtensionAPI:
                 self.agent.subscribe(event_listener)
             else:
                 if inspect.iscoroutinefunction(h):
+
                     async def wrapped_async(decision: Any) -> Any:
                         return await h(decision, self)
 
                     self.agent.decisions.register(target, wrapped_async)
                 else:
+
                     def wrapped_sync(decision: Any) -> Any:
                         return h(decision, self)
 
