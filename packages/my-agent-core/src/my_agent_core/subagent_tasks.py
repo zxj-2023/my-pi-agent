@@ -26,10 +26,6 @@ class SubagentTaskStatus(StrEnum):
     ERROR = "error"
 
 
-# 兼容别名
-TaskStatus = SubagentTaskStatus
-
-
 @dataclass
 class SubagentTask:
     """一次子代理委派执行句柄：有 id/状态/结果，可查询。"""
@@ -50,10 +46,6 @@ class SubagentTask:
         self.error = error
         self.result = None
         self.status = SubagentTaskStatus.ERROR
-
-
-# 兼容别名
-Task = SubagentTask
 
 
 def _system_for(sub: Subagent, parent: Agent) -> str:
@@ -176,7 +168,3 @@ class SubagentTaskManager:
             raise RuntimeError(f"Subagent '{subagent_type}' failed: {exc}") from exc
         finally:
             _ = self._active_agents.pop(task_id, None)
-
-
-# 兼容别名
-TaskManager = SubagentTaskManager

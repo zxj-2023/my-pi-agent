@@ -19,7 +19,6 @@ from my_agent_core.events import (
     AgentEnd,
     AgentStart,
     BeforeModelCallHook,
-    HookRegistry,
     HookResult,
     MessageEnd,
     MessageStart,
@@ -569,35 +568,6 @@ async def test_run_agent_loop_callbacks_tool_rewriting():
     turn_ends = [e for e in events if isinstance(e, TurnEnd)]
     assert len(turn_ends) == 2
     assert turn_ends[0].tool_results[0].content == "intercepted:15"
-
-
-@pytest.mark.anyio
-async def test_run_agent_loop_hook_registry_fallback_adaptation():
-    """验证向后兼容：当未传 before_model_call 但提供了 hook_registry 时自动降级适配。"""
-    llm = FakeLLM(responses=[_response(content="never called")])
-    messages: list[Message] = []
-    hooks = HookRegistry()
-
-    def block_model_call(_decision: BeforeModelCallHook):
-        return HookResult(block=True, reason="hook_registry fallback block")
-
-    hooks.register(BeforeModelCallHook, block_model_call)
-
-    events = []
-    async for ev in run_agent_loop(
-        llm=llm,
-        messages=messages,
-        prompts=["test prompt"],
-        hook_registry=hooks,
-    ):
-        events.append(ev)
-
-    turn_ends = [e for e in events if isinstance(e, TurnEnd)]
-    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
-    assert len(turn_ends) == 1
-    assert turn_ends[0].message is None
-    assert len(agent_ends) == 1
-    assert agent_ends[0].stop_reason == "blocked"
 
 
 @pytest.mark.anyio

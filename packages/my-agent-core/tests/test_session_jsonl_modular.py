@@ -32,11 +32,11 @@ from my_agent_core.session.entries import (
     ThinkingLevelChangeEntry,
 )
 from my_agent_core.session.jsonl import (
-    JsonlSessionStorage,
     SessionJsonlError,
     entry_from_json_line,
     entry_to_json_line,
 )
+from my_agent_core.session.storage import JsonlSessionStorage
 
 # ============================================================================
 # 1. 强类型 SessionEntry 序列化与反序列化
@@ -510,8 +510,7 @@ async def test_interop_legacy_session_file_read_by_jsonl_storage(
 
 def test_session_facade_bridge_methods(tmp_path: Path) -> None:
     """测试 Session 门面对象的 bridge 方法 (storage, get_state, fork)。"""
-    from my_agent_core.session import Session
-    from my_agent_core.session.jsonl import JsonlSessionStorage
+    from my_agent_core.session import JsonlSessionStorage, Session
 
     s = Session(path=tmp_path / "facade.jsonl")
     s.add_message("user", "hi")

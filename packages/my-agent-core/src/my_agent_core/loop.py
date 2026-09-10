@@ -411,7 +411,6 @@ async def run_agent_loop(
         Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None]
         | None
     ) = None,
-    hook_registry: Any = None,  # optional fallback for smooth transition with agent.py
 ) -> AsyncIterator[Event]:
     """对标 Tau 的极简纯函数异步微内核，主状态机约 110 行。"""
     if isinstance(tools, ToolRegistry):
@@ -422,37 +421,6 @@ async def run_agent_loop(
             registry.register(t)
     else:
         registry = ToolRegistry()
-
-    # 向后兼容 hook_registry 降级适配
-    _before_model_call = before_model_call
-    if _before_model_call is None and hook_registry is not None:
-
-        async def _fallback_before_model(
-            decision: BeforeModelCallHook,
-        ) -> HookResult | None:
-            return await hook_registry.emit(decision)
-
-        _before_model_call = _fallback_before_model
-
-    _before_tool_call = before_tool_call
-    if _before_tool_call is None and hook_registry is not None:
-
-        async def _fallback_before_tool(
-            hook_payload: ToolCallHook,
-        ) -> HookResult | None:
-            return await hook_registry.emit(hook_payload)
-
-        _before_tool_call = _fallback_before_tool
-
-    _after_tool_call = after_tool_call
-    if _after_tool_call is None and hook_registry is not None:
-
-        async def _fallback_after_tool(
-            hook_payload: ToolResultHook,
-        ) -> HookResult | None:
-            return await hook_registry.emit(hook_payload)
-
-        _after_tool_call = _fallback_after_tool
 
     effective_max = max_turns if max_turns is not None else max_iterations
 
@@ -565,9 +533,9 @@ async def run_agent_loop(
                 )
 
             # Hook 3: BeforeModelCallHook (context 审查)
-            if _before_model_call is not None:
+            if before_model_call is not None:
                 try:
-                    decision = _before_model_call(
+                    decision = before_model_call(
                         BeforeModelCallHook(messages=list(view), iteration=iteration)
                     )
                     if inspect.isawaitable(decision):
@@ -633,8 +601,8 @@ async def run_agent_loop(
                 async for ev in _execute_tools_turn(
                     tool_calls=calls,
                     registry=registry,
-                    before_tool_call=_before_tool_call,
-                    after_tool_call=_after_tool_call,
+                    before_tool_call=before_tool_call,
+                    after_tool_call=after_tool_call,
                     signal=signal,
                 ):
                     yield ev

@@ -8,14 +8,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import TypeAdapter
 
 from .entries import SessionEntry
-
-if TYPE_CHECKING:
-    from .storage import JsonlSessionStorage
 
 
 class SessionJsonlError(ValueError):
@@ -28,11 +24,7 @@ _ENTRY_ADAPTER: TypeAdapter[SessionEntry] = TypeAdapter(SessionEntry)
 def entry_to_json_line(entry: SessionEntry) -> str:
     """将 SessionEntry 序列化为单行 JSON 字符串（不带尾随换行符）。"""
     try:
-        if isinstance(entry, BaseModel):
-            return entry.model_dump_json(by_alias=True, exclude_none=True)
-        return _ENTRY_ADAPTER.dump_json(entry, by_alias=True, exclude_none=True).decode(
-            "utf-8"
-        )
+        return entry.model_dump_json(by_alias=True, exclude_none=True)
     except Exception as exc:
         raise SessionJsonlError(
             f"Failed to serialize entry to JSON line: {exc}"
@@ -61,18 +53,8 @@ def entry_from_json_line(line: str) -> SessionEntry:
         ) from exc
 
 
-def __getattr__(name: str) -> Any:
-    """向后兼容 re-export: 支持从 .jsonl 直接导入 JsonlSessionStorage。"""
-    if name == "JsonlSessionStorage":
-        from .storage import JsonlSessionStorage
-
-        return JsonlSessionStorage
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
-
-
 __all__ = [
     "SessionJsonlError",
     "entry_to_json_line",
     "entry_from_json_line",
-    "JsonlSessionStorage",
 ]
