@@ -18,7 +18,7 @@ from my_agent_llm import LLM, Config  # pyright: ignore[reportMissingImports]
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentEnd,
-    HookResult,
+    Event,
     MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
@@ -62,7 +62,7 @@ DEMO_SYSTEM_PROMPT = (
 )
 
 
-def print_events(event) -> HookResult | None:
+def print_events(event: Event) -> None:
     """把循环事件打印成 demo 过程输出（Agent 不内置 print，输出是应用层的选择）。"""
     if isinstance(event, TurnStart):
         print(f"\n[round {event.iteration}]")

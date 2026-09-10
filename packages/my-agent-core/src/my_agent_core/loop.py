@@ -18,19 +18,21 @@ from my_agent_llm import Message, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCallHook,
     ContextCompacted,
     Event,
-    HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
-    ToolResultHook,
     TurnEnd,
     TurnStart,
+)
+from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
+    BeforeModelCallHook,
+    HookResult,
+    ToolCallHook,
+    ToolResultHook,
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tool_history import (

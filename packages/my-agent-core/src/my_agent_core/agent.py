@@ -25,16 +25,18 @@ from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    AgentStartHook,
     ContextCompacted,
     Event,
-    HookRegistry,
-    HookResult,
     MessageEnd,
     TurnEnd,
-    UserInputHook,
 )
 from my_agent_core.extensions import ExtensionManager
+from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
+    AgentStartHook,
+    HookRegistry,
+    HookResult,
+    UserInputHook,
+)
 from my_agent_core.loop import CancellationToken, run_agent_loop
 from my_agent_core.memory import MemoryStore, make_memory_tool
 from my_agent_core.message_queue import MessageQueue, QueuedMessage

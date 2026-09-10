@@ -18,17 +18,19 @@ from my_agent_llm import Message, Response, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCallHook,
-    HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
-    ToolResultHook,
     TurnEnd,
     TurnStart,
+)
+from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
+    BeforeModelCallHook,
+    HookResult,
+    ToolCallHook,
+    ToolResultHook,
 )
 from my_agent_core.loop import (
     CancellationToken,

@@ -5,14 +5,14 @@ import pytest
 from my_agent_llm import Response  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
-from my_agent_core.events import (
+from my_agent_core.events import TurnStart
+from my_agent_core.extensions import ExtensionAPI, ExtensionManager
+from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
     AgentStartHook,
     HookRegistry,
     HookResult,
     ToolCallHook,
-    TurnStart,
 )
-from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
@@ -336,7 +336,7 @@ async def test_extension_hook_end_to_end(tmp_path):
     ext_dir.mkdir()
     (ext_dir / "blocker.py").write_text(
         """
-from my_agent_core.events import HookResult, ToolCallHook
+from my_agent_core.hooks import HookResult, ToolCallHook
 
 def extension(api):
     @api.on(ToolCallHook)
@@ -407,7 +407,7 @@ async def test_extension_decision_points_end_to_end(tmp_path):
     ext_dir.mkdir()
     (ext_dir / "lifecycle_guard.py").write_text(
         """
-from my_agent_core.events import UserInputHook, AgentStartHook, BeforeModelCallHook, HookResult
+from my_agent_core.hooks import UserInputHook, AgentStartHook, BeforeModelCallHook, HookResult
 from my_agent_llm import Message
 
 def extension(api):
