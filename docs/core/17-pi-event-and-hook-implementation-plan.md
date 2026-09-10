@@ -6,7 +6,7 @@
 
 **Architecture:**
 
-1. Orthogonal separation: `Event` is purely an immutable, read-only data structure broadcast downstream without return values. Control flow intervention is cleanly isolated into five typed `DecisionPoint` classes (`UserInputDecision`, `AgentStartDecision`, `BeforeModelCallDecision`, `ToolCallDecision`, `ToolResultDecision`) evaluated via `DecisionRegistry` returning `HookResult`.
+1. Orthogonal separation: `Event` is purely an immutable, read-only data structure broadcast downstream without return values. Control flow intervention is cleanly isolated into five typed `HookPoint` classes (`UserInputHook`, `AgentStartHook`, `BeforeModelCallHook`, `ToolCallHook`, `ToolResultHook`) evaluated via `HookRegistry` returning `HookResult`.
 2. Generator decomposition: `loop.py` is decomposed into two dedicated sub-generators (`_assistant_turn` for unified streaming & token aggregation, `_execute_tools_turn` for Pi-aligned Preflight ➔ Execution ➔ Completion lifecycle) and a centralized `_synthesize_interrupted_tool_calls` helper, slimming `run_agent_loop` down to a pure ~110-line state machine.
 3. No-compromise test rewriting: Obsolete tests asserting `Interceptable` or legacy hook dual-dispatch are rewritten directly to test the new clean architecture without backwards-compatibility padding.
 
@@ -33,16 +33,16 @@
 ```text
 packages/my-agent-core/
 ├── src/my_agent_core/
-│   ├── events.py              # Pure read-only Events, 5 DecisionPoints, HookResult, DecisionRegistry
+│   ├── events.py              # Pure read-only Events, 5 HookPoints, HookResult, HookRegistry
 │   ├── loop.py                # _stream_llm, _assistant_turn, _execute_tools_turn, run_agent_loop (~110 lines)
 │   ├── extensions/
 │   │   └── core.py            # ExtensionAPI.on() dispatching between Event subscription and Decision registration
-│   └── agent.py               # Agent Harness wiring DecisionRegistry, subscribers, and callbacks
+│   └── agent.py               # Agent Harness wiring HookRegistry, subscribers, and callbacks
 └── tests/
-    ├── test_events.py         # Rewritten: test pure Event immutability, DecisionPoints, DecisionRegistry
+    ├── test_events.py         # Rewritten: test pure Event immutability, HookPoints, HookRegistry
     ├── test_loop_subgenerators.py # New: unit tests for _assistant_turn, _execute_tools_turn, _stream_llm
     ├── test_agent_loop_pure.py    # Updated: test pure ~110-line run_agent_loop with new decision callbacks
-    ├── test_extensions.py     # Updated: test @api.on(ToolCallDecision) and @api.on(TurnStart)
+    ├── test_extensions.py     # Updated: test @api.on(ToolCallHook) and @api.on(TurnStart)
     └── test_agent.py          # Updated: test decision blocking/rewriting via agent.decisions
 ```
 
@@ -60,10 +60,10 @@ packages/my-agent-core/
 - Produces:
   - `Event`: base immutable dataclass with `timestamp: float`.
   - Read-only events: `AgentStart`, `AgentEnd`, `TurnStart`, `TurnEnd(message: Message | None = None, tool_results: list[Message] = field(default_factory=list))`, `MessageStart`, `MessageUpdate`, `MessageEnd`, `ToolExecutionStart`, `ToolExecutionUpdate`, `ToolExecutionEnd`, `ContextCompacted`, `ToolsChanged`.
-  - Five Decision classes: `UserInputDecision(input_text: str)`, `AgentStartDecision(system_prompt: str)`, `BeforeModelCallDecision(messages: list[Message], iteration: int)`, `ToolCallDecision(tool_call_id: str, tool_name: str, args: dict[str, Any])`, `ToolResultDecision(tool_call_id: str, tool_name: str, result: str, is_error: bool)`.
+  - Five Decision classes: `UserInputHook(input_text: str)`, `AgentStartHook(system_prompt: str)`, `BeforeModelCallHook(messages: list[Message], iteration: int)`, `ToolCallHook(tool_call_id: str, tool_name: str, args: dict[str, Any])`, `ToolResultHook(tool_call_id: str, tool_name: str, result: str, is_error: bool)`.
   - `HookResult`: dataclass with `block`, `reason`, `updated_input`, `updated_system_prompt`, `updated_messages`, `updated_args`, `updated_result`.
-  - `DecisionRegistry`: registers and emits decisions for the 5 decision classes. Supports async and sync handlers with Never-Throw isolation.
-  - `HookRegistry`: alias to `DecisionRegistry` for smooth internal usage.
+  - `HookRegistry`: registers and emits decisions for the 5 decision classes. Supports async and sync handlers with Never-Throw isolation.
+  - `HookRegistry`: alias to `HookRegistry` for smooth internal usage.
 
 - [ ] **Step 1: Write the failing test in `test_events.py`**
 
@@ -73,7 +73,7 @@ Rewrite `packages/my-agent-core/tests/test_events.py` to assert:
 2. `Interceptable` does NOT exist in `events.py`.
 3. The 5 Decision classes exist, are frozen dataclasses, and contain the expected attributes.
 4. `TurnEnd` can be initialized with `message=None` and `tool_results=[]`.
-5. `DecisionRegistry` (and alias `HookRegistry`) executes handlers, returns the first non-None `HookResult`, and catches exceptions without raising.
+5. `HookRegistry` (and alias `HookRegistry`) executes handlers, returns the first non-None `HookResult`, and catches exceptions without raising.
 
 ```python
 # packages/my-agent-core/tests/test_events.py
@@ -91,13 +91,13 @@ from my_agent_core.events import (
     ToolExecutionUpdate,
     ToolExecutionEnd,
     ContextCompacted,
-    UserInputDecision,
-    AgentStartDecision,
-    BeforeModelCallDecision,
-    ToolCallDecision,
-    ToolResultDecision,
+    UserInputHook,
+    AgentStartHook,
+    BeforeModelCallHook,
+    ToolCallHook,
+    ToolResultHook,
     HookResult,
-    DecisionRegistry,
+    HookRegistry,
     HookRegistry,
 )
 from my_agent_llm import Message
@@ -115,31 +115,31 @@ def test_turn_end_nullable_message():
     assert te.tool_results == []
 
 def test_decision_points_attributes():
-    uid = UserInputDecision(input_text="hello")
+    uid = UserInputHook(input_text="hello")
     assert uid.input_text == "hello"
     
-    tcd = ToolCallDecision(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"})
+    tcd = ToolCallHook(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"})
     assert tcd.tool_call_id == "call_1"
     assert tcd.tool_name == "bash"
     assert tcd.args == {"cmd": "ls"}
 
 @pytest.mark.asyncio
 async def test_decision_registry_emit_and_short_circuit():
-    reg = DecisionRegistry()
+    reg = HookRegistry()
     calls = []
 
-    async def guard(d: ToolCallDecision):
+    async def guard(d: ToolCallHook):
         calls.append(d.tool_name)
         return HookResult(block=True, reason="forbidden")
 
-    async def second_guard(d: ToolCallDecision):
+    async def second_guard(d: ToolCallHook):
         calls.append("should_not_run")
         return None
 
-    reg.register(ToolCallDecision, guard)
-    reg.register(ToolCallDecision, second_guard)
+    reg.register(ToolCallHook, guard)
+    reg.register(ToolCallHook, second_guard)
 
-    res = await reg.emit(ToolCallDecision(tool_call_id="1", tool_name="rm", args={}))
+    res = await reg.emit(ToolCallHook(tool_call_id="1", tool_name="rm", args={}))
     assert res is not None
     assert res.block is True
     assert res.reason == "forbidden"
@@ -157,9 +157,9 @@ Refactor `packages/my-agent-core/src/my_agent_core/events.py` according to the s
 
 - Remove `Interceptable`.
 - Update `TurnEnd(message: Message | None = None, tool_results: list[Message] = field(default_factory=list))`.
-- Define the 5 Decision dataclasses: `UserInputDecision`, `AgentStartDecision`, `BeforeModelCallDecision`, `ToolCallDecision`, `ToolResultDecision`.
-- Implement `DecisionRegistry` with `register`, `unregister`, and async `emit(decision)` with exception suppression.
-- Export `HookRegistry = DecisionRegistry`.
+- Define the 5 Decision dataclasses: `UserInputHook`, `AgentStartHook`, `BeforeModelCallHook`, `ToolCallHook`, `ToolResultHook`.
+- Implement `HookRegistry` with `register`, `unregister`, and async `emit(decision)` with exception suppression.
+- Export `HookRegistry = HookRegistry`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -186,7 +186,7 @@ git commit -m "refactor(core): 正交解耦只读事件流与五大决策拦截�
 
 - Consumes:
   - `Message`, `StreamChunk` from `my_agent_llm`.
-  - `Event`, `MessageStart`, `MessageUpdate`, `MessageEnd`, `ToolExecutionStart`, `ToolExecutionEnd`, `ToolCallDecision`, `ToolResultDecision`, `HookResult` from `my_agent_core.events`.
+  - `Event`, `MessageStart`, `MessageUpdate`, `MessageEnd`, `ToolExecutionStart`, `ToolExecutionEnd`, `ToolCallHook`, `ToolResultHook`, `HookResult` from `my_agent_core.events`.
   - `ToolRegistry`, `ToolResult` from `my_agent_core.registry`.
 - Produces:
   - `async def _stream_llm(llm, messages, tool_schemas, model=None) -> AsyncIterator[StreamChunk]`
@@ -217,8 +217,8 @@ from my_agent_core.events import (
     ToolExecutionEnd,
     MessageStart,
     MessageEnd,
-    ToolCallDecision,
-    ToolResultDecision,
+    ToolCallHook,
+    ToolResultHook,
     HookResult,
 )
 from my_agent_core.registry import ToolRegistry, tool
@@ -262,7 +262,7 @@ async def test_execute_tools_turn_pi_timing_and_blocking():
         {"id": "call_2", "function": {"name": "echo", "arguments": '{"text": "blocked"}'}},
     ]
 
-    async def guard(decision: ToolCallDecision):
+    async def guard(decision: ToolCallHook):
         if decision.args.get("text") == "blocked":
             return HookResult(block=True, reason="policy violation")
         return None
@@ -330,7 +330,7 @@ git commit -m "feat(core): 实现 loop.py 专属子生成器 _stream_llm, _assis
 
 - Consumes:
   - `_assistant_turn`, `_execute_tools_turn`, `_synthesize_interrupted_tool_calls`.
-  - `BeforeModelCallDecision`, `ToolCallDecision`, `ToolResultDecision`.
+  - `BeforeModelCallHook`, `ToolCallHook`, `ToolResultHook`.
 - Produces:
   - `run_agent_loop(llm, messages, tools, context_manager, model, system, prompts, max_turns, max_iterations, signal, get_steering_messages, get_follow_up_messages, before_model_call, before_tool_call, after_tool_call) -> AsyncIterator[AgentEvent]`
   - Slim ~110 lines state machine.
@@ -354,7 +354,7 @@ async def test_run_agent_loop_before_model_call_blocking():
     llm = FakeLLM(responses=[Response(content="never called")])
     messages = []
     
-    async def block_model_call(decision: BeforeModelCallDecision):
+    async def block_model_call(decision: BeforeModelCallHook):
         return HookResult(block=True, reason="budget exceeded")
 
     events = []
@@ -418,11 +418,11 @@ git commit -m "refactor(core): 重塑 run_agent_loop 为 110 行纯粹状态机�
 **Interfaces:**
 
 - Consumes:
-  - `DecisionRegistry`, `Event`, `UserInputDecision`, `AgentStartDecision`, `BeforeModelCallDecision`, `ToolCallDecision`, `ToolResultDecision` from `my_agent_core.events`.
+  - `HookRegistry`, `Event`, `UserInputHook`, `AgentStartHook`, `BeforeModelCallHook`, `ToolCallHook`, `ToolResultHook` from `my_agent_core.events`.
   - `run_agent_loop` from `my_agent_core.loop`.
 - Produces:
   - `ExtensionAPI.on(target, handler)`: dynamically routes to event subscription or decision registration.
-  - `Agent.decisions`: instance of `DecisionRegistry`.
+  - `Agent.decisions`: instance of `HookRegistry`.
   - `Agent.subscribe(listener)`: pure read-only event stream subscription.
   - `Agent.prompt_stream(user_input)`: passes decision callbacks to `run_agent_loop`.
 
@@ -430,10 +430,10 @@ git commit -m "refactor(core): 重塑 run_agent_loop 为 110 行纯粹状态机�
 
 Rewrite obsolete tests in `tests/test_extensions.py` and `tests/test_agent.py`:
 
-- Test `@api.on(ToolCallDecision)` allows blocking and arg rewriting.
+- Test `@api.on(ToolCallHook)` allows blocking and arg rewriting.
 - Test `@api.on(TurnStart)` receives read-only turn start events.
-- Test `agent.decisions.register(UserInputDecision, ...)` blocks execution.
-- Test `agent.decisions.register(AgentStartDecision, ...)` rewrites system prompt.
+- Test `agent.decisions.register(UserInputHook, ...)` blocks execution.
+- Test `agent.decisions.register(AgentStartHook, ...)` rewrites system prompt.
 
 ```python
 # In test_extensions.py
@@ -442,13 +442,13 @@ async def test_extension_on_decision_point():
     agent = Agent(llm=FakeLLM())
     api = ExtensionAPI(agent)
 
-    @api.on(ToolCallDecision)
-    async def block_bash(decision: ToolCallDecision, api_ref: ExtensionAPI):
+    @api.on(ToolCallHook)
+    async def block_bash(decision: ToolCallHook, api_ref: ExtensionAPI):
         if decision.tool_name == "bash":
             return HookResult(block=True, reason="bash disabled by extension")
         return None
 
-    res = await agent.decisions.emit(ToolCallDecision("1", "bash", {}))
+    res = await agent.decisions.emit(ToolCallHook("1", "bash", {}))
     assert res is not None
     assert res.block is True
     assert res.reason == "bash disabled by extension"
@@ -466,15 +466,15 @@ Expected: FAIL.
      - If `issubclass(target, Event)`: registers listener with `self.agent.subscribe(...)` (ignoring return value).
      - Else: registers decision handler with `self.agent.decisions.register(target, wrapped)`.
 2. In `packages/my-agent-core/src/my_agent_core/agent.py`:
-   - Replace `self.hooks` with `self.decisions = DecisionRegistry()`.
+   - Replace `self.hooks` with `self.decisions = HookRegistry()`.
    - Provide `self.hooks` alias pointing to `self.decisions` if needed for basic registration compatibility.
    - In `prompt_stream()`:
-     - Invoke `UserInputDecision` through `self.decisions.emit()`.
+     - Invoke `UserInputHook` through `self.decisions.emit()`.
      - Call `run_agent_loop` with:
        - `before_model_call=self.decisions.emit`
        - `before_tool_call=self.decisions.emit`
        - `after_tool_call=self.decisions.emit`
-   - In `AgentStart`, if `AgentStartDecision` is registered, invoke it and apply `updated_system_prompt`.
+   - In `AgentStart`, if `AgentStartHook` is registered, invoke it and apply `updated_system_prompt`.
    - Dispatch read-only events directly to `self._subscribers`.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -539,4 +539,4 @@ git commit -am "test(core): 全量 378 项离线测试与类型检查通过，�
    - `ExtensionAPI.on` intelligent routing: Covered in Task 4.
    - No-compromise test rewriting: Addressed in Tasks 1, 3, 4, 5.
 2. **Placeholder scan**: No "TODO", "TBD", or vague placeholders. All steps have concrete code blocks and commands.
-3. **Type consistency**: Verified `ToolCallDecision`, `ToolResultDecision`, `BeforeModelCallDecision`, `UserInputDecision`, `AgentStartDecision`, `HookResult`, `DecisionRegistry` match across all tasks.
+3. **Type consistency**: Verified `ToolCallHook`, `ToolResultHook`, `BeforeModelCallHook`, `UserInputHook`, `AgentStartHook`, `HookResult`, `HookRegistry` match across all tasks.

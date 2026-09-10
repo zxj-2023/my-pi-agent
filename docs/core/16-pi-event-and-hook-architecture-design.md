@@ -197,30 +197,30 @@ class HookResult:
 
 # 五大类型化决策点契约（强类型）：
 @dataclass(frozen=True)
-class UserInputDecision:
+class UserInputHook:
     """决策点 1 (input): 拦截或改写用户原始输入文本。"""
     input_text: str
 
 @dataclass(frozen=True)
-class AgentStartDecision:
+class AgentStartHook:
     """决策点 2 (before_agent_start): 拦截启动或动态重写 system_prompt。"""
     system_prompt: str
 
 @dataclass(frozen=True)
-class BeforeModelCallDecision:
+class BeforeModelCallHook:
     """决策点 3 (context): 调模型前 1ms 审查或临时改写发送视图。"""
     messages: list[Message]
     iteration: int
 
 @dataclass(frozen=True)
-class ToolCallDecision:
+class ToolCallHook:
     """决策点 4 (tool_call): 工具执行前安全审批、阻断高危命令或改写入参。"""
     tool_call_id: str
     tool_name: str
     args: dict[str, Any]
 
 @dataclass(frozen=True)
-class ToolResultDecision:
+class ToolResultHook:
     """决策点 5 (tool_result): 工具执行后改写返回内容或篡改报错状态。"""
     tool_call_id: str
     tool_name: str
@@ -322,8 +322,8 @@ async def _execute_tools_turn(
     *,
     tool_calls: list[dict[str, Any]],
     registry: ToolRegistry,
-    before_tool_call: Callable[[ToolCallDecision], Awaitable[HookResult | None]] | None,
-    after_tool_call: Callable[[ToolResultDecision], Awaitable[HookResult | None]] | None,
+    before_tool_call: Callable[[ToolCallHook], Awaitable[HookResult | None]] | None,
+    after_tool_call: Callable[[ToolResultHook], Awaitable[HookResult | None]] | None,
     signal: CancellationToken | None,
 ) -> AsyncIterator[AgentEvent]:
     """专职工具执行车间：Preflight 广播 -> 审批 -> 并发执行 -> 结果改写 -> 结果广播。"""
@@ -347,7 +347,7 @@ async def _execute_tools_turn(
 
         # 2. 触发决策点 4: tool_call (before_tool_call 审批改参)
         if err is None and before_tool_call is not None:
-            decision = await before_tool_call(ToolCallDecision(tool_call_id=tc_id, tool_name=name, args=args))
+            decision = await before_tool_call(ToolCallHook(tool_call_id=tc_id, tool_name=name, args=args))
             if decision is not None:
                 if decision.block:
                     err = f"Tool '{name}' blocked: {decision.reason or 'blocked by policy'}"
@@ -383,7 +383,7 @@ async def _execute_tools_turn(
 
         # 触发决策点 5: tool_result (after_tool_call 结果篡改)
         if after_tool_call is not None:
-            decision = await after_tool_call(ToolResultDecision(tool_call_id=tc_id, tool_name=name, result=obs, is_error=is_err))
+            decision = await after_tool_call(ToolResultHook(tool_call_id=tc_id, tool_name=name, result=obs, is_error=is_err))
             if decision is not None and decision.updated_result is not None:
                 obs = decision.updated_result
                 is_err = False
@@ -428,9 +428,9 @@ async def run_agent_loop(
     signal: CancellationToken | None = None,
     get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
-    before_model_call: Callable[[BeforeModelCallDecision], Awaitable[HookResult | None]] | None = None,
-    before_tool_call: Callable[[ToolCallDecision], Awaitable[HookResult | None]] | None = None,
-    after_tool_call: Callable[[ToolResultDecision], Awaitable[HookResult | None]] | None = None,
+    before_model_call: Callable[[BeforeModelCallHook], Awaitable[HookResult | None]] | None = None,
+    before_tool_call: Callable[[ToolCallHook], Awaitable[HookResult | None]] | None = None,
+    after_tool_call: Callable[[ToolResultHook], Awaitable[HookResult | None]] | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """对标 Tau 的极简纯函数异步微内核，主状态机仅 110 行。"""
     registry = tools if isinstance(tools, ToolRegistry) else ToolRegistry()
@@ -481,7 +481,7 @@ async def run_agent_loop(
 
             # 决策点 3: BeforeModelCall (context 审查)
             if before_model_call is not None:
-                decision = await before_model_call(BeforeModelCallDecision(messages=list(view), iteration=iteration))
+                decision = await before_model_call(BeforeModelCallHook(messages=list(view), iteration=iteration))
                 if decision is not None:
                     if decision.block:
                         yield TurnEnd(message=None, tool_results=[])
@@ -557,7 +557,7 @@ class ExtensionAPI:
         
         - 若 target 是只读事实事件类 (如 TurnStart, MessageUpdate, ToolExecutionStart): 
           注册进只读观察者队列 (单向推送，忽略返回值)；
-        - 若 target 是五大决策点类 (如 ToolCallDecision, BeforeModelCallDecision): 
+        - 若 target 是五大决策点类 (如 ToolCallHook, BeforeModelCallHook): 
           注册进决策拦截中间件流水线 (返回值严格控制流程)。
         """
         if issubclass(target, Event):
@@ -575,11 +575,11 @@ class ExtensionAPI:
 1. **`tests/test_events.py`**：
    - 彻底删除对旧版 `Interceptable` 混入类的断言；
    - 明确测试 `Event` 纯只读事实类的不可变性；
-   - 测试 5 大独立 `DecisionPoint` 的属性与 `HookResult` 字段；
+   - 测试 5 大独立 `HookPoint` 的属性与 `HookResult` 字段；
 2. **`tests/test_agent.py`**：
-   - 重构旧版 `hooks=[(ToolExecutionStart, guard)]` 的测试用例，改为注入 `decisions=[(ToolCallDecision, guard)]`，验证阻断与改写；
+   - 重构旧版 `hooks=[(ToolExecutionStart, guard)]` 的测试用例，改为注入 `decisions=[(ToolCallHook, guard)]`，验证阻断与改写；
 3. **`tests/test_extensions.py`**：
-   - 更新扩展测试用例，验证 `@api.on(ToolCallDecision)` 拦截改参及 `@api.on(TurnStart)` 只读通知；
+   - 更新扩展测试用例，验证 `@api.on(ToolCallHook)` 拦截改参及 `@api.on(TurnStart)` 只读通知；
 4. **`tests/test_agent_loop_pure.py`**：
    - 更新微内核单测入参，验证 `before_model_call` 阻断时严格发射 `TurnEnd` 闭环。
 
