@@ -6,7 +6,9 @@ import asyncio
 import json
 from typing import Any
 
-from my_agent_core.tools import Tool, ToolResult
+from my_agent_core.tools import Tool, ToolResult, tool
+
+__all__ = ["Tool", "ToolRegistry", "ToolResult", "tool"]
 
 
 class ToolRegistry:

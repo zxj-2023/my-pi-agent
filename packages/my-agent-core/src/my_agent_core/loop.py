@@ -5,8 +5,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import inspect
 import json
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
 from my_agent_llm import Message, StreamChunk
@@ -22,8 +25,10 @@ from my_agent_core.events import (
     MessageEnd,
     MessageStart,
     MessageUpdate,
+    ToolCallDecision,
     ToolExecutionEnd,
     ToolExecutionStart,
+    ToolResultDecision,
     TurnEnd,
     TurnStart,
 )
@@ -40,7 +45,11 @@ AgentEvent = Event
 __all__ = [
     "AgentEvent",
     "CancellationToken",
+    "_assistant_turn",
+    "_execute_tools_turn",
     "_provider_context",
+    "_stream_llm",
+    "_synthesize_interrupted_tool_calls",
     "run_agent_loop",
 ]
 
@@ -85,6 +94,279 @@ def _provider_context(messages: Sequence[Message]) -> list[Message]:
     return list(repair_tool_history(replayable).messages)
 
 
+async def _stream_llm(
+    llm: Any,
+    messages: list[Message],
+    tool_schemas: list[dict[str, Any]],
+    model: str | None = None,
+) -> AsyncIterator[StreamChunk]:
+    """将各类 LLM 门面 (achat_stream / achat / chat) 统一归一化为标准的异步流式 Chunk 生成器。"""
+    if hasattr(llm, "achat_stream"):
+        async for chunk in llm.achat_stream(
+            messages=messages, tools=tool_schemas, model=model
+        ):
+            yield chunk
+    elif hasattr(llm, "achat"):
+        resp = await llm.achat(messages=messages, tools=tool_schemas, model=model)
+        yield StreamChunk(
+            content=getattr(resp, "content", "") or "",
+            tool_calls=getattr(resp, "tool_calls", None),
+            usage=getattr(resp, "usage", None),
+        )
+    else:
+        chat_fn = getattr(llm, "chat", None)
+        if chat_fn is None and callable(llm):
+            chat_fn = llm
+        if chat_fn is not None:
+            if inspect.iscoroutinefunction(chat_fn):
+                resp = await chat_fn(messages=messages, tools=tool_schemas, model=model)
+            else:
+                resp = await asyncio.to_thread(
+                    chat_fn, messages=messages, tools=tool_schemas, model=model
+                )
+            yield StreamChunk(
+                content=getattr(resp, "content", "") or "",
+                tool_calls=getattr(resp, "tool_calls", None),
+                usage=getattr(resp, "usage", None),
+            )
+
+
+async def _assistant_turn(
+    *,
+    llm: Any,
+    view: list[Message],
+    tool_schemas: list[dict[str, Any]],
+    model: str | None = None,
+    signal: CancellationToken | None = None,
+    context_manager: Any | None = None,
+) -> AsyncIterator[AgentEvent]:
+    """专职大模型推理车间：逐字 yield MessageUpdate，在末尾 yield MessageStart 与 MessageEnd。"""
+    content_acc = ""
+    final_tool_calls: list[dict[str, Any]] | None = None
+    last_usage: dict[str, Any] | None = None
+    cancelled = False
+
+    try:
+        if signal is not None and signal.is_cancelled():
+            cancelled = True
+        else:
+            async for chunk in _stream_llm(llm, view, tool_schemas, model):
+                if chunk.content:
+                    content_acc += chunk.content
+                if chunk.tool_calls:
+                    final_tool_calls = chunk.tool_calls
+                if chunk.usage:
+                    last_usage = chunk.usage
+
+                yield MessageUpdate(
+                    message=Message(role="assistant", content=content_acc),
+                    chunk=chunk,
+                )
+
+                if signal is not None and signal.is_cancelled():
+                    cancelled = True
+                    break
+    except Exception as exc:
+        content_acc = (
+            f"{content_acc} (Error during model stream: {exc})"
+            if content_acc
+            else f"(Error during model stream: {exc})"
+        )
+        cancelled = True
+
+    if (
+        last_usage
+        and context_manager is not None
+        and hasattr(context_manager, "record_usage")
+    ):
+        with contextlib.suppress(Exception):
+            context_manager.record_usage(last_usage)
+
+    metadata: dict[str, Any] = {}
+    if final_tool_calls:
+        metadata["tool_calls"] = final_tool_calls
+    if cancelled:
+        metadata["stop_reason"] = "cancelled"
+
+    assistant = Message(
+        role="assistant",
+        content=content_acc,
+        metadata=metadata if metadata else None,
+    )
+    yield MessageStart(assistant)
+    yield MessageEnd(assistant)
+
+
+def _synthesize_interrupted_tool_calls(
+    tool_calls: Sequence[dict[str, Any]],
+) -> list[Message]:
+    """统一生成标准的中断工具结果，彻底消除多处代码重复。"""
+    return [
+        Message(
+            role="tool",
+            content=_INTERRUPTED_TOOL_RESULT,
+            metadata={"tool_call_id": tc.get("id", ""), "is_error": True},
+        )
+        for tc in tool_calls
+    ]
+
+
+async def _execute_tools_turn(
+    *,
+    tool_calls: Sequence[dict[str, Any]],
+    registry: ToolRegistry,
+    before_tool_call: (
+        Callable[[ToolCallDecision], Awaitable[HookResult | None] | HookResult | None]
+        | None
+    ) = None,
+    after_tool_call: (
+        Callable[[ToolResultDecision], Awaitable[HookResult | None] | HookResult | None]
+        | None
+    ) = None,
+    signal: CancellationToken | None = None,
+) -> AsyncIterator[AgentEvent]:
+    """专职工具执行车间：Preflight 广播 -> 审批改参 -> 并发执行 -> 结果改写 -> 结果广播。
+
+    严格遵循 Pi 时序契约：
+    1. Preflight 阶段：在调用 before_tool_call 审查与执行之前，率先按 source order 广播 ToolExecutionStart；
+    2. 审查阶段：调用 before_tool_call 审批与入参改写；
+    3. Execution 阶段：并发批量执行未阻断工具，若取消则合成中断结果；
+    4. Completion 阶段：按 source order 执行 after_tool_call 改写并广播 ToolExecutionEnd；
+    5. Message 阶段：按 source order 发射 role="tool" 的 MessageStart / MessageEnd。
+    """
+    # ── 阶段 A1: Preflight 广播（按 source order 先行发射 ToolExecutionStart）
+    parsed_calls: list[tuple[int, str, str, dict[str, Any], str | None]] = []
+    for idx, tc in enumerate(tool_calls):
+        tc_id = tc.get("id", "")
+        func = tc.get("function", {})
+        name = func.get("name", "")
+        raw_args = func.get("arguments", "{}")
+        try:
+            if isinstance(raw_args, str):
+                args = json.loads(raw_args)
+            elif isinstance(raw_args, dict):
+                args = raw_args
+            else:
+                args = raw_args or {}
+            err = None
+        except Exception as exc:
+            args = {}
+            err = f"Invalid JSON arguments for tool '{name}': {exc}"
+        parsed_calls.append((idx, tc_id, name, args, err))
+        yield ToolExecutionStart(tool_call_id=tc_id, tool_name=name, args=args)
+
+    # ── 阶段 A2: 前置审查与参数改写 (before_tool_call)
+    prepared_calls: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+    direct_results: dict[int, ToolResult] = {}
+
+    for idx, tc_id, name, args, err in parsed_calls:
+        tc = tool_calls[idx]
+        if err is not None:
+            direct_results[idx] = ToolResult(ok=False, error=err)
+            continue
+
+        if signal is not None and signal.is_cancelled():
+            direct_results[idx] = ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
+            continue
+
+        if before_tool_call is not None:
+            try:
+                decision = before_tool_call(
+                    ToolCallDecision(tool_call_id=tc_id, tool_name=name, args=args)
+                )
+                if inspect.isawaitable(decision):
+                    decision = await decision
+                if decision is not None:
+                    if decision.block:
+                        err = f"Tool '{name}' blocked: {decision.reason or 'blocked by policy'}"
+                    elif decision.updated_args is not None:
+                        args = decision.updated_args
+            except Exception as exc:
+                err = f"Error in before_tool_call for '{name}': {exc}"
+
+        if err is not None:
+            direct_results[idx] = ToolResult(ok=False, error=err)
+        else:
+            prepared_calls.append((idx, tc, args))
+
+    # ── 阶段 B: 并发执行与中途取消自愈
+    if signal is not None and signal.is_cancelled():
+        for idx, _, _ in prepared_calls:
+            direct_results[idx] = ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
+    elif prepared_calls:
+        calls_to_run = [
+            {
+                **tc,
+                "function": {
+                    **tc.get("function", {}),
+                    "arguments": json.dumps(args),
+                },
+            }
+            for _, tc, args in prepared_calls
+        ]
+        try:
+            batch_out = await registry.execute_batch(calls_to_run)
+            for (idx, _, _), res in zip(prepared_calls, batch_out, strict=False):
+                direct_results[idx] = res
+        except Exception as exc:
+            for idx, _, _ in prepared_calls:
+                direct_results[idx] = ToolResult(
+                    ok=False, error=f"Tool execution failed: {exc}"
+                )
+
+    # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
+    for idx, tc in enumerate(tool_calls):
+        tc_id = tc.get("id", "")
+        name = tc.get("function", {}).get("name", "")
+        res = direct_results.get(
+            idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
+        )
+        obs = res.serialize()
+        is_err = not res.ok
+
+        # 触发决策点 5: tool_result (after_tool_call 结果篡改)
+        if after_tool_call is not None and not (
+            signal is not None and signal.is_cancelled()
+        ):
+            try:
+                decision = after_tool_call(
+                    ToolResultDecision(
+                        tool_call_id=tc_id,
+                        tool_name=name,
+                        result=obs,
+                        is_error=is_err,
+                    )
+                )
+                if inspect.isawaitable(decision):
+                    decision = await decision
+                if decision is not None:
+                    if decision.block:
+                        obs = f"Tool '{name}' blocked: {decision.reason or 'blocked by policy'}"
+                        is_err = True
+                    elif decision.updated_result is not None:
+                        obs = decision.updated_result
+                        is_err = False
+            except Exception as exc:
+                obs = f"Error in after_tool_call for '{name}': {exc}"
+                is_err = True
+
+        yield ToolExecutionEnd(
+            tool_call_id=tc_id,
+            tool_name=name,
+            result=obs,
+            is_error=is_err,
+        )
+
+        # 产出配对的 Tool 消息并广播 Start/End
+        tool_msg = Message(
+            role="tool",
+            content=obs,
+            metadata={"tool_call_id": tc_id, "is_error": is_err},
+        )
+        yield MessageStart(tool_msg)
+        yield MessageEnd(tool_msg)
+
+
 async def run_agent_loop(
     *,
     llm: Any,
@@ -100,7 +382,7 @@ async def run_agent_loop(
     get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
     hook_registry: HookRegistry | None = None,
-) -> AsyncIterator[Event]:
+) -> AsyncIterator[Any]:
     """执行 ReAct 双层事件循环，逐一 yield 出生命周期事件。
 
     内层循环处理微观单任务 ReAct 工具调用与 steering 即时转向；
