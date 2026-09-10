@@ -68,8 +68,8 @@ def print_events(event) -> HookResult | None:
         print(f"\n[round {event.iteration}]")
     elif isinstance(event, MessageUpdate):
         # 流式 Token 打字机增量打印
-        if event.chunk and getattr(event.chunk, "delta", None):
-            sys.stdout.write(event.chunk.delta)
+        if event.chunk and getattr(event.chunk, "content", None):
+            sys.stdout.write(event.chunk.content)
             sys.stdout.flush()
     elif isinstance(event, ToolExecutionStart):
         print(f"\n  [Tool] {event.tool_name}({event.args})")

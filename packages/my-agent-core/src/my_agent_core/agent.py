@@ -270,7 +270,7 @@ class Agent:
                 def make_listener(cls, cb):
                     def listener(ev: Event):
                         if isinstance(ev, cls):
-                            cb(ev)
+                            return cb(ev)
 
                     return listener
 
