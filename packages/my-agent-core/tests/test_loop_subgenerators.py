@@ -16,10 +16,10 @@ from my_agent_core.events import (
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallDecision,
+    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
-    ToolResultDecision,
+    ToolResultHook,
 )
 from my_agent_core.loop import (
     _assistant_turn,
@@ -290,7 +290,7 @@ async def test_execute_tools_turn_pi_timing_and_blocking():
         },
     ]
 
-    async def guard(decision: ToolCallDecision):
+    async def guard(decision: ToolCallHook):
         if decision.args.get("text") == "blocked":
             return HookResult(block=True, reason="policy violation")
         return None
@@ -347,7 +347,7 @@ async def test_execute_tools_turn_preflight_timing_invariant():
 
     events_order = []
 
-    async def track_guard(_decision: ToolCallDecision):
+    async def track_guard(_decision: ToolCallHook):
         # When guard runs for ANY tool call, all ToolExecutionStart events MUST have already been emitted
         current_starts = [e for e in events_order if isinstance(e, ToolExecutionStart)]
         assert len(current_starts) == 2
@@ -383,10 +383,10 @@ async def test_execute_tools_turn_args_and_result_rewriting():
         },
     ]
 
-    async def rewrite_args(_decision: ToolCallDecision):
+    async def rewrite_args(_decision: ToolCallHook):
         return HookResult(updated_args={"name": "Bob"})
 
-    async def rewrite_result(decision: ToolResultDecision):
+    async def rewrite_result(decision: ToolResultHook):
         assert decision.result == "hello Bob"
         return HookResult(updated_result="welcome Bob")
 

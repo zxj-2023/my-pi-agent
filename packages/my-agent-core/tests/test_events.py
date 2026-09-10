@@ -1,11 +1,11 @@
-"""events.py 纯只读事件与五大决策拦截点离线单测。
+"""events.py 纯只读事件与五大 Hook 拦截点离线单测。
 
 验证：
 1. Event 及其所有子类均为纯粹不可变 (frozen) dataclass，携带只读 timestamp。
-2. 彻底移除 Interceptable 标记类，所有 Event 子类均无 Interceptable 继承痕迹。
-3. 五大专职 Decision 决策点均为独立不可变 dataclass，携带指定强类型属性。
+2. 彻底移除 Interceptable 标记类与 Decision 生造类，所有 Event 子类均无 Interceptable 继承痕迹。
+3. 五大专职 Hook 拦截点均为独立不可变 dataclass，携带指定强类型属性。
 4. TurnEnd 支持可空 message 及默认空列表 tool_results。
-5. DecisionRegistry（及 HookRegistry 别名）支持注册、注销、async/sync 混合调用、首个非 None 短路，以及 Never-Throw 异常捕获隔离。
+5. HookRegistry 支持注册、注销、async/sync 混合调用、首个非 None 短路，以及 Never-Throw 异常捕获隔离。
 """
 
 import asyncio
@@ -19,45 +19,53 @@ from my_agent_core.events import (
     AgentEnd,
     AgentEvent,
     AgentStart,
-    AgentStartDecision,
-    BeforeModelCallDecision,
+    AgentStartHook,
+    BeforeModelCallHook,
     ContextCompacted,
-    DecisionRegistry,
     Event,
     HookRegistry,
     HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallDecision,
+    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
     ToolExecutionUpdate,
-    ToolResultDecision,
+    ToolResultHook,
     ToolsChanged,
     TurnEnd,
     TurnStart,
-    UserInputDecision,
+    UserInputHook,
 )
 
 
-def test_interceptable_does_not_exist():
-    """Interceptable 标记类彻底移除，不存在于 events 模块中。"""
+def test_interceptable_and_decision_do_not_exist():
+    """验证架构彻底解耦：Interceptable 标记类与 Decision 生造类完全不存在。"""
     assert not hasattr(events_module, "Interceptable")
+    assert not hasattr(events_module, "DecisionRegistry")
+    assert not hasattr(events_module, "ToolCallDecision")
+    assert not hasattr(events_module, "ToolResultDecision")
+    assert not hasattr(events_module, "BeforeModelCallDecision")
+    assert not hasattr(events_module, "AgentStartDecision")
+    assert not hasattr(events_module, "UserInputDecision")
 
 
 def test_events_are_pure_frozen_dataclasses():
-    """Event 及其所有子类是纯粹 frozen dataclass，不可变且携带 timestamp。"""
+    """所有 Event 均为不可变 frozen dataclass，自动生成 timestamp 且不可篡改。"""
     ev = TurnStart(iteration=1)
     assert isinstance(ev, Event)
     assert hasattr(ev, "timestamp")
     assert isinstance(ev.timestamp, float)
+    assert ev.iteration == 1
+
+    # 验证不可变
     with pytest.raises(FrozenInstanceError):
         ev.iteration = 2  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_all_event_subclasses_frozen_with_timestamp():
-    """所有规范定义的事件均继承 Event、是 frozen dataclass 且包含 timestamp。"""
+    """全量覆盖 12 类 Event，验证它们都继承自 Event，带有只读 timestamp 且不可变。"""
     msg = Message(role="assistant", content="hello")
     all_event_instances: list[Event] = [
         AgentStart(system_prompt="sys", user_input="in"),
@@ -87,7 +95,9 @@ def test_all_event_subclasses_frozen_with_timestamp():
         assert isinstance(ev, Event), f"{cls.__name__} must inherit from Event"
         assert hasattr(ev, "timestamp"), f"{cls.__name__} must have timestamp"
         assert isinstance(ev.timestamp, float)
-        assert "timestamp" in [f.name for f in fields(cls)]
+        # 确保 timestamp 暴露在 dataclass fields 中以供静态类型发现
+        field_names = [f.name for f in fields(cls)]
+        assert "timestamp" in field_names, f"timestamp not in {cls.__name__} fields"
 
 
 def test_turn_end_nullable_message():
@@ -112,43 +122,43 @@ def test_agent_event_alias():
     assert AgentEvent is Event
 
 
-def test_decision_points_attributes_and_frozen():
-    """五大专职 Decision 决策点包含预期字段且为不可变 frozen dataclass，不继承 Event。"""
-    uid = UserInputDecision(input_text="hello")
+def test_hook_points_attributes_and_frozen():
+    """五大专职 Hook 拦截点包含预期字段且为不可变 frozen dataclass，不继承 Event。"""
+    uid = UserInputHook(input_text="hello")
     assert uid.input_text == "hello"
     assert is_dataclass(uid) and uid.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
     assert not isinstance(uid, Event)
     with pytest.raises(FrozenInstanceError):
         uid.input_text = "mutated"  # pyright: ignore[reportAttributeAccessIssue]
 
-    asd = AgentStartDecision(system_prompt="you are a helpful assistant")
-    assert asd.system_prompt == "you are a helpful assistant"
-    assert is_dataclass(asd) and asd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
-    assert not isinstance(asd, Event)
+    ash = AgentStartHook(system_prompt="you are a helpful assistant")
+    assert ash.system_prompt == "you are a helpful assistant"
+    assert is_dataclass(ash) and ash.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(ash, Event)
 
     msg = Message(role="user", content="ping")
-    bmcd = BeforeModelCallDecision(messages=[msg], iteration=2)
-    assert bmcd.messages == [msg]
-    assert bmcd.iteration == 2
-    assert is_dataclass(bmcd) and bmcd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
-    assert not isinstance(bmcd, Event)
+    bmch = BeforeModelCallHook(messages=[msg], iteration=2)
+    assert bmch.messages == [msg]
+    assert bmch.iteration == 2
+    assert is_dataclass(bmch) and bmch.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(bmch, Event)
 
-    tcd = ToolCallDecision(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"})
-    assert tcd.tool_call_id == "call_1"
-    assert tcd.tool_name == "bash"
-    assert tcd.args == {"cmd": "ls"}
-    assert is_dataclass(tcd) and tcd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
-    assert not isinstance(tcd, Event)
+    tch = ToolCallHook(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"})
+    assert tch.tool_call_id == "call_1"
+    assert tch.tool_name == "bash"
+    assert tch.args == {"cmd": "ls"}
+    assert is_dataclass(tch) and tch.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(tch, Event)
 
-    trd = ToolResultDecision(
+    trh = ToolResultHook(
         tool_call_id="call_1", tool_name="bash", result="output", is_error=False
     )
-    assert trd.tool_call_id == "call_1"
-    assert trd.tool_name == "bash"
-    assert trd.result == "output"
-    assert trd.is_error is False
-    assert is_dataclass(trd) and trd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
-    assert not isinstance(trd, Event)
+    assert trh.tool_call_id == "call_1"
+    assert trh.tool_name == "bash"
+    assert trh.result == "output"
+    assert trh.is_error is False
+    assert is_dataclass(trh) and trh.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(trh, Event)
 
 
 def test_hook_result_fields_and_defaults():
@@ -181,29 +191,24 @@ def test_hook_result_fields_and_defaults():
     assert hr_custom.updated_result == "new_res"
 
 
-def test_hook_registry_alias():
-    """HookRegistry 是 DecisionRegistry 的别名。"""
-    assert HookRegistry is DecisionRegistry
-
-
 @pytest.mark.anyio
-async def test_decision_registry_emit_and_short_circuit():
-    """DecisionRegistry 执行 handlers，遇到第一个非 None HookResult 立即短路并返回。"""
-    reg = DecisionRegistry()
+async def test_hook_registry_emit_and_short_circuit():
+    """HookRegistry 执行 handlers，遇到第一个非 None HookResult 立即短路并返回。"""
+    reg = HookRegistry()
     calls = []
 
-    async def guard(d: ToolCallDecision):
+    async def guard(d: ToolCallHook):
         calls.append(d.tool_name)
         return HookResult(block=True, reason="forbidden")
 
-    async def second_guard(_d: ToolCallDecision):
+    async def second_guard(_d: ToolCallHook):
         calls.append("should_not_run")
         return None
 
-    reg.register(ToolCallDecision, guard)
-    reg.register(ToolCallDecision, second_guard)
+    reg.register(ToolCallHook, guard)
+    reg.register(ToolCallHook, second_guard)
 
-    res = await reg.emit(ToolCallDecision(tool_call_id="1", tool_name="rm", args={}))
+    res = await reg.emit(ToolCallHook(tool_call_id="1", tool_name="rm", args={}))
     assert res is not None
     assert res.block is True
     assert res.reason == "forbidden"
@@ -211,71 +216,71 @@ async def test_decision_registry_emit_and_short_circuit():
 
 
 @pytest.mark.anyio
-async def test_decision_registry_sync_and_async_mix():
-    """DecisionRegistry 支持 sync 与 async 回调混用，全部返回 None 则 emit 返回 None。"""
-    reg = DecisionRegistry()
+async def test_hook_registry_sync_and_async_mix():
+    """HookRegistry 支持 sync 与 async 回调混用，全部返回 None 则 emit 返回 None。"""
+    reg = HookRegistry()
     calls = []
 
-    def sync_observer(d: UserInputDecision):
+    def sync_observer(d: UserInputHook):
         calls.append(f"sync:{d.input_text}")
         return None
 
-    async def async_observer(d: UserInputDecision):
+    async def async_observer(d: UserInputHook):
         await asyncio.sleep(0.001)
         calls.append(f"async:{d.input_text}")
         return None
 
-    reg.register(UserInputDecision, sync_observer)
-    reg.register(UserInputDecision, async_observer)
+    reg.register(UserInputHook, sync_observer)
+    reg.register(UserInputHook, async_observer)
 
-    res = await reg.emit(UserInputDecision(input_text="hello"))
+    res = await reg.emit(UserInputHook(input_text="hello"))
     assert res is None
     assert calls == ["sync:hello", "async:hello"]
 
 
 @pytest.mark.anyio
-async def test_decision_registry_unregister():
-    """DecisionRegistry.unregister 正常移除已注册回调。"""
-    reg = DecisionRegistry()
+async def test_hook_registry_unregister():
+    """HookRegistry.unregister 正常移除已注册回调。"""
+    reg = HookRegistry()
     calls = []
 
-    def hook(_d: AgentStartDecision):
+    def hook(_d: AgentStartHook):
         calls.append("called")
         return HookResult(block=True)
 
-    reg.register(AgentStartDecision, hook)
-    reg.unregister(AgentStartDecision, hook)
+    reg.register(AgentStartHook, hook)
+    reg.unregister(AgentStartHook, hook)
 
-    res = await reg.emit(AgentStartDecision(system_prompt="sys"))
+    res = await reg.emit(AgentStartHook(system_prompt="sys"))
     assert res is None
     assert calls == []
 
 
 @pytest.mark.anyio
-async def test_decision_registry_never_throw_guarantee():
-    """DecisionRegistry 严格保证 Never-Throw：回调抛出异常时不向外抛，捕获后继续执行后续回调。"""
-    reg = DecisionRegistry()
+async def test_hook_registry_never_throw_guarantee():
+    """HookRegistry 严格保证 Never-Throw：回调抛出异常时不向外抛，捕获后继续执行后续回调。"""
+    reg = HookRegistry()
     calls = []
 
-    def crashing_sync_hook(_d: ToolCallDecision):
+    def crashing_sync_hook(_d: ToolCallHook):
         calls.append("crashing_sync")
         raise RuntimeError("boom in sync hook")
 
-    async def crashing_async_hook(_d: ToolCallDecision):
+    async def crashing_async_hook(_d: ToolCallHook):
         calls.append("crashing_async")
         raise ValueError("boom in async hook")
 
-    async def successful_hook(_d: ToolCallDecision):
+    async def successful_hook(_d: ToolCallHook):
         calls.append("successful")
         return HookResult(block=True, reason="blocked after errors")
 
-    reg.register(ToolCallDecision, crashing_sync_hook)
-    reg.register(ToolCallDecision, crashing_async_hook)
-    reg.register(ToolCallDecision, successful_hook)
+    reg.register(ToolCallHook, crashing_sync_hook)
+    reg.register(ToolCallHook, crashing_async_hook)
+    reg.register(ToolCallHook, successful_hook)
 
     # 绝不能抛出异常
     res = await reg.emit(
-        ToolCallDecision(tool_call_id="call_x", tool_name="bash", args={})
+        ToolCallHook(tool_call_id="call_x", tool_name="bash", args={})
     )
     assert res is not None
     assert res.block is True
@@ -284,17 +289,17 @@ async def test_decision_registry_never_throw_guarantee():
 
 
 @pytest.mark.anyio
-async def test_decision_registry_never_throw_all_fail():
-    """当所有回调均抛异常时，DecisionRegistry.emit 返回 None 且不抛出异常。"""
-    reg = DecisionRegistry()
+async def test_hook_registry_never_throw_all_fail():
+    """当所有回调均抛异常时，HookRegistry.emit 返回 None 且不抛出异常。"""
+    reg = HookRegistry()
 
-    def crashing_hook(_d: ToolResultDecision):
+    def crashing_hook(_d: ToolResultHook):
         raise KeyError("missing key")
 
-    reg.register(ToolResultDecision, crashing_hook)
+    reg.register(ToolResultHook, crashing_hook)
 
     res = await reg.emit(
-        ToolResultDecision(
+        ToolResultHook(
             tool_call_id="1", tool_name="bash", result="err", is_error=True
         )
     )

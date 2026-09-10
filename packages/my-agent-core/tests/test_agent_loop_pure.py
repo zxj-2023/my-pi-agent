@@ -18,16 +18,16 @@ from my_agent_llm import Message, Response, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCallDecision,
+    BeforeModelCallHook,
     HookRegistry,
     HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallDecision,
+    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
-    ToolResultDecision,
+    ToolResultHook,
     TurnEnd,
     TurnStart,
 )
@@ -465,11 +465,11 @@ async def test_run_agent_loop_provider_context_cleaning_in_loop():
 
 @pytest.mark.anyio
 async def test_run_agent_loop_before_model_call_blocking():
-    """验证 BeforeModelCallDecision 拦截模型调用，严格产生成对的 TurnEnd(message=None, tool_results=[])。"""
+    """验证 BeforeModelCallHook 拦截模型调用，严格产生成对的 TurnEnd(message=None, tool_results=[])。"""
     llm = FakeLLM(responses=[_response(content="never called")])
     messages: list[Message] = []
 
-    async def block_model_call(_decision: BeforeModelCallDecision):
+    async def block_model_call(_decision: BeforeModelCallHook):
         return HookResult(block=True, reason="budget exceeded")
 
     events = []
@@ -543,11 +543,11 @@ async def test_run_agent_loop_callbacks_tool_rewriting():
         ]
     )
 
-    async def rewrite_tool_args(decision: ToolCallDecision) -> HookResult:
+    async def rewrite_tool_args(decision: ToolCallHook) -> HookResult:
         # a 从 2 改为 5
         return HookResult(updated_args={"a": 5, "b": decision.args["b"]})
 
-    async def rewrite_tool_result(decision: ToolResultDecision) -> HookResult:
+    async def rewrite_tool_result(decision: ToolResultHook) -> HookResult:
         return HookResult(updated_result=f"intercepted:{decision.result}")
 
     messages: list[Message] = []
@@ -578,10 +578,10 @@ async def test_run_agent_loop_hook_registry_fallback_adaptation():
     messages: list[Message] = []
     hooks = HookRegistry()
 
-    def block_model_call(_decision: BeforeModelCallDecision):
+    def block_model_call(_decision: BeforeModelCallHook):
         return HookResult(block=True, reason="hook_registry fallback block")
 
-    hooks.register(BeforeModelCallDecision, block_model_call)
+    hooks.register(BeforeModelCallHook, block_model_call)
 
     events = []
     async for ev in run_agent_loop(

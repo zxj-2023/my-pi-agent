@@ -1,9 +1,9 @@
-"""事件 dataclass 与专职决策拦截点契约 —— Agent 循环生命周期只读广播与拦截干预。
+"""事件 dataclass 与专职 Hook 拦截点契约 —— Agent 循环生命周期只读广播与拦截干预。
 
 架构设计（对齐 Pi 架构）：
 1. 纯只读事实流（Event / AgentEvent）：单向广播，不可变 (frozen)，带 timestamp，绝无 Interceptable 标记或返回值。
-2. 五大独立决策拦截点契约（DecisionPoint）：独立于 Event，专职控制流拦截与参数改写。
-3. DecisionRegistry（别名 HookRegistry）：负责决策点的注册、注销、async/sync 混合调用及 Never-Throw 异常捕获隔离。
+2. 五大独立 Hook 拦截点契约（*Hook）：独立于 Event，专职控制流拦截与参数改写。
+3. HookRegistry：负责拦截钩子的注册、注销、async/sync 混合调用及 Never-Throw 异常捕获隔离。
 """
 
 from __future__ import annotations
@@ -192,11 +192,6 @@ class ToolResultHook:
 # 别名兼容
 UserInput = UserInputHook
 BeforeModelCall = BeforeModelCallHook
-UserInputDecision = UserInputHook
-AgentStartDecision = AgentStartHook
-BeforeModelCallDecision = BeforeModelCallHook
-ToolCallDecision = ToolCallHook
-ToolResultDecision = ToolResultHook
 
 
 @dataclass(frozen=True)
@@ -263,6 +258,3 @@ class HookRegistry:
                     exc_info=True,
                 )
         return None
-
-
-DecisionRegistry = HookRegistry

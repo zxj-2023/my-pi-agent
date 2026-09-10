@@ -88,7 +88,8 @@ def _provider_context(messages: Sequence[Message]) -> list[Message]:
         if not (
             m.role == "assistant"
             and bool(
-                m.metadata and m.metadata.get("stop_reason") in {"error", "aborted"}
+                m.metadata
+                and m.metadata.get("stop_reason") in {"error", "aborted", "cancelled"}
             )
             and not m.content
         )
@@ -133,6 +134,11 @@ async def _stream_llm(
             )
 
 
+def _is_signal_cancelled(signal: CancellationToken | None) -> bool:
+    """安全检查取消信号。"""
+    return signal.is_cancelled() if signal is not None else False
+
+
 async def _assistant_turn(
     *,
     llm: Any,
@@ -170,12 +176,16 @@ async def _assistant_turn(
                     cancelled = True
                     break
     except Exception as exc:
-        content_acc = (
-            f"{content_acc} (Error during model stream: {exc})"
-            if content_acc
-            else str(exc)
-        )
-        error_occurred = True
+        if _is_signal_cancelled(signal):
+            cancelled = True
+        else:
+            err_msg = str(exc)
+            content_acc = (
+                f"{content_acc} (Error during model stream: {err_msg})"
+                if content_acc
+                else err_msg
+            )
+            error_occurred = True
 
     if (
         last_usage
@@ -253,7 +263,13 @@ async def _execute_tools_turn(
                 args = raw_args
             else:
                 args = raw_args or {}
-            err = None
+            if not isinstance(args, dict):
+                err = (
+                    f"Tool arguments must be a JSON object, got {type(args).__name__}"
+                )
+                args = {}
+            else:
+                err = None
         except Exception as exc:
             args = {}
             err = f"Invalid JSON arguments for tool '{name}': {exc}"
@@ -428,17 +444,9 @@ async def run_agent_loop(
     if _before_tool_call is None and hook_registry is not None:
 
         async def _fallback_before_tool(
-            decision: ToolCallHook,
+            hook_payload: ToolCallHook,
         ) -> HookResult | None:
-            res = await hook_registry.emit(decision)
-            if res is not None:
-                return res
-            compat_ev = ToolExecutionStart(
-                tool_call_id=decision.tool_call_id,
-                tool_name=decision.tool_name,
-                args=decision.args,
-            )
-            return await hook_registry.emit(compat_ev)
+            return await hook_registry.emit(hook_payload)
 
         _before_tool_call = _fallback_before_tool
 
@@ -446,18 +454,9 @@ async def run_agent_loop(
     if _after_tool_call is None and hook_registry is not None:
 
         async def _fallback_after_tool(
-            decision: ToolResultHook,
+            hook_payload: ToolResultHook,
         ) -> HookResult | None:
-            res = await hook_registry.emit(decision)
-            if res is not None:
-                return res
-            compat_ev = ToolExecutionEnd(
-                tool_call_id=decision.tool_call_id,
-                tool_name=decision.tool_name,
-                result=decision.result,
-                is_error=decision.is_error,
-            )
-            return await hook_registry.emit(compat_ev)
+            return await hook_registry.emit(hook_payload)
 
         _after_tool_call = _fallback_after_tool
 
@@ -575,9 +574,7 @@ async def run_agent_loop(
             if _before_model_call is not None:
                 try:
                     decision = _before_model_call(
-                        BeforeModelCallHook(
-                            messages=list(view), iteration=iteration
-                        )
+                        BeforeModelCallHook(messages=list(view), iteration=iteration)
                     )
                     if inspect.isawaitable(decision):
                         decision = await decision

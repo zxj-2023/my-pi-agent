@@ -112,7 +112,6 @@ class Agent:
         self._current_signal: CancellationToken | None = None
         self._subscribers: list[Callable[[Event], Any]] = []
         self.hooks = HookRegistry()
-        self.decisions = self.hooks  # 兼容别名
         self.registry = ToolRegistry()
         self.plugin_manager = PluginManager(plugin_dirs)
         self.skill_manager = SkillManager(
@@ -276,7 +275,7 @@ class Agent:
 
                 self.subscribe(make_listener(target, callback))
             else:
-                self.decisions.register(target, callback)
+                self.hooks.register(target, callback)
 
     # ── 公共 API ────────────────────────────────────────────
 
@@ -509,5 +508,5 @@ class Agent:
                         await res
 
     async def _emit(self, event: Any) -> HookResult | None:
-        """触发决策的所有 hook（委托 decisions.emit）。"""
-        return await self.decisions.emit(event)
+        """触发 hook 回调（委托 hooks.emit）。"""
+        return await self.hooks.emit(event)

@@ -14,20 +14,20 @@ from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    AgentStartDecision,
-    BeforeModelCallDecision,
+    AgentStartHook,
+    BeforeModelCallHook,
     Event,
     HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallDecision,
+    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
-    ToolResultDecision,
+    ToolResultHook,
     TurnEnd,
     TurnStart,
-    UserInputDecision,
+    UserInputHook,
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
@@ -275,7 +275,7 @@ async def test_agent_multiple_runs_and_reset():
 
 @pytest.mark.anyio
 async def test_hook_blocks_tool():
-    """ToolCallDecision hook 返回 block → 工具未执行，tool 消息含 blocked（#7）。"""
+    """ToolCallHook hook 返回 block → 工具未执行，tool 消息含 blocked（#7）。"""
     tc = [
         {
             "id": "1",
@@ -286,8 +286,8 @@ async def test_hook_blocks_tool():
     called = []
     llm = FakeLLM([_response(tool_calls=tc), _response(content="blocked ok")])
 
-    def guard(decision: ToolCallDecision):
-        if isinstance(decision, ToolCallDecision):
+    def guard(hook: ToolCallHook):
+        if isinstance(hook, ToolCallHook):
             return HookResult(block=True, reason="no way")
         return None
 
@@ -296,7 +296,7 @@ async def test_hook_blocks_tool():
         return a * b
 
     probe_tool = tool(probe)
-    agent = _agent(llm, tools=[probe_tool], hooks=[(ToolCallDecision, guard)])
+    agent = _agent(llm, tools=[probe_tool], hooks=[(ToolCallHook, guard)])
     answer = await agent.run("compute")
     assert answer == "blocked ok"
     assert called == []  # 工具未执行
@@ -306,7 +306,7 @@ async def test_hook_blocks_tool():
 
 @pytest.mark.anyio
 async def test_hook_rewrites_args():
-    """ToolCallDecision hook 返回 updated_args → 工具收到改写值（#8）。"""
+    """ToolCallHook hook 返回 updated_args → 工具收到改写值（#8）。"""
     tc = [
         {
             "id": "1",
@@ -316,14 +316,14 @@ async def test_hook_rewrites_args():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
-    def rewrite(decision: ToolCallDecision):
-        if isinstance(decision, ToolCallDecision):
+    def rewrite(hook: ToolCallHook):
+        if isinstance(hook, ToolCallHook):
             return HookResult(
-                updated_args={"a": decision.args["a"] * 10, "b": decision.args["b"]}
+                updated_args={"a": hook.args["a"] * 10, "b": hook.args["b"]}
             )
         return None
 
-    agent = _agent(llm, hooks=[(ToolCallDecision, rewrite)])
+    agent = _agent(llm, hooks=[(ToolCallHook, rewrite)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
@@ -331,7 +331,7 @@ async def test_hook_rewrites_args():
 
 @pytest.mark.anyio
 async def test_hook_rewrites_result():
-    """ToolResultDecision hook 返回 updated_result → transcript 中是改写后的文本（#9）。"""
+    """ToolResultHook hook 返回 updated_result → transcript 中是改写后的文本（#9）。"""
     tc = [
         {
             "id": "1",
@@ -341,12 +341,12 @@ async def test_hook_rewrites_result():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
-    def rewrite(decision: ToolResultDecision):
-        if isinstance(decision, ToolResultDecision):
-            return HookResult(updated_result=f"[{decision.result}]")
+    def rewrite(hook: ToolResultHook):
+        if isinstance(hook, ToolResultHook):
+            return HookResult(updated_result=f"[{hook.result}]")
         return None
 
-    agent = _agent(llm, hooks=[(ToolResultDecision, rewrite)])
+    agent = _agent(llm, hooks=[(ToolResultHook, rewrite)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "[6]"
@@ -354,7 +354,7 @@ async def test_hook_rewrites_result():
 
 @pytest.mark.anyio
 async def test_hook_exception_does_not_crash_loop():
-    """ToolCallDecision 回调抛异常时不向外抛，保证 Never-Throw，工具正常执行或放行（#10）。"""
+    """ToolCallHook 回调抛异常时不向外抛，保证 Never-Throw，工具正常执行或放行（#10）。"""
     tc = [
         {
             "id": "1",
@@ -364,10 +364,10 @@ async def test_hook_exception_does_not_crash_loop():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(decision: ToolCallDecision):
+    def boom(hook: ToolCallHook):
         raise ValueError("boom")
 
-    agent = _agent(llm, hooks=[(ToolCallDecision, boom)])
+    agent = _agent(llm, hooks=[(ToolCallHook, boom)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "6"
@@ -375,7 +375,7 @@ async def test_hook_exception_does_not_crash_loop():
 
 @pytest.mark.anyio
 async def test_tool_result_decision_exception_does_not_crash_loop():
-    """ToolResultDecision 回调抛异常时保证 Never-Throw，原始结果正常传递。"""
+    """ToolResultHook 回调抛异常时保证 Never-Throw，原始结果正常传递。"""
     tc = [
         {
             "id": "1",
@@ -385,10 +385,10 @@ async def test_tool_result_decision_exception_does_not_crash_loop():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(decision: ToolResultDecision):
+    def boom(hook: ToolResultHook):
         raise ValueError("end boom")
 
-    agent = _agent(llm, hooks=[(ToolResultDecision, boom)])
+    agent = _agent(llm, hooks=[(ToolResultHook, boom)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "6"
@@ -396,7 +396,7 @@ async def test_tool_result_decision_exception_does_not_crash_loop():
 
 @pytest.mark.anyio
 async def test_multiple_hooks_same_event():
-    """同一决策点挂多个 hook，按注册顺序触发，非 None 短路。"""
+    """同一拦截点挂多个 hook，按注册顺序触发，非 None 短路。"""
     tc = [
         {
             "id": "1",
@@ -407,23 +407,23 @@ async def test_multiple_hooks_same_event():
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
     order = []
 
-    def first(decision: ToolCallDecision):
+    def first(hook: ToolCallHook):
         order.append("first")
         return None  # 放行
 
-    def second(decision: ToolCallDecision):
+    def second(hook: ToolCallHook):
         order.append("second")
         return HookResult(updated_args={"a": 100, "b": 1})  # 短路
 
-    def third(decision: ToolCallDecision):
+    def third(hook: ToolCallHook):
         order.append("third")  # 不应被调用
 
     agent = _agent(
         llm,
         hooks=[
-            (ToolCallDecision, first),
-            (ToolCallDecision, second),
-            (ToolCallDecision, third),
+            (ToolCallHook, first),
+            (ToolCallHook, second),
+            (ToolCallHook, third),
         ],
     )
     await agent.run("compute")
@@ -501,15 +501,15 @@ async def test_agent_abort_cancels_and_discards_partial():
 
 @pytest.mark.anyio
 async def test_before_model_call_decision_block():
-    """BeforeModelCallDecision 返回 HookResult(block=True) 实时阻断模型调用并结束。"""
+    """BeforeModelCallHook 返回 HookResult(block=True) 实时阻断模型调用并结束。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="dangerous payload in stream")])
     agent = _agent(llm, session=session)
 
-    def guard_decision(decision: BeforeModelCallDecision):
+    def guard_decision(hook: BeforeModelCallHook):
         return HookResult(block=True, reason="Security alert")
 
-    agent.decisions.register(BeforeModelCallDecision, guard_decision)
+    agent.hooks.register(BeforeModelCallHook, guard_decision)
 
     result = await agent.run("danger test")
     assert result == "(blocked: Security alert)"
@@ -518,17 +518,17 @@ async def test_before_model_call_decision_block():
 
 @pytest.mark.anyio
 async def test_agent_user_input_hook_block():
-    """UserInputDecision Hook 返回 block=True 阻断输入，不写 Session 且不调大模型。"""
+    """UserInputHook Hook 返回 block=True 阻断输入，不写 Session 且不调大模型。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="should not be called")])
     agent = _agent(llm, session=session)
 
-    def guard_input(decision: UserInputDecision):
-        if "drop database" in decision.input_text:
+    def guard_input(hook: UserInputHook):
+        if "drop database" in hook.input_text:
             return HookResult(block=True, reason="SQL injection detected")
         return None
 
-    agent.decisions.register(UserInputDecision, guard_input)
+    agent.hooks.register(UserInputHook, guard_input)
 
     result = await agent.run("drop database now")
     assert result == "(blocked: SQL injection detected)"
@@ -540,17 +540,17 @@ async def test_agent_user_input_hook_block():
 
 @pytest.mark.anyio
 async def test_agent_user_input_hook_rewrite():
-    """UserInputDecision Hook 返回 updated_input 改写用户输入文本。"""
+    """UserInputHook Hook 返回 updated_input 改写用户输入文本。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="echo answer")])
     agent = _agent(llm, session=session)
 
-    def rewrite_input(decision: UserInputDecision):
-        if "foo" in decision.input_text:
-            return HookResult(updated_input=decision.input_text.replace("foo", "bar"))
+    def rewrite_input(hook: UserInputHook):
+        if "foo" in hook.input_text:
+            return HookResult(updated_input=hook.input_text.replace("foo", "bar"))
         return None
 
-    agent.decisions.register(UserInputDecision, rewrite_input)
+    agent.hooks.register(UserInputHook, rewrite_input)
 
     result = await agent.run("hello foo")
     assert result == "echo answer"
@@ -564,15 +564,15 @@ async def test_agent_user_input_hook_rewrite():
 
 @pytest.mark.anyio
 async def test_agent_agent_start_hook_rewrite_system_prompt():
-    """AgentStartDecision Hook 返回 updated_system_prompt 动态修改首条 system 消息。"""
+    """AgentStartHook Hook 返回 updated_system_prompt 动态修改首条 system 消息。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="persona answer")])
     agent = _agent(llm, session=session, system_prompt="Original Persona")
 
-    def customize_system(decision: AgentStartDecision):
+    def customize_system(hook: AgentStartHook):
         return HookResult(updated_system_prompt="Customized Super Persona")
 
-    agent.decisions.register(AgentStartDecision, customize_system)
+    agent.hooks.register(AgentStartHook, customize_system)
 
     result = await agent.run("who are you")
     assert result == "persona answer"
@@ -582,14 +582,14 @@ async def test_agent_agent_start_hook_rewrite_system_prompt():
 
 @pytest.mark.anyio
 async def test_agent_start_decision_block():
-    """AgentStartDecision 返回 block=True 阻断启动。"""
+    """AgentStartHook 返回 block=True 阻断启动。"""
     llm = FakeLLM([_response(content="should not run")])
     agent = _agent(llm, system_prompt="Original Persona")
 
-    def block_start(decision: AgentStartDecision):
+    def block_start(hook: AgentStartHook):
         return HookResult(block=True, reason="maintenance mode")
 
-    agent.decisions.register(AgentStartDecision, block_start)
+    agent.hooks.register(AgentStartHook, block_start)
 
     result = await agent.run("hi")
     assert result == "(blocked: maintenance mode)"
@@ -598,16 +598,16 @@ async def test_agent_start_decision_block():
 
 @pytest.mark.anyio
 async def test_agent_before_model_call_hook_temporary_view_rewrite():
-    """BeforeModelCallDecision Hook 临时向 view 注入提醒，但 self.messages 与 Session 保持零污染。"""
+    """BeforeModelCallHook Hook 临时向 view 注入提醒，但 self.messages 与 Session 保持零污染。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="model response")])
     agent = _agent(llm, session=session)
 
-    def inject_ephemeral(decision: BeforeModelCallDecision):
+    def inject_ephemeral(hook: BeforeModelCallHook):
         ephemeral = Message(role="user", content="[EPHEMERAL REMINDER: BE CONCISE]")
-        return HookResult(updated_messages=list(decision.messages) + [ephemeral])
+        return HookResult(updated_messages=list(hook.messages) + [ephemeral])
 
-    agent.decisions.register(BeforeModelCallDecision, inject_ephemeral)
+    agent.hooks.register(BeforeModelCallHook, inject_ephemeral)
 
     result = await agent.run("do something")
     assert result == "model response"

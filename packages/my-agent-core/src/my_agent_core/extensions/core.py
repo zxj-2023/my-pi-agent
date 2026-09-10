@@ -32,7 +32,7 @@ class ExtensionAPI:
         self._commands: dict[str, CommandHandler] = {}
         self._descriptions: dict[str, str] = {}
 
-    # ── 事件订阅 / 决策注册（支持 @api.on 作装饰器）────────
+    # ── 事件订阅 / Hook 拦截注册（支持 @api.on 作装饰器）────────
 
     @overload
     def on(
@@ -43,11 +43,11 @@ class ExtensionAPI:
     def on(self, target: type, handler: Callable[..., Any]) -> None: ...
 
     def on(self, target: type, handler: Callable[..., Any] | None = None) -> Any:
-        """注册事件订阅（Event 只读监听）或决策点回调（Decision 拦截干预）。
+        """注册只读事件订阅（Event 监听）或双向 Hook 拦截点回调（Hook 拦截干预）。
 
         handler 签名统一为 (payload, api)。
         - 若 target 是 Event 子类：注册至 agent.subscribe() 作为只读通知，忽略返回值；
-        - 否则：注册至 agent.decisions.register()，可返回 HookResult 进行干预。
+        - 否则：注册至 agent.hooks.register()，可返回 HookResult 进行干预。
         """
 
         def _register(h: Callable[..., Any]) -> Callable[..., Any]:
@@ -61,16 +61,16 @@ class ExtensionAPI:
             else:
                 if inspect.iscoroutinefunction(h):
 
-                    async def wrapped_async(decision: Any) -> Any:
-                        return await h(decision, self)
+                    async def wrapped_async(hook_payload: Any) -> Any:
+                        return await h(hook_payload, self)
 
-                    self.agent.decisions.register(target, wrapped_async)
+                    self.agent.hooks.register(target, wrapped_async)
                 else:
 
-                    def wrapped_sync(decision: Any) -> Any:
-                        return h(decision, self)
+                    def wrapped_sync(hook_payload: Any) -> Any:
+                        return h(hook_payload, self)
 
-                    self.agent.decisions.register(target, wrapped_sync)
+                    self.agent.hooks.register(target, wrapped_sync)
             return h
 
         if handler is not None:
