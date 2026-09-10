@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import inspect
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
@@ -17,10 +18,9 @@ from my_agent_llm import Message, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCall,
+    BeforeModelCallDecision,
     ContextCompacted,
     Event,
-    HookRegistry,
     HookResult,
     MessageEnd,
     MessageStart,
@@ -38,6 +38,8 @@ from my_agent_core.tool_history import (
     repair_tool_history,
 )
 from my_agent_core.tools import ToolResult
+
+logger = logging.getLogger(__name__)
 
 # 事件类型别名，对齐规范
 AgentEvent = Event
@@ -238,7 +240,7 @@ async def _execute_tools_turn(
     parsed_calls: list[tuple[int, str, str, dict[str, Any], str | None]] = []
     for idx, tc in enumerate(tool_calls):
         tc_id = tc.get("id", "")
-        func = tc.get("function", {})
+        func = tc.get("function") or {}
         name = func.get("name", "")
         raw_args = func.get("arguments", "{}")
         try:
@@ -298,7 +300,7 @@ async def _execute_tools_turn(
             {
                 **tc,
                 "function": {
-                    **tc.get("function", {}),
+                    **(tc.get("function") or {}),
                     "arguments": json.dumps(args),
                 },
             }
@@ -317,7 +319,8 @@ async def _execute_tools_turn(
     # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
     for idx, tc in enumerate(tool_calls):
         tc_id = tc.get("id", "")
-        name = tc.get("function", {}).get("name", "")
+        func = tc.get("function") or {}
+        name = func.get("name", "")
         res = direct_results.get(
             idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
         )
@@ -381,35 +384,81 @@ async def run_agent_loop(
     signal: CancellationToken | None = None,
     get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
-    hook_registry: HookRegistry | None = None,
-) -> AsyncIterator[Any]:
-    """执行 ReAct 双层事件循环，逐一 yield 出生命周期事件。
-
-    内层循环处理微观单任务 ReAct 工具调用与 steering 即时转向；
-    外层循环处理宏观 follow-up 任务收割。
-    """
+    before_model_call: (
+        Callable[[BeforeModelCallDecision], Awaitable[HookResult | None] | HookResult | None]
+        | None
+    ) = None,
+    before_tool_call: (
+        Callable[[ToolCallDecision], Awaitable[HookResult | None] | HookResult | None]
+        | None
+    ) = None,
+    after_tool_call: (
+        Callable[[ToolResultDecision], Awaitable[HookResult | None] | HookResult | None]
+        | None
+    ) = None,
+    hook_registry: Any = None,  # optional fallback for smooth transition with agent.py
+) -> AsyncIterator[AgentEvent]:
+    """对标 Tau 的极简纯函数异步微内核，主状态机约 110 行。"""
     if isinstance(tools, ToolRegistry):
         registry = tools
-    elif isinstance(tools, (list, tuple)):
+    elif isinstance(tools, (list, tuple, Sequence)):
         registry = ToolRegistry()
         for t in tools:
             registry.register(t)
     else:
         registry = ToolRegistry()
 
+    # 向后兼容 hook_registry 降级适配
+    _before_model_call = before_model_call
+    if _before_model_call is None and hook_registry is not None:
+        async def _fallback_before_model(
+            decision: BeforeModelCallDecision,
+        ) -> HookResult | None:
+            return await hook_registry.emit(decision)
+
+        _before_model_call = _fallback_before_model
+
+    _before_tool_call = before_tool_call
+    if _before_tool_call is None and hook_registry is not None:
+        async def _fallback_before_tool(decision: ToolCallDecision) -> HookResult | None:
+            res = await hook_registry.emit(decision)
+            if res is not None:
+                return res
+            compat_ev = ToolExecutionStart(
+                tool_call_id=decision.tool_call_id,
+                tool_name=decision.tool_name,
+                args=decision.args,
+            )
+            return await hook_registry.emit(compat_ev)
+
+        _before_tool_call = _fallback_before_tool
+
+    _after_tool_call = after_tool_call
+    if _after_tool_call is None and hook_registry is not None:
+        async def _fallback_after_tool(decision: ToolResultDecision) -> HookResult | None:
+            res = await hook_registry.emit(decision)
+            if res is not None:
+                return res
+            compat_ev = ToolExecutionEnd(
+                tool_call_id=decision.tool_call_id,
+                tool_name=decision.tool_name,
+                result=decision.result,
+                is_error=decision.is_error,
+            )
+            return await hook_registry.emit(compat_ev)
+
+        _after_tool_call = _fallback_after_tool
+
     effective_max = max_turns if max_turns is not None else max_iterations
 
     # 初始化协作取消检查
     if signal is not None and signal.is_cancelled():
-        end_ev = AgentEnd(
+        yield AgentEnd(
             messages=list(messages),
             final_text=None,
             iterations=0,
             stop_reason="cancelled",
         )
-        yield end_ev
-        if hook_registry is not None:
-            await hook_registry.emit(end_ev)
         return
 
     # system prompt 初始化
@@ -438,475 +487,196 @@ async def run_agent_loop(
                 user_input = m.content
                 break
 
-    # 派发 AgentStart
-    start_event = AgentStart(system_prompt=system, user_input=user_input)
-    yield start_event
-    if hook_registry is not None:
-        start_hook = await hook_registry.emit(start_event)
-        if isinstance(start_hook, HookResult):
-            if start_hook.block:
-                reason = f": {start_hook.reason}" if start_hook.reason else ""
-                end_ev = AgentEnd(
-                    messages=list(messages),
-                    final_text=f"(blocked{reason})",
-                    iterations=0,
-                    stop_reason="blocked",
-                )
-                yield end_ev
-                await hook_registry.emit(end_ev)
-                return
-            if start_hook.updated_system_prompt is not None:
-                system = start_hook.updated_system_prompt
-                if messages and messages[0].role == "system":
-                    messages[0] = Message(role="system", content=system)
-                else:
-                    messages.insert(0, Message(role="system", content=system))
-
-    # 将初始 prompts 注入 messages 并派发消息事件
+    # 1. 注入初始 prompts 并发射事件
+    yield AgentStart(system_prompt=system, user_input=user_input)
     for p_msg in converted_prompts:
         messages.append(p_msg)
-        s_ev = MessageStart(p_msg)
-        yield s_ev
-        if hook_registry is not None:
-            await hook_registry.emit(s_ev)
-        e_ev = MessageEnd(p_msg)
-        yield e_ev
-        if hook_registry is not None:
-            await hook_registry.emit(e_ev)
+        yield MessageStart(p_msg)
+        yield MessageEnd(p_msg)
 
+    iteration = 0
+    final_text: str | None = None
     pending_messages: list[Message] = []
     if get_steering_messages is not None:
         init_steer = get_steering_messages()
         if init_steer:
             pending_messages.extend(
                 [
-                    Message(role="user", content=m) if isinstance(m, str) else m
+                    m if isinstance(m, Message) else Message(role="user", content=m)
                     for m in init_steer
                 ]
             )
 
-    iteration = 0
-    final_text: str | None = None
-
-    # ══════════════════════════════════════════════════════════════
-    # 【外层循环】：处理 Follow-up 宏观任务衔接
-    # ══════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════
+    # 【外层循环】：Follow-up 宏观任务接力
+    # ══════════════════════════════════════════════════════════
     while True:
-        has_more_tool_calls = True
+        has_more_tools = True
 
-        # ──────────────────────────────────────────────────────────
-        # 【内层循环】：处理单任务的 ReAct 迭代与 Steer 即时转向
-        # ──────────────────────────────────────────────────────────
-        while has_more_tool_calls or len(pending_messages) > 0:
+        # ──────────────────────────────────────────────────────
+        # 【内层循环】：微观 ReAct 迭代与 Steer 即时转向
+        # ──────────────────────────────────────────────────────
+        while has_more_tools or pending_messages:
             iteration += 1
 
-            if signal is not None and signal.is_cancelled():
-                end_ev = AgentEnd(
-                    messages=list(messages),
-                    final_text=final_text,
-                    iterations=iteration,
-                    stop_reason="cancelled",
-                )
-                yield end_ev
-                if hook_registry is not None:
-                    await hook_registry.emit(end_ev)
-                return
+            # 轮次开端：先注入并清空 pending_messages (Steering)
+            if pending_messages:
+                for p_msg in pending_messages:
+                    messages.append(p_msg)
+                    yield MessageStart(p_msg)
+                    yield MessageEnd(p_msg)
+                pending_messages = []
 
+            # 检查最大轮次熔断截断
             if effective_max is not None and iteration > effective_max:
-                end_ev = AgentEnd(
+                yield AgentEnd(
                     messages=list(messages),
                     final_text=final_text,
                     iterations=iteration,
                     stop_reason="max_iterations",
                 )
-                yield end_ev
-                if hook_registry is not None:
-                    await hook_registry.emit(end_ev)
                 return
 
-            turn_start_ev = TurnStart(iteration)
-            yield turn_start_ev
-            if hook_registry is not None:
-                await hook_registry.emit(turn_start_ev)
-
-            # Turn 起始点注入 pending 消息
-            if pending_messages:
-                for p_msg in pending_messages:
-                    messages.append(p_msg)
-                    s_ev = MessageStart(p_msg)
-                    yield s_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(s_ev)
-                    e_ev = MessageEnd(p_msg)
-                    yield e_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(e_ev)
-                pending_messages = []
+            yield TurnStart(iteration)
 
             # 前置清洗与上下文准备
             clean_messages = _provider_context(messages)
-            if context_manager is not None:
-                view = await context_manager.prepare(clean_messages)
-            else:
-                view = clean_messages
+            view = (
+                await context_manager.prepare(clean_messages)
+                if context_manager
+                else clean_messages
+            )
 
-            # 决策点: BeforeModelCall
-            before_call_ev = BeforeModelCall(messages=list(view), iteration=iteration)
-            yield before_call_ev
-            if hook_registry is not None:
-                ctx_hook = await hook_registry.emit(before_call_ev)
-                if isinstance(ctx_hook, HookResult):
-                    if ctx_hook.block:
-                        reason = f": {ctx_hook.reason}" if ctx_hook.reason else ""
-                        end_ev = AgentEnd(
-                            messages=list(messages),
-                            final_text=f"(blocked{reason})",
-                            iterations=iteration,
-                            stop_reason="blocked",
-                        )
-                        yield end_ev
-                        await hook_registry.emit(end_ev)
-                        return
-                    if ctx_hook.updated_messages is not None:
-                        view = ctx_hook.updated_messages
-
-            # 驱动 LLM 调用与流式捕获
-            tool_schemas = registry.get_schemas()
-            content_acc = ""
-            final_tool_calls = None
-            last_usage = None
-            cancelled = False
-
-            if hasattr(llm, "achat_stream"):
-                stream = llm.achat_stream(
-                    messages=view, tools=tool_schemas, model=model
-                )
-                async for chunk in stream:
-                    if chunk.content:
-                        content_acc += chunk.content
-                    if getattr(chunk, "tool_calls", None):
-                        final_tool_calls = chunk.tool_calls
-                    if getattr(chunk, "usage", None):
-                        last_usage = chunk.usage
-
-                    if signal is not None and signal.is_cancelled():
-                        cancelled = True
-                        break
-
-                    update_ev = MessageUpdate(
-                        message=Message(role="assistant", content=content_acc),
-                        chunk=chunk,
-                    )
-                    yield update_ev
-                    if hook_registry is not None:
-                        hook = await hook_registry.emit(update_ev)
-                        if isinstance(hook, HookResult) and hook.block:
-                            cancelled = True
-                            break
-                    if signal is not None and signal.is_cancelled():
-                        cancelled = True
-                        break
-            elif hasattr(llm, "achat"):
-                resp = await llm.achat(messages=view, tools=tool_schemas, model=model)
-                content_acc = resp.content or ""
-                final_tool_calls = resp.tool_calls
-                last_usage = resp.usage
-                chunk = StreamChunk(
-                    content=content_acc,
-                    tool_calls=final_tool_calls,
-                    usage=last_usage,
-                )
-                update_ev = MessageUpdate(
-                    message=Message(role="assistant", content=content_acc),
-                    chunk=chunk,
-                )
-                yield update_ev
-                if hook_registry is not None:
-                    hook = await hook_registry.emit(update_ev)
-                    if isinstance(hook, HookResult) and hook.block:
-                        cancelled = True
-                if signal is not None and signal.is_cancelled():
-                    cancelled = True
-            else:
-                resp = llm.chat(messages=view, tools=tool_schemas, model=model)
-                content_acc = resp.content or ""
-                final_tool_calls = resp.tool_calls
-                last_usage = resp.usage
-                chunk = StreamChunk(
-                    content=content_acc,
-                    tool_calls=final_tool_calls,
-                    usage=last_usage,
-                )
-                update_ev = MessageUpdate(
-                    message=Message(role="assistant", content=content_acc),
-                    chunk=chunk,
-                )
-                yield update_ev
-                if hook_registry is not None:
-                    hook = await hook_registry.emit(update_ev)
-                    if isinstance(hook, HookResult) and hook.block:
-                        cancelled = True
-                if signal is not None and signal.is_cancelled():
-                    cancelled = True
-
-            # 中途取消处理与断头补齐
-            if cancelled or (signal is not None and signal.is_cancelled()):
-                if final_tool_calls:
-                    assistant = Message(
-                        role="assistant",
-                        content=content_acc,
-                        metadata={"tool_calls": final_tool_calls},
-                    )
-                    messages.append(assistant)
-                    s_ev = MessageStart(assistant)
-                    yield s_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(s_ev)
-                    e_ev = MessageEnd(assistant)
-                    yield e_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(e_ev)
-
-                    for tc in final_tool_calls:
-                        synth = Message(
-                            role="tool",
-                            content=_INTERRUPTED_TOOL_RESULT,
-                            metadata={"tool_call_id": tc["id"], "is_error": True},
-                        )
-                        messages.append(synth)
-                        s_ev = MessageStart(synth)
-                        yield s_ev
-                        if hook_registry is not None:
-                            await hook_registry.emit(s_ev)
-                        e_ev = MessageEnd(synth)
-                        yield e_ev
-                        if hook_registry is not None:
-                            await hook_registry.emit(e_ev)
-
-                end_ev = AgentEnd(
-                    messages=list(messages),
-                    final_text=None,
-                    iterations=iteration,
-                    stop_reason="cancelled",
-                )
-                yield end_ev
-                if hook_registry is not None:
-                    await hook_registry.emit(end_ev)
-                return
-
-            if (
-                last_usage
-                and context_manager is not None
-                and hasattr(context_manager, "record_usage")
-            ):
-                context_manager.record_usage(last_usage)
-
+            # 派发上下文压缩事件（若触发了 L4/L2 压缩）
             if (
                 context_manager is not None
                 and getattr(context_manager, "pending_compaction", None) is not None
             ):
                 info = context_manager.pending_compaction
-                compact_ev = ContextCompacted(
+                yield ContextCompacted(
                     tokens_before=info.tokens_before,
                     tokens_after=info.tokens_after,
                     summarized_count=info.summarized_count,
                 )
-                yield compact_ev
-                if hook_registry is not None:
-                    await hook_registry.emit(compact_ev)
 
-            assistant = Message(
-                role="assistant",
-                content=content_acc,
-                metadata={"tool_calls": final_tool_calls} if final_tool_calls else None,
-            )
-            messages.append(assistant)
-            s_ev = MessageStart(assistant)
-            yield s_ev
-            if hook_registry is not None:
-                await hook_registry.emit(s_ev)
-            e_ev = MessageEnd(assistant)
-            yield e_ev
-            if hook_registry is not None:
-                await hook_registry.emit(e_ev)
-
-            # 工具执行阶段
-            if final_tool_calls:
-                if signal is not None and signal.is_cancelled():
-                    for tc in final_tool_calls:
-                        synth = Message(
-                            role="tool",
-                            content=_INTERRUPTED_TOOL_RESULT,
-                            metadata={"tool_call_id": tc["id"], "is_error": True},
+            # 决策点 3: BeforeModelCall (context 审查)
+            if _before_model_call is not None:
+                try:
+                    decision = _before_model_call(
+                        BeforeModelCallDecision(
+                            messages=list(view), iteration=iteration
                         )
-                        messages.append(synth)
-                        s_ev = MessageStart(synth)
-                        yield s_ev
-                        if hook_registry is not None:
-                            await hook_registry.emit(s_ev)
-                        e_ev = MessageEnd(synth)
-                        yield e_ev
-                        if hook_registry is not None:
-                            await hook_registry.emit(e_ev)
-
-                    end_ev = AgentEnd(
-                        messages=list(messages),
-                        final_text=None,
-                        iterations=iteration,
-                        stop_reason="cancelled",
                     )
-                    yield end_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(end_ev)
-                    return
-
-                tool_call_dicts = final_tool_calls
-                prepared_calls: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
-                direct_observations: dict[int, ToolResult] = {}
-
-                for idx, tc in enumerate(tool_call_dicts):
-                    tc_id = tc.get("id", "")
-                    func = tc.get("function", {})
-                    name = func.get("name", "")
-                    raw_args = func.get("arguments", "{}")
-                    try:
-                        if isinstance(raw_args, str):
-                            args = json.loads(raw_args)
-                        else:
-                            args = raw_args or {}
-                        err = None
-                    except (json.JSONDecodeError, TypeError) as exc:
-                        args = {}
-                        err = f"Invalid JSON arguments for tool '{name}': {exc}"
-
-                    start_tool_ev = ToolExecutionStart(tc_id, name, args)
-                    yield start_tool_ev
-
-                    if hook_registry is not None:
-                        try:
-                            hook = await hook_registry.emit(start_tool_ev)
-                            if isinstance(hook, HookResult) and hook.block:
-                                err = f"Tool '{name}' blocked: {hook.reason}"
-                            elif (
-                                isinstance(hook, HookResult)
-                                and hook.updated_args is not None
-                            ):
-                                args = hook.updated_args
-                        except Exception as exc:
-                            err = (
-                                f"Error in ToolExecutionStart hook for '{name}': {exc}"
+                    if inspect.isawaitable(decision):
+                        decision = await decision
+                    if decision is not None:
+                        if decision.block:
+                            reason = f": {decision.reason}" if decision.reason else ""
+                            yield TurnEnd(message=None, tool_results=[])
+                            yield AgentEnd(
+                                messages=list(messages),
+                                final_text=f"(blocked{reason})",
+                                iterations=iteration,
+                                stop_reason="blocked",
                             )
+                            return
+                        if decision.updated_messages is not None:
+                            view = decision.updated_messages
+                except Exception as exc:
+                    logger.warning("Error in before_model_call callback: %s", exc)
 
-                    if err is not None:
-                        direct_observations[idx] = ToolResult(ok=False, error=err)
-                    else:
-                        prepared_calls.append((idx, tc, args))
+            # 委托模型车间
+            assistant: Message | None = None
+            async for ev in _assistant_turn(
+                llm=llm,
+                view=view,
+                tool_schemas=registry.get_schemas(),
+                model=model,
+                signal=signal,
+                context_manager=context_manager,
+            ):
+                yield ev
+                if isinstance(ev, MessageEnd):
+                    assistant = ev.message
 
-                if prepared_calls:
-                    effective_calls = [
-                        (
-                            idx,
-                            {
-                                **tc,
-                                "function": {
-                                    **tc["function"],
-                                    "arguments": json.dumps(args),
-                                },
-                            },
-                        )
-                        for idx, tc, args in prepared_calls
-                    ]
-                    call_dicts_to_run = [c[1] for c in effective_calls]
-                    batch_results = await registry.execute_batch(call_dicts_to_run)
+            assert assistant is not None
+            messages.append(assistant)
 
-                    for (idx, _tc), res in zip(
-                        effective_calls, batch_results, strict=False
-                    ):
-                        _tc_id = _tc.get("id", "")
-                        _name = _tc.get("function", {}).get("name", "")
-                        obs_str = res.serialize()
-                        is_err = not res.ok
+            # 取消响应与断头自愈
+            if (
+                assistant.metadata
+                and assistant.metadata.get("stop_reason") == "cancelled"
+            ):
+                calls = assistant.metadata.get("tool_calls", [])
+                synth_tools = _synthesize_interrupted_tool_calls(calls)
+                for s in synth_tools:
+                    messages.append(s)
+                    yield MessageStart(s)
+                    yield MessageEnd(s)
+                yield TurnEnd(message=assistant, tool_results=synth_tools)
+                yield AgentEnd(
+                    messages=list(messages),
+                    final_text=None,
+                    iterations=iteration,
+                    stop_reason="cancelled",
+                )
+                return
 
-                        end_tool_ev = ToolExecutionEnd(_tc_id, _name, obs_str, is_err)
-                        yield end_tool_ev
-
-                        if hook_registry is not None:
-                            try:
-                                hook = await hook_registry.emit(end_tool_ev)
-                                if (
-                                    isinstance(hook, HookResult)
-                                    and hook.updated_result is not None
-                                ):
-                                    obs_str = hook.updated_result
-                                    is_err = False
-                            except Exception as exc:
-                                obs_str = f"Error in ToolExecutionEnd hook for '{_name}': {exc}"
-                                is_err = True
-
-                        direct_observations[idx] = (
-                            ToolResult(ok=not is_err, data=obs_str)
-                            if not is_err
-                            else ToolResult(ok=False, error=obs_str)
-                        )
-
-                tool_results: list[Message] = []
-                for idx, tc in enumerate(tool_call_dicts):
-                    res = direct_observations[idx]
-                    observation = res.serialize()
-                    tool_msg = Message(
-                        role="tool",
-                        content=observation,
-                        metadata={"tool_call_id": tc["id"]},
-                    )
-                    messages.append(tool_msg)
-                    s_ev = MessageStart(tool_msg)
-                    yield s_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(s_ev)
-                    e_ev = MessageEnd(tool_msg)
-                    yield e_ev
-                    if hook_registry is not None:
-                        await hook_registry.emit(e_ev)
-                    tool_results.append(tool_msg)
-
-                has_more_tool_calls = True
+            # 委托工具车间
+            tool_results: list[Message] = []
+            calls = assistant.metadata.get("tool_calls") if assistant.metadata else None
+            if calls:
+                async for ev in _execute_tools_turn(
+                    tool_calls=calls,
+                    registry=registry,
+                    before_tool_call=_before_tool_call,
+                    after_tool_call=_after_tool_call,
+                    signal=signal,
+                ):
+                    yield ev
+                    if isinstance(ev, MessageEnd) and ev.message.role == "tool":
+                        tool_results.append(ev.message)
+                        messages.append(ev.message)
+                has_more_tools = True
             else:
-                tool_results = []
-                has_more_tool_calls = False
-                final_text = content_acc
+                has_more_tools = False
+                final_text = assistant.content
 
-            turn_end_ev = TurnEnd(message=assistant, tool_results=tool_results)
-            yield turn_end_ev
-            if hook_registry is not None:
-                await hook_registry.emit(turn_end_ev)
+            # 严密闭合当前轮次
+            yield TurnEnd(message=assistant, tool_results=tool_results)
 
-            # 消费 steering messages
+            if signal is not None and signal.is_cancelled():
+                yield AgentEnd(
+                    messages=list(messages),
+                    final_text=final_text,
+                    iterations=iteration,
+                    stop_reason="cancelled",
+                )
+                return
+
+            # 收割即时转向
             if get_steering_messages is not None:
                 steer_msgs = get_steering_messages()
                 if steer_msgs:
                     pending_messages = [
-                        Message(role="user", content=m) if isinstance(m, str) else m
+                        m if isinstance(m, Message) else Message(role="user", content=m)
                         for m in steer_msgs
                     ]
 
-        # 消费 follow-up messages
+        # 收割宏观追问任务
         if get_follow_up_messages is not None:
-            followup_msgs = get_follow_up_messages()
-            if followup_msgs:
+            followups = get_follow_up_messages()
+            if followups:
                 pending_messages = [
-                    Message(role="user", content=m) if isinstance(m, str) else m
-                    for m in followup_msgs
+                    m if isinstance(m, Message) else Message(role="user", content=m)
+                    for m in followups
                 ]
                 continue
-
         break
 
-    agent_end_ev = AgentEnd(
+    yield AgentEnd(
         messages=list(messages),
         final_text=final_text,
         iterations=iteration,
         stop_reason="end_turn",
     )
-    yield agent_end_ev
-    if hook_registry is not None:
-        await hook_registry.emit(agent_end_ev)

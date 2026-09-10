@@ -18,12 +18,16 @@ from my_agent_llm import Message, Response, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCall,
+    BeforeModelCallDecision,
     HookRegistry,
     HookResult,
+    MessageEnd,
+    MessageStart,
     MessageUpdate,
+    ToolCallDecision,
     ToolExecutionEnd,
     ToolExecutionStart,
+    ToolResultDecision,
     TurnEnd,
     TurnStart,
 )
@@ -191,8 +195,9 @@ async def test_run_agent_loop_basic_lifecycle():
 
     event_types = [type(e) for e in events]
     assert AgentStart in event_types
+    assert MessageStart in event_types
+    assert MessageEnd in event_types
     assert TurnStart in event_types
-    assert BeforeModelCall in event_types
     assert MessageUpdate in event_types
     assert TurnEnd in event_types
     assert AgentEnd in event_types
@@ -275,7 +280,7 @@ async def test_run_agent_loop_steering_message_harvesting():
         def __init__(self):
             self.turn = 0
 
-        async def achat_stream(self, *, messages, tools=None, **kwargs):
+        async def achat_stream(self, *, _messages=None, _tools=None, **_kwargs):
             self.turn += 1
             if self.turn == 1:
                 # 模拟在 Turn 1 执行/流式过程中外部注入 steering
@@ -460,25 +465,167 @@ async def test_run_agent_loop_provider_context_cleaning_in_loop():
 
 @pytest.mark.anyio
 async def test_run_agent_loop_before_model_call_blocking():
-    """验证 BeforeModelCall Hook 拦截模型调用。"""
-    llm = FakeLLM([_response(content="should not be called")])
+    """验证 BeforeModelCallDecision 拦截模型调用，严格产生成对的 TurnEnd(message=None, tool_results=[])。"""
+    llm = FakeLLM(responses=[_response(content="never called")])
     messages: list[Message] = []
-    hooks = HookRegistry()
 
-    def block_before_call(event: BeforeModelCall) -> HookResult:
-        return HookResult(block=True, reason="Blocked for safety")
-
-    hooks.register(BeforeModelCall, block_before_call)
+    async def block_model_call(_decision: BeforeModelCallDecision):
+        return HookResult(block=True, reason="budget exceeded")
 
     events = []
     async for ev in run_agent_loop(
         llm=llm,
         messages=messages,
-        prompts=[Message(role="user", content="unsafe input")],
-        hook_registry=hooks,
+        prompts=["test prompt"],
+        before_model_call=block_model_call,
     ):
         events.append(ev)
+
+    event_types = [type(e) for e in events]
+    assert TurnStart in event_types
+    assert TurnEnd in event_types
+    turn_end = [e for e in events if isinstance(e, TurnEnd)][0]
+    assert turn_end.message is None
+    assert turn_end.tool_results == []
 
     agent_end = [e for e in events if isinstance(e, AgentEnd)][0]
     assert agent_end.stop_reason == "blocked"
     assert len(llm.calls) == 0
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_max_iterations_limit():
+    """验证 max_iterations 与 max_turns 等价截断，发射 stop_reason='max_iterations'。"""
+    tc = [
+        {
+            "id": "call_loop",
+            "type": "function",
+            "function": {"name": "ping", "arguments": "{}"},
+        }
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(tool_calls=tc),
+        ]
+    )
+    messages: list[Message] = []
+    events = []
+
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="ping forever")],
+        tools=_make_registry(ping),
+        max_iterations=1,
+    ):
+        events.append(ev)
+
+    agent_end = [e for e in events if isinstance(e, AgentEnd)][0]
+    assert agent_end.stop_reason == "max_iterations"
+    assert agent_end.iterations == 2
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_callbacks_tool_rewriting():
+    """验证 before_tool_call 与 after_tool_call 纯回调在 run_agent_loop 中的拦截与改写。"""
+    tc = [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": json.dumps({"a": 2, "b": 3})},
+        }
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(content="done"),
+        ]
+    )
+
+    async def rewrite_tool_args(decision: ToolCallDecision) -> HookResult:
+        # a 从 2 改为 5
+        return HookResult(updated_args={"a": 5, "b": decision.args["b"]})
+
+    async def rewrite_tool_result(decision: ToolResultDecision) -> HookResult:
+        return HookResult(updated_result=f"intercepted:{decision.result}")
+
+    messages: list[Message] = []
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="multiply")],
+        tools=_make_registry(multiply),
+        before_tool_call=rewrite_tool_args,
+        after_tool_call=rewrite_tool_result,
+    ):
+        events.append(ev)
+
+    ends = [e for e in events if isinstance(e, ToolExecutionEnd)]
+    assert len(ends) == 1
+    assert ends[0].result == "intercepted:15"
+
+    turn_ends = [e for e in events if isinstance(e, TurnEnd)]
+    assert len(turn_ends) == 2
+    assert turn_ends[0].tool_results[0].content == "intercepted:15"
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_hook_registry_fallback_adaptation():
+    """验证向后兼容：当未传 before_model_call 但提供了 hook_registry 时自动降级适配。"""
+    llm = FakeLLM(responses=[_response(content="never called")])
+    messages: list[Message] = []
+    hooks = HookRegistry()
+
+    def block_model_call(_decision: BeforeModelCallDecision):
+        return HookResult(block=True, reason="hook_registry fallback block")
+
+    hooks.register(BeforeModelCallDecision, block_model_call)
+
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=["test prompt"],
+        hook_registry=hooks,
+    ):
+        events.append(ev)
+
+    turn_ends = [e for e in events if isinstance(e, TurnEnd)]
+    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
+    assert len(turn_ends) == 1
+    assert turn_ends[0].message is None
+    assert len(agent_ends) == 1
+    assert agent_ends[0].stop_reason == "blocked"
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_defensive_function_none():
+    """验证工具调用字典中 function 字段为 None 时的防御式处理，不会引发 AttributeError。"""
+    tc = [
+        {
+            "id": "bad_tc",
+            "type": "function",
+            "function": None,
+        }
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(content="handled"),
+        ]
+    )
+    messages: list[Message] = []
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="call bad tool")],
+        tools=_make_registry(ping),
+    ):
+        events.append(ev)
+
+    ends = [e for e in events if isinstance(e, ToolExecutionEnd)]
+    assert len(ends) == 1
+    assert ends[0].is_error is True
