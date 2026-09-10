@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import inspect
 import logging
@@ -240,7 +239,7 @@ class DecisionRegistry:
         """
         for cb in list(self._handlers.get(type(decision), [])):
             try:
-                if asyncio.iscoroutinefunction(cb):
+                if inspect.iscoroutinefunction(cb):
                     result = await cb(decision)
                 else:
                     result = cb(decision)
