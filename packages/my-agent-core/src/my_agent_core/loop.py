@@ -147,6 +147,7 @@ async def _assistant_turn(
     final_tool_calls: list[dict[str, Any]] | None = None
     last_usage: dict[str, Any] | None = None
     cancelled = False
+    error_occurred = False
 
     try:
         if signal is not None and signal.is_cancelled():
@@ -172,9 +173,9 @@ async def _assistant_turn(
         content_acc = (
             f"{content_acc} (Error during model stream: {exc})"
             if content_acc
-            else f"(Error during model stream: {exc})"
+            else str(exc)
         )
-        cancelled = True
+        error_occurred = True
 
     if (
         last_usage
@@ -189,6 +190,8 @@ async def _assistant_turn(
         metadata["tool_calls"] = final_tool_calls
     if cancelled:
         metadata["stop_reason"] = "cancelled"
+    elif error_occurred:
+        metadata["stop_reason"] = "error"
 
     assistant = Message(
         role="assistant",
@@ -611,11 +614,12 @@ async def run_agent_loop(
             assert assistant is not None
             messages.append(assistant)
 
-            # 取消响应与断头自愈
-            if (
-                assistant.metadata
-                and assistant.metadata.get("stop_reason") == "cancelled"
+            # 取消响应、异常阻断与断头自愈
+            if assistant.metadata and assistant.metadata.get("stop_reason") in (
+                "cancelled",
+                "error",
             ):
+                stop_reason = assistant.metadata.get("stop_reason", "cancelled")
                 calls = assistant.metadata.get("tool_calls", [])
                 synth_tools = _synthesize_interrupted_tool_calls(calls)
                 for s in synth_tools:
@@ -625,9 +629,9 @@ async def run_agent_loop(
                 yield TurnEnd(message=assistant, tool_results=synth_tools)
                 yield AgentEnd(
                     messages=list(messages),
-                    final_text=None,
+                    final_text=assistant.content if stop_reason == "error" else None,
                     iterations=iteration,
-                    stop_reason="cancelled",
+                    stop_reason=stop_reason,
                 )
                 return
 

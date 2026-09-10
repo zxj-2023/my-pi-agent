@@ -466,6 +466,8 @@ class Agent:
                     return "(cancelled)"
                 if event.stop_reason == "blocked":
                     return event.final_text or "(blocked)"
+                if event.stop_reason == "error":
+                    raise RuntimeError(event.final_text or "Error during model stream")
                 final_text = event.final_text
         return final_text
 

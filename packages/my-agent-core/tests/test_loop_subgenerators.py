@@ -241,7 +241,8 @@ async def test_assistant_turn_never_throw_on_exception():
     # Must finish with MessageStart + MessageEnd containing error without raising
     end_ev = [e for e in events if isinstance(e, MessageEnd)][0]
     assert "Error during model stream: API connection broke" in end_ev.message.content
-    assert end_ev.message.metadata.get("stop_reason") == "cancelled"
+    assert end_ev.message.metadata is not None
+    assert end_ev.message.metadata.get("stop_reason") == "error"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -322,6 +323,8 @@ async def test_execute_tools_turn_pi_timing_and_blocking():
         e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
     ]
     assert len(tool_ends) == 2
+    assert tool_ends[0].message.metadata is not None
+    assert tool_ends[1].message.metadata is not None
     assert tool_ends[0].message.metadata["tool_call_id"] == "call_1"
     assert tool_ends[1].message.metadata["tool_call_id"] == "call_2"
 
@@ -344,7 +347,7 @@ async def test_execute_tools_turn_preflight_timing_invariant():
 
     events_order = []
 
-    async def track_guard(decision: ToolCallDecision):
+    async def track_guard(_decision: ToolCallDecision):
         # When guard runs for ANY tool call, all ToolExecutionStart events MUST have already been emitted
         current_starts = [e for e in events_order if isinstance(e, ToolExecutionStart)]
         assert len(current_starts) == 2
@@ -380,7 +383,7 @@ async def test_execute_tools_turn_args_and_result_rewriting():
         },
     ]
 
-    async def rewrite_args(decision: ToolCallDecision):
+    async def rewrite_args(_decision: ToolCallDecision):
         return HookResult(updated_args={"name": "Bob"})
 
     async def rewrite_result(decision: ToolResultDecision):
@@ -442,6 +445,7 @@ async def test_execute_tools_turn_cancellation_synthesizes_interrupted():
         e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
     ][0]
     assert msg_ev.message.content == _INTERRUPTED_TOOL_RESULT
+    assert msg_ev.message.metadata is not None
     assert msg_ev.message.metadata["is_error"] is True
 
 
