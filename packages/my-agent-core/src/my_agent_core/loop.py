@@ -416,14 +416,7 @@ async def run_agent_loop(
         elif isinstance(p, str):
             converted_prompts.append(Message(role="user", content=p))
 
-    if converted_prompts:
-        user_input = converted_prompts[0].content
-    else:
-        user_input = ""
-        for m in reversed(messages):
-            if m.role == "user":
-                user_input = m.content
-                break
+    user_input = converted_prompts[0].content if converted_prompts else ""
 
     # 1. 注入初始 prompts 并发射事件
     yield AgentStart(system_prompt=system, user_input=user_input)
