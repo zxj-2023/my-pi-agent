@@ -18,17 +18,17 @@ from my_agent_llm import Message, StreamChunk
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    BeforeModelCallDecision,
+    BeforeModelCallHook,
     ContextCompacted,
     Event,
     HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
-    ToolCallDecision,
+    ToolCallHook,
     ToolExecutionEnd,
     ToolExecutionStart,
-    ToolResultDecision,
+    ToolResultHook,
     TurnEnd,
     TurnStart,
 )
@@ -221,11 +221,11 @@ async def _execute_tools_turn(
     tool_calls: Sequence[dict[str, Any]],
     registry: ToolRegistry,
     before_tool_call: (
-        Callable[[ToolCallDecision], Awaitable[HookResult | None] | HookResult | None]
+        Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None]
         | None
     ) = None,
     after_tool_call: (
-        Callable[[ToolResultDecision], Awaitable[HookResult | None] | HookResult | None]
+        Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None]
         | None
     ) = None,
     signal: CancellationToken | None = None,
@@ -277,7 +277,7 @@ async def _execute_tools_turn(
         if before_tool_call is not None:
             try:
                 decision = before_tool_call(
-                    ToolCallDecision(tool_call_id=tc_id, tool_name=name, args=args)
+                    ToolCallHook(tool_call_id=tc_id, tool_name=name, args=args)
                 )
                 if inspect.isawaitable(decision):
                     decision = await decision
@@ -336,7 +336,7 @@ async def _execute_tools_turn(
         ):
             try:
                 decision = after_tool_call(
-                    ToolResultDecision(
+                    ToolResultHook(
                         tool_call_id=tc_id,
                         tool_name=name,
                         result=obs,
@@ -389,16 +389,16 @@ async def run_agent_loop(
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
     before_model_call: (
         Callable[
-            [BeforeModelCallDecision], Awaitable[HookResult | None] | HookResult | None
+            [BeforeModelCallHook], Awaitable[HookResult | None] | HookResult | None
         ]
         | None
     ) = None,
     before_tool_call: (
-        Callable[[ToolCallDecision], Awaitable[HookResult | None] | HookResult | None]
+        Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None]
         | None
     ) = None,
     after_tool_call: (
-        Callable[[ToolResultDecision], Awaitable[HookResult | None] | HookResult | None]
+        Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None]
         | None
     ) = None,
     hook_registry: Any = None,  # optional fallback for smooth transition with agent.py
@@ -418,7 +418,7 @@ async def run_agent_loop(
     if _before_model_call is None and hook_registry is not None:
 
         async def _fallback_before_model(
-            decision: BeforeModelCallDecision,
+            decision: BeforeModelCallHook,
         ) -> HookResult | None:
             return await hook_registry.emit(decision)
 
@@ -428,7 +428,7 @@ async def run_agent_loop(
     if _before_tool_call is None and hook_registry is not None:
 
         async def _fallback_before_tool(
-            decision: ToolCallDecision,
+            decision: ToolCallHook,
         ) -> HookResult | None:
             res = await hook_registry.emit(decision)
             if res is not None:
@@ -446,7 +446,7 @@ async def run_agent_loop(
     if _after_tool_call is None and hook_registry is not None:
 
         async def _fallback_after_tool(
-            decision: ToolResultDecision,
+            decision: ToolResultHook,
         ) -> HookResult | None:
             res = await hook_registry.emit(decision)
             if res is not None:
@@ -575,7 +575,7 @@ async def run_agent_loop(
             if _before_model_call is not None:
                 try:
                     decision = _before_model_call(
-                        BeforeModelCallDecision(
+                        BeforeModelCallHook(
                             messages=list(view), iteration=iteration
                         )
                     )

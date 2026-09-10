@@ -147,32 +147,32 @@ class ToolsChanged(Event):
 AgentEvent = Event
 
 
-# ── 五大专职决策拦截点契约（独立门禁系统，非 Event）
+# ── 五大专职 Hook 拦截点契约（独立门禁系统，非 Event）
 @dataclass(frozen=True)
-class UserInputDecision:
-    """决策点 1 (input): 拦截或改写用户原始输入文本。"""
+class UserInputHook:
+    """Hook 1 (input): 拦截或改写用户原始输入文本。"""
 
     input_text: str
 
 
 @dataclass(frozen=True)
-class AgentStartDecision:
-    """决策点 2 (before_agent_start): 拦截启动或动态重写 system_prompt。"""
+class AgentStartHook:
+    """Hook 2 (before_agent_start): 拦截启动或动态重写 system_prompt。"""
 
     system_prompt: str
 
 
 @dataclass(frozen=True)
-class BeforeModelCallDecision:
-    """决策点 3 (context): 调模型前 1ms 审查或临时改写发送视图。"""
+class BeforeModelCallHook:
+    """Hook 3 (context): 调模型前 1ms 审查或临时改写发送视图。"""
 
     messages: list[Message]
     iteration: int
 
 
 @dataclass(frozen=True)
-class ToolCallDecision:
-    """决策点 4 (tool_call): 工具执行前安全审批、阻断高危命令或改写入参。"""
+class ToolCallHook:
+    """Hook 4 (tool_call): 工具执行前安全审批、阻断高危命令或改写入参。"""
 
     tool_call_id: str
     tool_name: str
@@ -180,8 +180,8 @@ class ToolCallDecision:
 
 
 @dataclass(frozen=True)
-class ToolResultDecision:
-    """决策点 5 (tool_result): 工具执行后改写返回内容或篡改报错状态。"""
+class ToolResultHook:
+    """Hook 5 (tool_result): 工具执行后改写返回内容或篡改报错状态。"""
 
     tool_call_id: str
     tool_name: str
@@ -189,20 +189,25 @@ class ToolResultDecision:
     is_error: bool
 
 
-# 过渡兼容别名（支撑尚未重构的 agent.py 与 loop.py 运行）
-UserInput = UserInputDecision
-BeforeModelCall = BeforeModelCallDecision
+# 别名兼容
+UserInput = UserInputHook
+BeforeModelCall = BeforeModelCallHook
+UserInputDecision = UserInputHook
+AgentStartDecision = AgentStartHook
+BeforeModelCallDecision = BeforeModelCallHook
+ToolCallDecision = ToolCallHook
+ToolResultDecision = ToolResultHook
 
 
 @dataclass(frozen=True)
 class HookResult:
-    """决策拦截点的统一干预结果。返回 None = 纯观察，返回 HookResult = 干预。
+    """Hook 拦截点的统一干预结果。返回 None = 纯观察，返回 HookResult = 干预。
 
-    - UserInputDecision 用 block / reason / updated_input（拦截 / 改写用户输入）
-    - AgentStartDecision 用 block / reason / updated_system_prompt（拦截 / 改写 system prompt）
-    - BeforeModelCallDecision 用 block / reason / updated_messages（拦截 / 临时改写送给 LLM 的 messages 视图）
-    - ToolCallDecision 用 block / reason / updated_args（拦截 / 改参数）
-    - ToolResultDecision 用 updated_result（改结果）
+    - UserInputHook 用 block / reason / updated_input（拦截 / 改写用户输入）
+    - AgentStartHook 用 block / reason / updated_system_prompt（拦截 / 改写 system prompt）
+    - BeforeModelCallHook 用 block / reason / updated_messages（拦截 / 临时改写送给 LLM 的 messages 视图）
+    - ToolCallHook 用 block / reason / updated_args（拦截 / 改参数）
+    - ToolResultHook 用 updated_result（改结果）
     """
 
     block: bool = False
@@ -214,8 +219,8 @@ class HookResult:
     updated_result: str | None = None
 
 
-class DecisionRegistry:
-    """决策拦截点注册表：决策点类型 → callback 列表。
+class HookRegistry:
+    """Hook 注册表：Hook 类型 → callback 列表。
 
     支持 async / sync 钩子混合执行与 Never-Throw 异常捕获隔离。
     """
@@ -224,40 +229,40 @@ class DecisionRegistry:
         self._handlers: dict[type, list[Callable[..., Any]]] = {}
         self._hooks = self._handlers
 
-    def register(self, decision_cls: type, callback: Callable[..., Any]) -> None:
-        """挂一个决策回调到决策点类型。同一决策点可挂多个，按注册顺序触发。"""
-        self._handlers.setdefault(decision_cls, []).append(callback)
+    def register(self, hook_cls: type, callback: Callable[..., Any]) -> None:
+        """挂一个 hook 回调到 hook 类型。同一 hook 可挂多个，按注册顺序触发。"""
+        self._handlers.setdefault(hook_cls, []).append(callback)
 
-    def unregister(self, decision_cls: type, callback: Callable[..., Any]) -> None:
-        """移除决策回调。"""
+    def unregister(self, hook_cls: type, callback: Callable[..., Any]) -> None:
+        """移除 hook 回调。"""
         with contextlib.suppress(ValueError):
-            self._handlers.get(decision_cls, []).remove(callback)
+            self._handlers.get(hook_cls, []).remove(callback)
 
-    async def emit(self, decision: Any) -> HookResult | None:
-        """异步触发决策点的所有回调，支持协程与普通函数。
+    async def emit(self, hook_payload: Any) -> HookResult | None:
+        """异步触发 hook 的所有回调，支持协程与普通函数。
 
         - 返回第一个非 None 结果（短路）。
         - 坚守 Never-Throw 保证：若回调执行抛出异常，捕获并记录日志，绝不向外抛出异常，继续执行后续回调。
         """
-        for cb in list(self._handlers.get(type(decision), [])):
+        for cb in list(self._handlers.get(type(hook_payload), [])):
             try:
                 if inspect.iscoroutinefunction(cb):
-                    result = await cb(decision)
+                    result = await cb(hook_payload)
                 else:
-                    result = cb(decision)
+                    result = cb(hook_payload)
                     if inspect.isawaitable(result):
                         result = await result
                 if result is not None:
                     return result
             except Exception as e:
                 logger.error(
-                    "Decision callback %r failed on %r: %s",
+                    "Hook callback %r failed on %r: %s",
                     cb,
-                    decision,
+                    hook_payload,
                     e,
                     exc_info=True,
                 )
         return None
 
 
-HookRegistry = DecisionRegistry
+DecisionRegistry = HookRegistry

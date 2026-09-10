@@ -25,14 +25,14 @@ from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
-    AgentStartDecision,
+    AgentStartHook,
     ContextCompacted,
-    DecisionRegistry,
     Event,
+    HookRegistry,
     HookResult,
     MessageEnd,
     TurnEnd,
-    UserInputDecision,
+    UserInputHook,
 )
 from my_agent_core.extensions import ExtensionManager
 from my_agent_core.loop import CancellationToken, run_agent_loop
@@ -111,8 +111,8 @@ class Agent:
         self._aborted = False  # 中止状态标记
         self._current_signal: CancellationToken | None = None
         self._subscribers: list[Callable[[Event], Any]] = []
-        self.decisions = DecisionRegistry()
-        self.hooks = self.decisions  # 兼容别名
+        self.hooks = HookRegistry()
+        self.decisions = self.hooks  # 兼容别名
         self.registry = ToolRegistry()
         self.plugin_manager = PluginManager(plugin_dirs)
         self.skill_manager = SkillManager(
@@ -340,9 +340,9 @@ class Agent:
             await self.extension_manager.load()
             self._extensions_loaded = True
 
-        # ── 决策点 1: UserInputDecision 拦截与改写（在进入 Session 和消息历史之前触发）
-        user_input_decision = await self.decisions.emit(
-            UserInputDecision(input_text=user_input)
+        # ── Hook 1: UserInputHook 拦截与改写（在进入 Session 和消息历史之前触发）
+        user_input_decision = await self.hooks.emit(
+            UserInputHook(input_text=user_input)
         )
         if isinstance(user_input_decision, HookResult):
             if user_input_decision.block:
@@ -379,9 +379,9 @@ class Agent:
         if system_msgs:
             system_prompt = system_msgs[0].content
 
-        # ── 决策点 2: AgentStartDecision 拦截启动或动态重写 system_prompt
-        start_decision = await self.decisions.emit(
-            AgentStartDecision(system_prompt=system_prompt)
+        # ── Hook 2: AgentStartHook 拦截启动或动态重写 system_prompt
+        start_decision = await self.hooks.emit(
+            AgentStartHook(system_prompt=system_prompt)
         )
         if isinstance(start_decision, HookResult):
             if start_decision.block:
@@ -421,9 +421,9 @@ class Agent:
             signal=self._current_signal,
             get_steering_messages=self._get_steering_messages,
             get_follow_up_messages=self._get_follow_up_messages,
-            before_model_call=self.decisions.emit,
-            before_tool_call=self.decisions.emit,
-            after_tool_call=self.decisions.emit,
+            before_model_call=self.hooks.emit,
+            before_tool_call=self.hooks.emit,
+            after_tool_call=self.hooks.emit,
         )
 
         async for event in loop_gen:
