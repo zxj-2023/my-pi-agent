@@ -385,7 +385,9 @@ async def run_agent_loop(
     get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
     before_model_call: (
-        Callable[[BeforeModelCallDecision], Awaitable[HookResult | None] | HookResult | None]
+        Callable[
+            [BeforeModelCallDecision], Awaitable[HookResult | None] | HookResult | None
+        ]
         | None
     ) = None,
     before_tool_call: (
@@ -411,6 +413,7 @@ async def run_agent_loop(
     # 向后兼容 hook_registry 降级适配
     _before_model_call = before_model_call
     if _before_model_call is None and hook_registry is not None:
+
         async def _fallback_before_model(
             decision: BeforeModelCallDecision,
         ) -> HookResult | None:
@@ -420,7 +423,10 @@ async def run_agent_loop(
 
     _before_tool_call = before_tool_call
     if _before_tool_call is None and hook_registry is not None:
-        async def _fallback_before_tool(decision: ToolCallDecision) -> HookResult | None:
+
+        async def _fallback_before_tool(
+            decision: ToolCallDecision,
+        ) -> HookResult | None:
             res = await hook_registry.emit(decision)
             if res is not None:
                 return res
@@ -435,7 +441,10 @@ async def run_agent_loop(
 
     _after_tool_call = after_tool_call
     if _after_tool_call is None and hook_registry is not None:
-        async def _fallback_after_tool(decision: ToolResultDecision) -> HookResult | None:
+
+        async def _fallback_after_tool(
+            decision: ToolResultDecision,
+        ) -> HookResult | None:
             res = await hook_registry.emit(decision)
             if res is not None:
                 return res
