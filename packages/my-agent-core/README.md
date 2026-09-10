@@ -17,15 +17,20 @@
   - `Tool` 实体：支持 `raw_schema`（透传外部 Schema）与 `is_parallel_safe`（声明式并发标记）；
   - `ToolRegistry`：支持单查、批量获取 Schema、`execute_batch` 并发/串行智能分流与严格保序回填；
   - **Never-Throw 保证**：工具异常绝不上抛打崩程序，统一包装为 `ToolResult(ok=False, error=...)` 引导大模型自愈。
-- **12 大生命周期事件与五大决策拦截点（`events` & `hooks`）**：
-  - 12 个生命周期事件 dataclass（覆盖 Agent、Turn、Message、Tool、Context 阶段）；
-  - **五大生命周期决策拦截点**：
-    1. `UserInput`：用户输入截获，支持 `block` 阻断或 `updated_input` 改写；
-    2. `AgentStart`：启动前拦截，支持 `updated_system_prompt` 动态更新首条 system 消息；
-    3. `BeforeModelCall`：调 LLM 前拦截，支持 `updated_messages` 临时改写上下文视图（**临时 View 隔离 vs Session 磁盘零污染**）；
-    4. `ToolExecutionStart`：工具执行前拦截，支持 `block` 拦截高危操作或 `updated_args` 修补参数；
-    5. `ToolExecutionEnd`：工具执行后拦截，支持 `updated_result` 篡改出参。
-  - `MessageUpdate`：流式生成中的 Token 级实时熔断（掐断时**丢弃未完成半截文本**，防止模型断句幻觉）；
+- **只读事实事件流与五大专职决策拦截点正交解耦（`events` & `decisions`）**：
+  - **12 个纯只读事实事件（`Event` / `AgentEvent`）**：所有事件均为不可变 `frozen` dataclass，自带 `timestamp`，彻底剔除 `Interceptable` 混入类，单向广播零侵入，`TurnEnd` 严格配对闭合；
+  - **五大独立专职决策拦截点（`DecisionPoint`）**：
+    1. `UserInputDecision`：用户输入截获，支持 `block` 阻断或 `updated_input` 改写；
+    2. `AgentStartDecision`：启动前拦截，支持 `updated_system_prompt` 动态更新首条 system 消息；
+    3. `BeforeModelCallDecision`：调 LLM 前拦截，支持 `updated_messages` 临时改写上下文视图（**临时 View 隔离 vs Session 磁盘零污染**）；
+    4. `ToolCallDecision`：工具执行前审批，支持 `block` 拦截高危操作或 `updated_args` 修补参数；
+    5. `ToolResultDecision`：工具执行后拦截，支持 `updated_result` 篡改出参。
+  - `DecisionRegistry`：统一调度决策拦截流水线，支持 async/sync 回调混合执行与短路，具备严格的 **Never-Throw 保证**；
+  - **Tau 风格微内核子生成器分治（`loop.py`）**：
+    - `_stream_llm`：归一化 `achat_stream`、`achat` 与同步 `chat`，抹平协议差异；
+    - `_assistant_turn`：专职流式推理车间，精准区分 `cancelled` 与 `error`；
+    - `_execute_tools_turn`：严格遵守 **Pi 官方时序契约**（Preflight 阶段按 source order **率先广播 `ToolExecutionStart`** 供 UI 即刻渲染 ➔ 审批改参 ➔ 并发执行 ➔ 改写 ➔ 广播 `ToolExecutionEnd` ➔ 发射 Tool 消息），并在中途取消时自动自愈补齐断头调用；
+    - `run_agent_loop`：瘦身为约 **110 行** 极简纯粹状态机，彻底消灭 30 处双发冗余。
   - 统一干预数据模型：`HookResult`。
 - **树状会话与原子持久化（`session`）**：
   - 树状会话拓扑：`SessionEntry`（带 id/parent_id）+ `SessionTree` + 当前指针 `current_id`；
