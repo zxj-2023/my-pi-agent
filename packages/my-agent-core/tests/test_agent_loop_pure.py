@@ -40,8 +40,10 @@ from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import tool
 from tests.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
-    make_response as _response,
     multiply,
+)
+from tests.conftest import (
+    make_response as _response,
 )
 
 # ── Test Doubles ─────────────────────────────────────────────────────────────

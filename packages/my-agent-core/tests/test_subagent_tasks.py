@@ -23,8 +23,10 @@ from my_agent_core.tools.builtin import (
 )
 from tests.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
-    make_response as _response,
     multiply,
+)
+from tests.conftest import (
+    make_response as _response,
 )
 
 
