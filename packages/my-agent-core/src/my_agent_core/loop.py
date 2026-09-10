@@ -564,7 +564,7 @@ async def run_agent_loop(
                     summarized_count=info.summarized_count,
                 )
 
-            # 决策点 3: BeforeModelCall (context 审查)
+            # Hook 3: BeforeModelCallHook (context 审查)
             if _before_model_call is not None:
                 try:
                     decision = _before_model_call(

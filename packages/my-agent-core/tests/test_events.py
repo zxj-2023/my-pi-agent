@@ -52,6 +52,20 @@ def test_interceptable_and_decision_do_not_exist():
     assert not hasattr(events_module, "UserInput")
     assert not hasattr(events_module, "BeforeModelCall")
 
+    # 顶层包导出中也彻底消除
+    import my_agent_core
+
+    assert not hasattr(my_agent_core, "Interceptable")
+    assert not hasattr(my_agent_core, "DecisionRegistry")
+    assert not hasattr(my_agent_core, "ToolCallDecision")
+    assert not hasattr(my_agent_core, "ToolResultDecision")
+    assert not hasattr(my_agent_core, "BeforeModelCallDecision")
+    assert not hasattr(my_agent_core, "AgentStartDecision")
+    assert not hasattr(my_agent_core, "UserInputDecision")
+    assert not hasattr(my_agent_core, "AgentEvent")
+    assert not hasattr(my_agent_core, "UserInput")
+    assert not hasattr(my_agent_core, "BeforeModelCall")
+
 
 def test_events_are_pure_frozen_dataclasses():
     """所有 Event 均为不可变 frozen dataclass，自动生成 timestamp 且不可篡改。"""

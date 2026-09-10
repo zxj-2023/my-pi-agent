@@ -115,7 +115,6 @@ __all__ = [
     "PluginManager",
     "ContextCompacted",
     "ToolsChanged",
-    "AgentEvent",
     "CancellationToken",
     "_provider_context",
     "run_agent_loop",
