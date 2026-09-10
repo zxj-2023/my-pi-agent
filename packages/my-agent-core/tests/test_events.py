@@ -17,7 +17,6 @@ from my_agent_llm import Message, StreamChunk
 import my_agent_core.events as events_module
 from my_agent_core.events import (
     AgentEnd,
-    AgentEvent,
     AgentStart,
     AgentStartHook,
     BeforeModelCallHook,
@@ -41,7 +40,7 @@ from my_agent_core.events import (
 
 
 def test_interceptable_and_decision_do_not_exist():
-    """验证架构彻底解耦：Interceptable 标记类与 Decision 生造类完全不存在。"""
+    """验证架构彻底解耦：Interceptable、Decision 生造类及混乱别名完全不存在。"""
     assert not hasattr(events_module, "Interceptable")
     assert not hasattr(events_module, "DecisionRegistry")
     assert not hasattr(events_module, "ToolCallDecision")
@@ -49,6 +48,9 @@ def test_interceptable_and_decision_do_not_exist():
     assert not hasattr(events_module, "BeforeModelCallDecision")
     assert not hasattr(events_module, "AgentStartDecision")
     assert not hasattr(events_module, "UserInputDecision")
+    assert not hasattr(events_module, "AgentEvent")
+    assert not hasattr(events_module, "UserInput")
+    assert not hasattr(events_module, "BeforeModelCall")
 
 
 def test_events_are_pure_frozen_dataclasses():
@@ -115,11 +117,6 @@ def test_turn_end_nullable_message():
     te_populated = TurnEnd(message=msg, tool_results=[tool_msg])
     assert te_populated.message is msg
     assert te_populated.tool_results == [tool_msg]
-
-
-def test_agent_event_alias():
-    """AgentEvent 是 Event 的类型别名。"""
-    assert AgentEvent is Event
 
 
 def test_hook_points_attributes_and_frozen():
@@ -279,9 +276,7 @@ async def test_hook_registry_never_throw_guarantee():
     reg.register(ToolCallHook, successful_hook)
 
     # 绝不能抛出异常
-    res = await reg.emit(
-        ToolCallHook(tool_call_id="call_x", tool_name="bash", args={})
-    )
+    res = await reg.emit(ToolCallHook(tool_call_id="call_x", tool_name="bash", args={}))
     assert res is not None
     assert res.block is True
     assert res.reason == "blocked after errors"
@@ -299,8 +294,6 @@ async def test_hook_registry_never_throw_all_fail():
     reg.register(ToolResultHook, crashing_hook)
 
     res = await reg.emit(
-        ToolResultHook(
-            tool_call_id="1", tool_name="bash", result="err", is_error=True
-        )
+        ToolResultHook(tool_call_id="1", tool_name="bash", result="err", is_error=True)
     )
     assert res is None

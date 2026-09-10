@@ -41,11 +41,7 @@ from my_agent_core.tools import ToolResult
 
 logger = logging.getLogger(__name__)
 
-# 事件类型别名，对齐规范
-AgentEvent = Event
-
 __all__ = [
-    "AgentEvent",
     "CancellationToken",
     "_assistant_turn",
     "_execute_tools_turn",
@@ -147,7 +143,7 @@ async def _assistant_turn(
     model: str | None = None,
     signal: CancellationToken | None = None,
     context_manager: Any | None = None,
-) -> AsyncIterator[AgentEvent]:
+) -> AsyncIterator[Event]:
     """专职大模型推理车间：逐字 yield MessageUpdate，在末尾 yield MessageStart 与 MessageEnd。"""
     content_acc = ""
     final_tool_calls: list[dict[str, Any]] | None = None
@@ -239,7 +235,7 @@ async def _execute_tools_turn(
         | None
     ) = None,
     signal: CancellationToken | None = None,
-) -> AsyncIterator[AgentEvent]:
+) -> AsyncIterator[Event]:
     """专职工具执行车间：Preflight 广播 -> 审批改参 -> 并发执行 -> 结果改写 -> 结果广播。
 
     严格遵循 Pi 时序契约：
@@ -264,9 +260,7 @@ async def _execute_tools_turn(
             else:
                 args = raw_args or {}
             if not isinstance(args, dict):
-                err = (
-                    f"Tool arguments must be a JSON object, got {type(args).__name__}"
-                )
+                err = f"Tool arguments must be a JSON object, got {type(args).__name__}"
                 args = {}
             else:
                 err = None
@@ -418,7 +412,7 @@ async def run_agent_loop(
         | None
     ) = None,
     hook_registry: Any = None,  # optional fallback for smooth transition with agent.py
-) -> AsyncIterator[AgentEvent]:
+) -> AsyncIterator[Event]:
     """对标 Tau 的极简纯函数异步微内核，主状态机约 110 行。"""
     if isinstance(tools, ToolRegistry):
         registry = tools

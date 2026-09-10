@@ -144,9 +144,6 @@ class ToolsChanged(Event):
     name: str
 
 
-AgentEvent = Event
-
-
 # ── 五大专职 Hook 拦截点契约（独立门禁系统，非 Event）
 @dataclass(frozen=True)
 class UserInputHook:
@@ -187,11 +184,6 @@ class ToolResultHook:
     tool_name: str
     result: str
     is_error: bool
-
-
-# 别名兼容
-UserInput = UserInputHook
-BeforeModelCall = BeforeModelCallHook
 
 
 @dataclass(frozen=True)
