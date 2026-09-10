@@ -1,301 +1,287 @@
-"""events.py 事件 dataclass + HookResult 离线测试：可导入、可实例化、字段正确。"""
+"""events.py 纯只读事件与五大决策拦截点离线单测。
+
+验证：
+1. Event 及其所有子类均为纯粹不可变 (frozen) dataclass，携带只读 timestamp。
+2. 彻底移除 Interceptable 标记类，所有 Event 子类均无 Interceptable 继承痕迹。
+3. 五大专职 Decision 决策点均为独立不可变 dataclass，携带指定强类型属性。
+4. TurnEnd 支持可空 message 及默认空列表 tool_results。
+5. DecisionRegistry（及 HookRegistry 别名）支持注册、注销、async/sync 混合调用、首个非 None 短路，以及 Never-Throw 异常捕获隔离。
+"""
 
 import asyncio
-from dataclasses import fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass
 
 import pytest
 from my_agent_llm import Message, StreamChunk
 
+import my_agent_core.events as events_module
 from my_agent_core.events import (
     AgentEnd,
+    AgentEvent,
     AgentStart,
-    BeforeModelCall,
+    AgentStartDecision,
+    BeforeModelCallDecision,
     ContextCompacted,
+    DecisionRegistry,
     Event,
     HookRegistry,
     HookResult,
-    Interceptable,
     MessageEnd,
     MessageStart,
     MessageUpdate,
+    ToolCallDecision,
     ToolExecutionEnd,
     ToolExecutionStart,
     ToolExecutionUpdate,
+    ToolResultDecision,
     ToolsChanged,
     TurnEnd,
     TurnStart,
-    UserInput,
+    UserInputDecision,
 )
 
 
-def test_event_is_dataclass_base():
-    """Event 基类是 dataclass（供 Callable[[Event], None] 类型标注）。"""
-    assert is_dataclass(Event)
+def test_interceptable_does_not_exist():
+    """Interceptable 标记类彻底移除，不存在于 events 模块中。"""
+    assert not hasattr(events_module, "Interceptable")
 
 
-def test_agent_start_instantiates():
-    """AgentStart 可实例化（无字段）。"""
-    assert AgentStart()
+def test_events_are_pure_frozen_dataclasses():
+    """Event 及其所有子类是纯粹 frozen dataclass，不可变且携带 timestamp。"""
+    ev = TurnStart(iteration=1)
+    assert isinstance(ev, Event)
+    assert hasattr(ev, "timestamp")
+    assert isinstance(ev.timestamp, float)
+    with pytest.raises(FrozenInstanceError):
+        ev.iteration = 2  # pyright: ignore[reportAttributeAccessIssue]
 
 
-def test_turn_start_has_iteration():
-    """TurnStart 带 iteration 字段。"""
-    e = TurnStart(iteration=1)
-    assert e.iteration == 1
+def test_all_event_subclasses_frozen_with_timestamp():
+    """所有规范定义的事件均继承 Event、是 frozen dataclass 且包含 timestamp。"""
+    msg = Message(role="assistant", content="hello")
+    all_event_instances: list[Event] = [
+        AgentStart(system_prompt="sys", user_input="in"),
+        AgentEnd(messages=[msg], final_text="bye", iterations=1, stop_reason="end_turn"),
+        TurnStart(iteration=1),
+        TurnEnd(message=msg, tool_results=[]),
+        MessageStart(message=msg),
+        MessageUpdate(message=msg, chunk=StreamChunk(content="hi")),
+        MessageEnd(message=msg),
+        ToolExecutionStart(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"}),
+        ToolExecutionUpdate(tool_call_id="call_1", tool_name="bash", args={}, partial_result="out"),
+        ToolExecutionEnd(tool_call_id="call_1", tool_name="bash", result="done", is_error=False),
+        ContextCompacted(tokens_before=100, tokens_after=50, summarized_count=2),
+        ToolsChanged(action="register", name="bash"),
+    ]
+
+    for ev in all_event_instances:
+        cls = type(ev)
+        assert is_dataclass(cls), f"{cls.__name__} must be a dataclass"
+        assert cls.__dataclass_params__.frozen, f"{cls.__name__} must be frozen"  # pyright: ignore[reportAttributeAccessIssue]
+        assert isinstance(ev, Event), f"{cls.__name__} must inherit from Event"
+        assert hasattr(ev, "timestamp"), f"{cls.__name__} must have timestamp"
+        assert isinstance(ev.timestamp, float)
+        assert "timestamp" in [f.name for f in fields(cls)]
 
 
-def test_turn_end_fields():
-    """TurnEnd 带 message/tool_results。"""
-    m = Message(role="assistant", content="hi")
-    t = Message(role="tool", content="6")
-    e = TurnEnd(message=m, tool_results=[t])
-    assert e.message is m
-    assert e.tool_results == [t]
+def test_turn_end_nullable_message():
+    """TurnEnd 支持 message=None 与 tool_results 默认空列表。"""
+    te_none = TurnEnd(message=None, tool_results=[])
+    assert te_none.message is None
+    assert te_none.tool_results == []
+
+    te_default = TurnEnd()
+    assert te_default.message is None
+    assert te_default.tool_results == []
+
+    msg = Message(role="assistant", content="done")
+    tool_msg = Message(role="tool", content="ok")
+    te_populated = TurnEnd(message=msg, tool_results=[tool_msg])
+    assert te_populated.message is msg
+    assert te_populated.tool_results == [tool_msg]
 
 
-def test_message_lifecycle_events_carry_message():
-    """MessageStart/MessageUpdate/MessageEnd 带 Message 对象。"""
-    m = Message(role="assistant", content="hi")
-    assert MessageStart(message=m).message is m
-    assert MessageUpdate(message=m).message is m
-    assert MessageEnd(message=m).message is m
+def test_agent_event_alias():
+    """AgentEvent 是 Event 的类型别名。"""
+    assert AgentEvent is Event
 
 
-def test_tool_execution_start_fields():
-    """ToolExecutionStart 带 tool_call_id/tool_name/args。"""
-    e = ToolExecutionStart(
-        tool_call_id="1", tool_name="multiply", args={"a": 2, "b": 3}
-    )
-    assert (e.tool_call_id, e.tool_name, e.args) == ("1", "multiply", {"a": 2, "b": 3})
+def test_decision_points_attributes_and_frozen():
+    """五大专职 Decision 决策点包含预期字段且为不可变 frozen dataclass，不继承 Event。"""
+    uid = UserInputDecision(input_text="hello")
+    assert uid.input_text == "hello"
+    assert is_dataclass(uid) and uid.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(uid, Event)
+    with pytest.raises(FrozenInstanceError):
+        uid.input_text = "mutated"  # pyright: ignore[reportAttributeAccessIssue]
+
+    asd = AgentStartDecision(system_prompt="you are a helpful assistant")
+    assert asd.system_prompt == "you are a helpful assistant"
+    assert is_dataclass(asd) and asd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(asd, Event)
+
+    msg = Message(role="user", content="ping")
+    bmcd = BeforeModelCallDecision(messages=[msg], iteration=2)
+    assert bmcd.messages == [msg]
+    assert bmcd.iteration == 2
+    assert is_dataclass(bmcd) and bmcd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(bmcd, Event)
+
+    tcd = ToolCallDecision(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"})
+    assert tcd.tool_call_id == "call_1"
+    assert tcd.tool_name == "bash"
+    assert tcd.args == {"cmd": "ls"}
+    assert is_dataclass(tcd) and tcd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(tcd, Event)
+
+    trd = ToolResultDecision(tool_call_id="call_1", tool_name="bash", result="output", is_error=False)
+    assert trd.tool_call_id == "call_1"
+    assert trd.tool_name == "bash"
+    assert trd.result == "output"
+    assert trd.is_error is False
+    assert is_dataclass(trd) and trd.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
+    assert not isinstance(trd, Event)
 
 
-def test_tool_execution_update_fields():
-    """ToolExecutionUpdate 带 partial_result。"""
-    e = ToolExecutionUpdate(
-        tool_call_id="1", tool_name="multiply", args={}, partial_result="2"
-    )
-    assert e.partial_result == "2"
+def test_hook_result_fields_and_defaults():
+    """HookResult 包含拦截/改写所需字段且默认为无干预。"""
+    hr = HookResult()
+    assert hr.block is False
+    assert hr.reason is None
+    assert hr.updated_input is None
+    assert hr.updated_system_prompt is None
+    assert hr.updated_messages is None
+    assert hr.updated_args is None
+    assert hr.updated_result is None
 
-
-def test_tool_execution_end_fields():
-    """ToolExecutionEnd 带 tool_call_id/tool_name/result/is_error。"""
-    e = ToolExecutionEnd(
-        tool_call_id="1", tool_name="multiply", result="6", is_error=False
-    )
-    assert e.result == "6"
-    assert e.is_error is False
-
-
-def test_agent_end_fields():
-    """AgentEnd 带 messages/final_text/iterations/stop_reason。"""
-    m = Message(role="assistant", content="hi")
-    e = AgentEnd(messages=[m], final_text="hi", iterations=2, stop_reason="end_turn")
-    assert e.messages == [m]
-    assert (e.final_text, e.iterations, e.stop_reason) == ("hi", 2, "end_turn")
-
-
-def test_context_compacted_fields():
-    """ContextCompacted 带 tokens_before/tokens_after/summarized_count。"""
-    e = ContextCompacted(tokens_before=100, tokens_after=50, summarized_count=3)
-    assert e.tokens_after == 50
-
-
-def test_tools_changed_fields():
-    """ToolsChanged 带 action/name。"""
-    e = ToolsChanged(action="registered", name="get_weather")
-    assert e.name == "get_weather"
-
-
-def test_all_events_frozen_and_dataclass():
-    """全部事件都是 frozen dataclass，非空 fields。"""
-    all_events = (
-        UserInput,
-        AgentStart,
-        TurnStart,
-        BeforeModelCall,
-        TurnEnd,
-        MessageStart,
-        MessageUpdate,
-        MessageEnd,
-        ToolExecutionStart,
-        ToolExecutionUpdate,
-        ToolExecutionEnd,
-        AgentEnd,
-        ContextCompacted,
-        ToolsChanged,
-    )
-    for cls in all_events:
-        assert is_dataclass(cls)
-        assert cls.__dataclass_params__.frozen  # type: ignore[attr-defined]
-        assert fields(cls)
-
-
-def test_event_has_timestamp():
-    """每个事件实例自动带 timestamp（Unix 秒，接近当前时间）。"""
-    import time
-
-    before = time.time()
-    e = TurnStart(iteration=1)
-    after = time.time()
-    assert before <= e.timestamp <= after  # type: ignore[attr-defined]
-
-
-def test_all_events_have_timestamp():
-    """全部事件实例都有 timestamp（继承自 Event 基类）。"""
-
-    def make(cls):
-        if cls is UserInput:
-            return cls(input_text="hi")
-        if cls is AgentStart:
-            return cls()
-        if cls is TurnStart:
-            return cls(iteration=1)
-        if cls is BeforeModelCall:
-            return cls(messages=[], iteration=1)
-        if cls in (MessageStart, MessageEnd):
-            return cls(message=Message(role="assistant", content="hi"))
-        if cls is ToolExecutionStart:
-            return cls(tool_call_id="1", tool_name="f", args={})
-        if cls is ToolExecutionEnd:
-            return cls(tool_call_id="1", tool_name="f", result="", is_error=False)
-        if cls is AgentEnd:
-            return cls(
-                messages=[], final_text=None, iterations=1, stop_reason="end_turn"
-            )
-        if cls is ContextCompacted:
-            return cls(tokens_before=1, tokens_after=1, summarized_count=0)
-        if cls is ToolsChanged:
-            return cls(action="registered", name="x")
-        raise AssertionError(f"no constructor for {cls.__name__}")
-
-    for cls in (
-        UserInput,
-        AgentStart,
-        TurnStart,
-        BeforeModelCall,
-        MessageStart,
-        MessageEnd,
-        ToolExecutionStart,
-        ToolExecutionEnd,
-        AgentEnd,
-        ContextCompacted,
-        ToolsChanged,
-    ):
-        e = make(cls)
-        assert hasattr(e, "timestamp")
-        assert isinstance(e.timestamp, float)  # type: ignore[attr-defined]
-
-
-def test_hook_result_fields():
-    """HookResult 四字段，默认值正确。"""
-    r = HookResult()
-    assert r.block is False
-    assert r.reason is None
-    assert r.updated_args is None
-    assert r.updated_result is None
-    r2 = HookResult(
-        block=True, reason="denied", updated_args={"a": 1}, updated_result="hi"
-    )
-    assert r2.block is True
-    assert r2.reason == "denied"
-    assert r2.updated_args == {"a": 1}
-    assert r2.updated_result == "hi"
-
-
-def test_interceptable_events():
-    """ToolExecutionStart/End、MessageUpdate、UserInput、AgentStart、BeforeModelCall 继承 Interceptable。"""
-    assert isinstance(
-        ToolExecutionStart(tool_call_id="1", tool_name="f", args={}), Interceptable
-    )
-    assert isinstance(
-        ToolExecutionEnd(tool_call_id="1", tool_name="f", result="", is_error=False),
-        Interceptable,
-    )
-    assert isinstance(
-        MessageUpdate(message=Message(role="assistant", content="hi")), Interceptable
-    )
-    assert isinstance(UserInput(input_text="hello"), Interceptable)
-    assert isinstance(AgentStart(), Interceptable)
-    assert isinstance(BeforeModelCall(messages=[], iteration=1), Interceptable)
-    assert not isinstance(TurnStart(iteration=1), Interceptable)
-    assert not isinstance(
-        AgentEnd(messages=[], final_text=None, iterations=1, stop_reason="end_turn"),
-        Interceptable,
-    )
-
-
-def test_extension_decision_point_events():
-    """测试五大决策点相关的事件与 HookResult 扩充字段。"""
-    # 1. UserInput
-    e_input = UserInput(input_text="hello world")
-    assert isinstance(e_input, Interceptable)
-    assert e_input.input_text == "hello world"
-
-    # 2. AgentStart (Interceptable with system_prompt & user_input)
-    e_start = AgentStart(system_prompt="system prompt", user_input="user prompt")
-    assert isinstance(e_start, Interceptable)
-    assert e_start.system_prompt == "system prompt"
-    assert e_start.user_input == "user prompt"
-
-    # 3. BeforeModelCall
-    msg = Message(role="user", content="hi")
-    e_ctx = BeforeModelCall(messages=[msg], iteration=1)
-    assert isinstance(e_ctx, Interceptable)
-    assert e_ctx.messages == [msg]
-    assert e_ctx.iteration == 1
-
-    # 4. HookResult 扩充字段
-    res = HookResult(
+    msg = Message(role="system", content="updated")
+    hr_custom = HookResult(
         block=True,
         reason="blocked",
-        updated_input="new input",
-        updated_system_prompt="new system",
+        updated_input="new_input",
+        updated_system_prompt="new_prompt",
         updated_messages=[msg],
-        updated_args={"a": 1},
-        updated_result="res",
+        updated_args={"x": 1},
+        updated_result="new_res",
     )
-    assert res.updated_input == "new input"
-    assert res.updated_system_prompt == "new system"
-    assert res.updated_messages == [msg]
+    assert hr_custom.block is True
+    assert hr_custom.reason == "blocked"
+    assert hr_custom.updated_input == "new_input"
+    assert hr_custom.updated_system_prompt == "new_prompt"
+    assert hr_custom.updated_messages == [msg]
+    assert hr_custom.updated_args == {"x": 1}
+    assert hr_custom.updated_result == "new_res"
 
 
-def test_hook_result_frozen():
-    """HookResult 是 frozen dataclass。"""
-    assert is_dataclass(HookResult)
-    assert HookResult.__dataclass_params__.frozen  # type: ignore[attr-defined]
+def test_hook_registry_alias():
+    """HookRegistry 是 DecisionRegistry 的别名。"""
+    assert HookRegistry is DecisionRegistry
 
 
 @pytest.mark.anyio
-async def test_hook_registry_async_emit():
-    """HookRegistry.emit 支持异步与同步 hook 混用，并正确短路。"""
-    registry = HookRegistry()
+async def test_decision_registry_emit_and_short_circuit():
+    """DecisionRegistry 执行 handlers，遇到第一个非 None HookResult 立即短路并返回。"""
+    reg = DecisionRegistry()
     calls = []
 
-    async def async_hook(event: Event):
-        await asyncio.sleep(0.01)
-        calls.append("async")
+    async def guard(d: ToolCallDecision):
+        calls.append(d.tool_name)
+        return HookResult(block=True, reason="forbidden")
+
+    async def second_guard(_d: ToolCallDecision):
+        calls.append("should_not_run")
         return None
 
-    def sync_hook(event: Event):
-        calls.append("sync")
-        return HookResult(block=True, reason="blocked in sync")
+    reg.register(ToolCallDecision, guard)
+    reg.register(ToolCallDecision, second_guard)
 
-    def never_called(event: Event):
-        calls.append("never")
-        return None
-
-    registry.register(MessageUpdate, async_hook)
-    registry.register(MessageUpdate, sync_hook)
-    registry.register(MessageUpdate, never_called)
-
-    msg = Message(role="assistant", content="hello")
-    chunk = StreamChunk(content="lo")
-    event = MessageUpdate(message=msg, chunk=chunk)
-
-    assert issubclass(MessageUpdate, Interceptable)
-    res = await registry.emit(event)
-
-    assert calls == ["async", "sync"]
+    res = await reg.emit(ToolCallDecision(tool_call_id="1", tool_name="rm", args={}))
     assert res is not None
     assert res.block is True
-    assert res.reason == "blocked in sync"
+    assert res.reason == "forbidden"
+    assert calls == ["rm"]
+
+
+@pytest.mark.anyio
+async def test_decision_registry_sync_and_async_mix():
+    """DecisionRegistry 支持 sync 与 async 回调混用，全部返回 None 则 emit 返回 None。"""
+    reg = DecisionRegistry()
+    calls = []
+
+    def sync_observer(d: UserInputDecision):
+        calls.append(f"sync:{d.input_text}")
+        return None
+
+    async def async_observer(d: UserInputDecision):
+        await asyncio.sleep(0.001)
+        calls.append(f"async:{d.input_text}")
+        return None
+
+    reg.register(UserInputDecision, sync_observer)
+    reg.register(UserInputDecision, async_observer)
+
+    res = await reg.emit(UserInputDecision(input_text="hello"))
+    assert res is None
+    assert calls == ["sync:hello", "async:hello"]
+
+
+@pytest.mark.anyio
+async def test_decision_registry_unregister():
+    """DecisionRegistry.unregister 正常移除已注册回调。"""
+    reg = DecisionRegistry()
+    calls = []
+
+    def hook(_d: AgentStartDecision):
+        calls.append("called")
+        return HookResult(block=True)
+
+    reg.register(AgentStartDecision, hook)
+    reg.unregister(AgentStartDecision, hook)
+
+    res = await reg.emit(AgentStartDecision(system_prompt="sys"))
+    assert res is None
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_decision_registry_never_throw_guarantee():
+    """DecisionRegistry 严格保证 Never-Throw：回调抛出异常时不向外抛，捕获后继续执行后续回调。"""
+    reg = DecisionRegistry()
+    calls = []
+
+    def crashing_sync_hook(_d: ToolCallDecision):
+        calls.append("crashing_sync")
+        raise RuntimeError("boom in sync hook")
+
+    async def crashing_async_hook(_d: ToolCallDecision):
+        calls.append("crashing_async")
+        raise ValueError("boom in async hook")
+
+    async def successful_hook(_d: ToolCallDecision):
+        calls.append("successful")
+        return HookResult(block=True, reason="blocked after errors")
+
+    reg.register(ToolCallDecision, crashing_sync_hook)
+    reg.register(ToolCallDecision, crashing_async_hook)
+    reg.register(ToolCallDecision, successful_hook)
+
+    # 绝不能抛出异常
+    res = await reg.emit(ToolCallDecision(tool_call_id="call_x", tool_name="bash", args={}))
+    assert res is not None
+    assert res.block is True
+    assert res.reason == "blocked after errors"
+    assert calls == ["crashing_sync", "crashing_async", "successful"]
+
+
+@pytest.mark.anyio
+async def test_decision_registry_never_throw_all_fail():
+    """当所有回调均抛异常时，DecisionRegistry.emit 返回 None 且不抛出异常。"""
+    reg = DecisionRegistry()
+
+    def crashing_hook(_d: ToolResultDecision):
+        raise KeyError("missing key")
+
+    reg.register(ToolResultDecision, crashing_hook)
+
+    res = await reg.emit(ToolResultDecision(tool_call_id="1", tool_name="bash", result="err", is_error=True))
+    assert res is None
