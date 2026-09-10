@@ -1,20 +1,14 @@
+# pyright: reportArgumentType=false
 import asyncio
 from pathlib import Path
-
-from my_agent_llm import StreamChunk  # pyright: ignore
 
 from my_agent_core.agent import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
 from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
-
-
-class CapturingFakeLLM:
-    def __init__(self):
-        self.captured_views = []
-
-    async def achat_stream(self, messages, tools=None, **kwargs):
-        self.captured_views.append(list(messages))
-        yield StreamChunk(content="Task processed successfully.")
+from tests.conftest import (  # pyright: ignore[reportMissingImports]
+    FakeLLM,
+    make_response,
+)
 
 
 def test_agent_prefix_cache_protection_and_zero_system_prompt_mutation(tmp_path: Path):
@@ -25,7 +19,7 @@ def test_agent_prefix_cache_protection_and_zero_system_prompt_mutation(tmp_path:
         await store.update("task_1", status="in_progress")
 
         session = Session(path=tmp_path / "session.jsonl")
-        fake_llm = CapturingFakeLLM()
+        fake_llm = FakeLLM([make_response(content="Task processed successfully.")])
 
         initial_sys = "You are an expert coding assistant."
         agent = Agent(
@@ -44,8 +38,8 @@ def test_agent_prefix_cache_protection_and_zero_system_prompt_mutation(tmp_path:
         await agent.run("What is on my task board?")
 
         # Check LLM view received: System prompt was NOT dynamically mutated (Prefix Cache protected)
-        assert len(fake_llm.captured_views) >= 1
-        last_view = fake_llm.captured_views[-1]
+        assert len(fake_llm.calls) >= 1
+        last_view = fake_llm.calls[-1]["messages"]
         assert last_view[0].role == "system"
         assert last_view[0].content == initial_sys  # Prefix Cache 100% stable!
 
@@ -61,7 +55,7 @@ def test_agent_prefix_cache_protection_and_zero_system_prompt_mutation(tmp_path:
 def test_agent_task_store_disabled(tmp_path: Path):
     async def _test():
         session = Session(path=tmp_path / "session.jsonl")
-        fake_llm = CapturingFakeLLM()
+        fake_llm = FakeLLM()
 
         agent = Agent(
             llm=fake_llm,
@@ -79,6 +73,6 @@ def test_agent_task_store_disabled(tmp_path: Path):
         assert "todo" not in tool_names
 
         await agent.run("Hello")
-        assert len(fake_llm.captured_views) >= 1
+        assert len(fake_llm.calls) >= 1
 
     asyncio.run(_test())

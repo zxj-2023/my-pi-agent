@@ -1,8 +1,7 @@
+# pyright: reportArgumentType=false
 import asyncio
 import sys
 from pathlib import Path
-
-from my_agent_llm.models import StreamChunk  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.background import BackgroundRunner  # pyright: ignore
@@ -10,11 +9,7 @@ from my_agent_core.message_queue import (
     MessageQueue,  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
-
-
-class _DummyLLM:
-    async def achat_stream(self, messages, tools=None, **kwargs):
-        yield StreamChunk(content="Hello")
+from tests.conftest import FakeLLM  # pyright: ignore[reportMissingImports]
 
 
 def test_background_runner_executes_and_notifies(tmp_path: Path):
@@ -64,7 +59,7 @@ def test_agent_abort_cancels_background_processes(tmp_path: Path):
     async def _test():
         session = Session(path=tmp_path / "session.jsonl")
         agent = Agent(
-            llm=_DummyLLM(),
+            llm=FakeLLM(),
             session=session,
             tools=[],
             memory_dir=False,

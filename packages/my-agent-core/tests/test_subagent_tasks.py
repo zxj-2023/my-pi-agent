@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportOptionalSubscript=false, reportCallIssue=false
 """subagent 委派任务生命周期测试（SubagentTask/SubagentTaskStatus/SubagentTaskManager/工具桥）。"""
 
 import json
@@ -20,53 +21,26 @@ from my_agent_core.tools import tool  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools.builtin import (
     make_task_tool,  # pyright: ignore[reportMissingImports]
 )
-
-
-class FakeLLM:
-    def __init__(self, responses: list[Response]):
-        self.responses = list(responses)
-        self.calls: list[dict] = []
-
-    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
-        return self.responses.pop(0)
-
-    async def achat_stream(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
-        resp = self.responses.pop(0)
-        yield StreamChunk(
-            content=resp.content,
-            tool_calls=resp.tool_calls,
-            finish_reason=resp.finish_reason,
-        )
-
-    def chat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
-        return self.responses.pop(0)
+from tests.conftest import (  # pyright: ignore[reportMissingImports]
+    FakeLLM,
+    make_response as _response,
+    multiply,
+)
 
 
 class RaisingLLM:
     def __init__(self):
         self.calls = []
 
-    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
+    async def achat(self, *, _messages=None, _tools=None, **_kwargs) -> Response:
         raise RuntimeError("boom")
 
-    async def achat_stream(self, *, messages, tools=None, **kwargs):
+    async def achat_stream(self, *, _messages=None, _tools=None, **_kwargs):
         raise RuntimeError("boom")
         yield  # make it a generator
 
-    def chat(self, *, messages, tools=None, **kwargs) -> Response:
+    def chat(self, *, _messages=None, _tools=None, **_kwargs) -> Response:
         raise RuntimeError("boom")
-
-
-def _response(content: str = "", tool_calls=None) -> Response:
-    return Response(
-        content=content,
-        model="test",
-        tool_calls=tool_calls,
-        finish_reason="tool_use" if tool_calls else "end_turn",
-    )
 
 
 def _task_call(prompt: str, agent_type: str = "default") -> dict:
@@ -369,7 +343,7 @@ async def test_task_manager_steer_and_followup_task(tmp_path: Path):
         def __init__(self):
             self.calls = 0
 
-        async def achat_stream(self, *, messages, tools=None, **kwargs):
+        async def achat_stream(self, *, _messages=None, _tools=None, **_kwargs):
             self.calls += 1
             tm: SubagentTaskManager = tm_holder["tm"]
             active_ids = list(tm._active_agents.keys())
@@ -388,7 +362,7 @@ async def test_task_manager_steer_and_followup_task(tmp_path: Path):
                     child_agent.message_queue.has_followup()
                 )
 
-            yield StreamChunk(content=f"Child answer {self.calls}", model="fake")
+            yield StreamChunk(content=f"Child answer {self.calls}")
 
     llm = InterceptingLLM()
     parent = Agent(llm=llm, tools=[], session=parent_session)

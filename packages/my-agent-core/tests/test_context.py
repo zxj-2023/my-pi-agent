@@ -303,7 +303,9 @@ async def test_agent_trigger_compaction_and_event(tmp_path):
         session=session,
         context_budget=400,
         keep_recent_tokens=100,
-        hooks=[(ContextCompacted, lambda ev: (events.append(ev), None)[1])],
+    )
+    agent.subscribe(
+        lambda ev: events.append(ev) if isinstance(ev, ContextCompacted) else None
     )
     for _ in range(6):  # 累积 6 条大消息 → 超阈触发摘要
         await agent.run("y" * 300)
@@ -378,7 +380,9 @@ async def test_manual_compact():
     agent = _agent(
         llm,
         context_budget=100_000,
-        hooks=[(ContextCompacted, lambda ev: (events.append(ev), None)[1])],
+    )
+    agent.subscribe(
+        lambda ev: events.append(ev) if isinstance(ev, ContextCompacted) else None
     )
     await agent.run("hi")
     assert len(llm.calls) == 1

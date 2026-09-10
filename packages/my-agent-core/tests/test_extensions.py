@@ -2,7 +2,6 @@
 """extension 机制离线测试（替身 Agent，不碰真网络）。"""
 
 import pytest
-from my_agent_llm import Response  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import TurnStart
@@ -16,6 +15,11 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
+
+from tests.conftest import (  # pyright: ignore[reportMissingImports]
+    FakeLLM,
+    make_response as _resp,
+)
 
 
 class _FakeAgent:
@@ -268,30 +272,6 @@ def extension(api):
 # ── 端到端（FakeLLM 驱动，extension 经 Agent 装配生效）──────────────
 
 
-class _FakeLLM:
-    """替身：chat/achat 按脚本返回 Response，记录 tools 和 messages。"""
-
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.calls = []
-
-    async def achat_stream(self, *, messages, tools=None, **_kwargs):
-        self.calls.append({"messages": list(messages), "tools": tools})
-        yield self.responses.pop(0)
-
-    async def achat(self, *, messages, tools=None, **_kwargs):
-        self.calls.append({"messages": list(messages), "tools": tools})
-        return self.responses.pop(0)
-
-    def chat(self, *, messages, tools=None, **_kwargs):
-        self.calls.append({"messages": list(messages), "tools": tools})
-        return self.responses.pop(0)
-
-
-def _resp(content="", tool_calls=None):
-    return Response(content=content, model="fake", tool_calls=tool_calls)
-
-
 def _make_agent(llm, tmp_path, extension_dirs):
     session = Session(path=tmp_path / "s.jsonl")
     return Agent(llm=llm, tools=[], session=session, extension_dirs=extension_dirs)
@@ -320,7 +300,7 @@ def extension(api):
             "function": {"name": "double", "arguments": '{"x": 5}'},
         }
     ]
-    llm = _FakeLLM([_resp(tool_calls=tc), _resp(content="10")])
+    llm = FakeLLM([_resp(tool_calls=tc), _resp(content="10")])
     agent = _make_agent(llm, tmp_path, extension_dirs=[ext_dir])
 
     answer = await agent.run("double 5")
@@ -354,7 +334,7 @@ def extension(api):
             "function": {"name": "double", "arguments": '{"x": 5}'},
         }
     ]
-    llm = _FakeLLM([_resp(tool_calls=tc), _resp(content="done")])
+    llm = FakeLLM([_resp(tool_calls=tc), _resp(content="done")])
     agent = _make_agent(llm, tmp_path, extension_dirs=[ext_dir])
 
     answer = await agent.run("double 5")
@@ -387,7 +367,7 @@ def extension(api):
 
     session = Session(path=tmp_path / "s.jsonl")
     agent = Agent(
-        llm=_FakeLLM([]),  # pyright: ignore[reportArgumentType]
+        llm=FakeLLM([]),
         tools=[double],
         session=session,
         extension_dirs=[ext_dir],
@@ -429,7 +409,7 @@ def extension(api):
         encoding="utf-8",
     )
 
-    llm = _FakeLLM([_resp(content="safe answer")])
+    llm = FakeLLM([_resp(content="safe answer")])
     agent = _make_agent(llm, tmp_path, extension_dirs=[ext_dir])
 
     res = await agent.run("test bad_word")

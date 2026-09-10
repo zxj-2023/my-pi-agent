@@ -1,14 +1,11 @@
+# pyright: reportImportCycles=false, reportUnusedFunction=false, reportUnusedVariable=false, reportMissingImports=false
 """Agent 单层循环离线测试（假 LLM 替身，不碰真网络）。"""
 
 import tempfile
 from pathlib import Path
 
 import pytest  # pyright: ignore[reportMissingImports]
-from my_agent_llm import (  # pyright: ignore[reportMissingImports]
-    Message,
-    Response,
-    StreamChunk,
-)
+from my_agent_llm import Message, Response
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
@@ -35,55 +32,7 @@ from my_agent_core.session import Session
 from my_agent_core.tools import tool
 
 
-class FakeLLM:
-    """替身：chat / achat_stream 按脚本返回 Response / StreamChunk，记录收到的 messages/tools。"""
-
-    def __init__(self, responses: list[Response]):
-        self.responses = list(responses)
-        self.calls: list[dict] = []
-
-    def chat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
-        return self.responses.pop(0)
-
-    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
-        return self.chat(messages=messages, tools=tools, **kwargs)
-
-    async def achat_stream(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
-        resp = self.responses.pop(0)
-        if resp.content:
-            # 拆为两段 chunk 测试流式
-            mid = len(resp.content) // 2
-            if mid > 0:
-                yield StreamChunk(content=resp.content[:mid])
-                yield StreamChunk(
-                    content=resp.content[mid:],
-                    tool_calls=resp.tool_calls,
-                    finish_reason=resp.finish_reason,
-                )
-            else:
-                yield StreamChunk(
-                    content=resp.content,
-                    tool_calls=resp.tool_calls,
-                    finish_reason=resp.finish_reason,
-                )
-        elif resp.tool_calls:
-            yield StreamChunk(content="", tool_calls=resp.tool_calls)
-        else:
-            yield StreamChunk(content="", finish_reason="end_turn")
-
-
-@tool(is_parallel_safe=True)
-def multiply(a: int, b: int) -> int:
-    """Multiply two integers."""
-    return a * b
-
-
-@tool(is_parallel_safe=True)
-def get_time() -> str:
-    """Get the current time."""
-    return "12:00"
+from tests.conftest import FakeLLM, multiply
 
 
 def _response(content: str = "", tool_calls=None) -> Response:
@@ -195,24 +144,10 @@ async def test_event_sequence():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="6")])
     events = []
-    agent = _agent(
-        llm,
-        hooks=[
-            (cls, events.append)
-            for cls in (
-                AgentStart,
-                MessageStart,
-                MessageEnd,
-                TurnStart,
-                TurnEnd,
-                ToolExecutionStart,
-                ToolExecutionEnd,
-                AgentEnd,
-            )
-        ],
-    )
+    agent = _agent(llm)
+    agent.subscribe(events.append)
     await agent.run("compute")
-    kinds = [type(e).__name__ for e in events]
+    kinds = [type(e).__name__ for e in events if not isinstance(e, MessageUpdate)]
     assert kinds == [
         "AgentStart",
         "MessageStart",
@@ -250,7 +185,8 @@ async def test_max_iterations():
     ]
     llm = FakeLLM([_response(tool_calls=tc)])  # 只有一轮 tool_calls，没有最终回答
     events = []
-    agent = _agent(llm, max_iterations=1, hooks=[(AgentEnd, events.append)])
+    agent = _agent(llm, max_iterations=1)
+    agent.subscribe(lambda ev: events.append(ev) if isinstance(ev, AgentEnd) else None)
     answer = await agent.run("compute")
     assert answer is None
     end = [e for e in events if isinstance(e, AgentEnd)][0]
@@ -366,7 +302,7 @@ async def test_hook_exception_does_not_crash_loop():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(hook: ToolCallHook):
+    def boom(_hook: ToolCallHook):
         raise ValueError("boom")
 
     agent = _agent(llm, hooks=[(ToolCallHook, boom)])
@@ -387,7 +323,7 @@ async def test_tool_result_decision_exception_does_not_crash_loop():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(hook: ToolResultHook):
+    def boom(_hook: ToolResultHook):
         raise ValueError("end boom")
 
     agent = _agent(llm, hooks=[(ToolResultHook, boom)])
@@ -409,7 +345,7 @@ async def test_multiple_hooks_same_event():
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
     order = []
 
-    def first(hook: ToolCallHook):
+    def first(_hook: ToolCallHook):
         order.append("first")
         return None  # 放行
 
@@ -417,7 +353,7 @@ async def test_multiple_hooks_same_event():
         order.append("second")
         return HookResult(updated_args={"a": 100, "b": 1})  # 短路
 
-    def third(hook: ToolCallHook):
+    def third(_hook: ToolCallHook):
         order.append("third")  # 不应被调用
 
     agent = _agent(
@@ -469,7 +405,10 @@ async def test_agent_async_run_streaming_events():
     """Agent 流式运行期间逐 Token 发射 MessageUpdate 事件。"""
     llm = FakeLLM([_response(content="streaming hello world")])
     updates = []
-    agent = _agent(llm, hooks=[(MessageUpdate, updates.append)])
+    agent = _agent(llm)
+    agent.subscribe(
+        lambda ev: updates.append(ev) if isinstance(ev, MessageUpdate) else None
+    )
     res = await agent.run("say hello")
     assert res == "streaming hello world"
     assert len(updates) >= 2
@@ -508,7 +447,7 @@ async def test_before_model_call_decision_block():
     llm = FakeLLM([_response(content="dangerous payload in stream")])
     agent = _agent(llm, session=session)
 
-    def guard_decision(hook: BeforeModelCallHook):
+    def guard_decision(_hook: BeforeModelCallHook):
         return HookResult(block=True, reason="Security alert")
 
     agent.hooks.register(BeforeModelCallHook, guard_decision)
@@ -571,7 +510,7 @@ async def test_agent_agent_start_hook_rewrite_system_prompt():
     llm = FakeLLM([_response(content="persona answer")])
     agent = _agent(llm, session=session, system_prompt="Original Persona")
 
-    def customize_system(hook: AgentStartHook):
+    def customize_system(_hook: AgentStartHook):
         return HookResult(updated_system_prompt="Customized Super Persona")
 
     agent.hooks.register(AgentStartHook, customize_system)
@@ -588,7 +527,7 @@ async def test_agent_start_decision_block():
     llm = FakeLLM([_response(content="should not run")])
     agent = _agent(llm, system_prompt="Original Persona")
 
-    def block_start(hook: AgentStartHook):
+    def block_start(_hook: AgentStartHook):
         return HookResult(block=True, reason="maintenance mode")
 
     agent.hooks.register(AgentStartHook, block_start)

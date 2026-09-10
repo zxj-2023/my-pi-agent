@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from typing import Any
 
 import pytest
-from my_agent_llm import Message, Response, StreamChunk
+from my_agent_llm import Message, StreamChunk
 
 from my_agent_core.events import (
     AgentEnd,
@@ -39,59 +38,19 @@ from my_agent_core.loop import (
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import tool
+from tests.conftest import (  # pyright: ignore[reportMissingImports]
+    FakeLLM,
+    make_response as _response,
+    multiply,
+)
 
 # ── Test Doubles ─────────────────────────────────────────────────────────────
-
-
-class FakeLLM:
-    """Async streaming FakeLLM for pure loop tests."""
-
-    def __init__(self, responses: list[Response]):
-        self.responses = list(responses)
-        self.calls: list[dict[str, Any]] = []
-
-    async def achat_stream(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"messages": list(messages), "tools": tools, **kwargs})
-        if not self.responses:
-            yield StreamChunk(content="default reply", finish_reason="end_turn")
-            return
-
-        resp = self.responses.pop(0)
-        if resp.content:
-            mid = len(resp.content) // 2
-            if mid > 0:
-                yield StreamChunk(content=resp.content[:mid])
-                yield StreamChunk(
-                    content=resp.content[mid:],
-                    tool_calls=resp.tool_calls,
-                    finish_reason=resp.finish_reason,
-                )
-            else:
-                yield StreamChunk(
-                    content=resp.content,
-                    tool_calls=resp.tool_calls,
-                    finish_reason=resp.finish_reason,
-                )
-        elif resp.tool_calls:
-            yield StreamChunk(content="", tool_calls=resp.tool_calls)
-        else:
-            yield StreamChunk(content="", finish_reason="end_turn")
-
-
-@tool(is_parallel_safe=True)
-def multiply(a: int, b: int) -> int:
-    """Multiply two integers."""
-    return a * b
 
 
 @tool(is_parallel_safe=True)
 def ping() -> str:
     """Ping tool."""
     return "pong"
-
-
-def _response(content: str = "", tool_calls=None) -> Response:
-    return Response(content=content, model="fake", tool_calls=tool_calls)
 
 
 def _make_registry(*tools) -> ToolRegistry:

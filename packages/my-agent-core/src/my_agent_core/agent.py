@@ -266,18 +266,7 @@ class Agent:
                 lambda ev: guard.on_turn_end(ev) if isinstance(ev, TurnEnd) else None
             )
         for target, callback in hooks or []:
-            if isinstance(target, type) and issubclass(target, Event):
-
-                def make_listener(cls, cb):
-                    def listener(ev: Event):
-                        if isinstance(ev, cls):
-                            return cb(ev)
-
-                    return listener
-
-                self.subscribe(make_listener(target, callback))
-            else:
-                self.hooks.register(target, callback)
+            self.hooks.register(target, callback)
 
     # ── 公共 API ────────────────────────────────────────────
 

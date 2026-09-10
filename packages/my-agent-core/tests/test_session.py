@@ -1,64 +1,16 @@
 # pyright: reportArgumentType=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false
-"""SessionTree 树结构测试（会话设计文档 §8 #1–#3）。"""
+"""Session 门面与持久化机制测试（原子写入、崩溃自愈、分叉、指针回退与压缩守卫）。"""
 
 import pytest
-from my_agent_llm import Message, Response
+from my_agent_llm import Message
 
 from my_agent_core.agent import Agent
-from my_agent_core.session import Session, SessionTree
-from my_agent_core.tools import tool
-
-
-def test_tree_first_entry_is_root():
-    """首个 entry 成为根，current 指向它（#1）。"""
-    tree = SessionTree()
-    e = tree.add_entry("user", "hi")
-    assert tree.root_id == e.id
-    assert tree.current_id == e.id
-    assert e.parent_id is None
-    assert e.role == "user"
-    assert e.content == "hi"
-
-
-def test_tree_path_root_to_current():
-    """多 entry 后 get_current_path = 根→current 完整路径（#2）。"""
-    tree = SessionTree()
-    tree.add_entry("user", "q1")
-    tree.add_entry("assistant", "a1")
-    tree.add_entry("user", "q2")
-    path = tree.get_current_path()
-    assert [e.content for e in path] == ["q1", "a1", "q2"]
-    assert path[0].id == tree.root_id
-    assert path[-1].id == tree.current_id
-
-
-def test_tree_rewind_keeps_old_branch():
-    """rewind 移动 current 指针，旧分支 entry 仍在树里；rewind 后长新枝 parent 正确（#3）。"""
-    tree = SessionTree()
-    tree.add_entry("user", "q1")
-    a = tree.add_entry("assistant", "a1")
-    tree.add_entry("user", "q2")
-    tree.rewind(a.id)
-    assert tree.current_id == a.id
-    assert len(tree.entries) == 3  # 旧分支保留
-    assert [e.content for e in tree.get_current_path()] == ["q1", "a1"]
-    # rewind 后继续 → 在 a1 下长新枝
-    b = tree.add_entry("user", "q2-prime")
-    assert b.parent_id == a.id
-    assert [e.content for e in tree.get_current_path()] == ["q1", "a1", "q2-prime"]
-    assert "q2" in [e.content for e in tree.entries.values()]  # 旧枝完整保留
-
-
-def test_tree_rewind_missing_entry_raises():
-    """rewind 到不存在的 entry 抛 ValueError（设计文档 §7）。"""
-    tree = SessionTree()
-    tree.add_entry("user", "hi")
-    try:
-        tree.rewind("nope")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("expected ValueError")
+from my_agent_core.session import Session
+from tests.conftest import (  # pyright: ignore[reportMissingImports]
+    FakeLLM,
+    make_response as _response,
+    multiply,
+)
 
 
 def test_save_load_round_trip(tmp_path):
@@ -103,7 +55,7 @@ def test_atomic_write_failure_keeps_snapshot(tmp_path, monkeypatch):
     session.add_message("user", "q1")
     snapshot = session.path.read_text(encoding="utf-8")
 
-    def boom(src, dst):
+    def boom(_src, _dst):
         raise OSError("disk full")
 
     monkeypatch.setattr("my_agent_core.session.session.os.replace", boom)
@@ -125,37 +77,6 @@ def test_load_tolerates_torn_last_line(tmp_path):
         f.write('{"id":"zz","parent_id"')  # 撕裂尾行
     loaded = Session.load(session.path)
     assert [e.content for e in loaded.tree.get_current_path()] == ["q1", "a1"]
-
-
-class FakeLLM:
-    """替身（同 test_agent.py）：chat 按脚本返回 Response，记录收到的 messages。"""
-
-    def __init__(self, responses: list[Response]):
-        self.responses = list(responses)
-        self.calls: list[dict] = []
-
-    def chat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": list(messages)})
-        return self.responses.pop(0)
-
-    async def achat(self, *, messages, tools=None, **kwargs) -> Response:
-        self.calls.append({"messages": list(messages)})
-        return self.responses.pop(0)
-
-    async def achat_stream(self, *, messages, tools=None, **kwargs):
-        self.calls.append({"messages": list(messages)})
-        resp = self.responses.pop(0)
-        yield resp
-
-
-@tool
-def multiply(a: int, b: int) -> int:
-    """Multiply two integers."""
-    return a * b
-
-
-def _response(content: str = "", tool_calls=None) -> Response:
-    return Response(content=content, model="fake", tool_calls=tool_calls)
 
 
 @pytest.mark.anyio
