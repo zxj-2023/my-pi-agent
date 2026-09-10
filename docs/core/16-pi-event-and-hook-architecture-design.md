@@ -29,6 +29,7 @@
    - 在流式输出取消（lines 395-415）与工具执行前夕取消（lines 465-485）两处，存在两套完全重复的 20 行断头工具补齐与事件发射代码。
 
 ### 本次重塑的核心目标
+
 1. **完全对齐 Tau 架构的子生成器分治法（Sub-Async-Generators）**：
    将 550 行的大泥球拆解为 **1 个主调度大管家（100 行）+ 2 个专职业务子生成器（模型车间 + 工具车间）**；
 2. **完全对齐 Pi 架构的“正交解耦”哲学**：
@@ -107,6 +108,7 @@
 ### 1. `events.py`：事件体系与决策点正交解耦
 
 #### (1) 纯只读事件流（`Event`）
+
 所有的生命周期通知实体**彻底剔除 `Interceptable` 标记与返回值期待**。微内核仅负责 `yield`，外部仅负责消费：
 
 ```python
@@ -197,6 +199,7 @@ AgentEvent = Event
 ```
 
 #### (2) 专职决策拦截点契约（`DecisionPoint` 与 `HookResult`）
+
 与 Pi 官方 5 大决策点 100% 严密对齐：
 
 ```python
@@ -229,7 +232,9 @@ class ToolResultDecision:
 ```
 
 #### (3) 决策分发管理器（`DecisionRegistry` / 链式中间件）
+
 提供专职的洋葱中间件流水线：
+
 - 支持多插件链式按序处理改写值；
 - 遇到 `block=True` 时立即短路阻断；
 - 与只读事件广播彻底分离。
@@ -239,6 +244,7 @@ class ToolResultDecision:
 ### 2. `loop.py`：微内核子生成器分治重塑
 
 #### (1) 统一底层流式适配器（`_stream_llm`）
+
 消除原本 70 行的 3 分支重复代码，将所有 LLM 调用归一化为单一的异步生成器：
 
 ```python
@@ -262,6 +268,7 @@ async def _stream_llm(
 ```
 
 #### (2) 子生成器 1：大模型流式推理车间（`_assistant_turn`）
+
 专注处理 Token 打字机累加、取消信号感知与断头自愈：
 
 ```python
@@ -319,6 +326,7 @@ async def _assistant_turn(
 ```
 
 #### (3) 子生成器 2：工具并发执行车间（`_execute_tools_turn`）
+
 专注处理参数反序列化、`tool_call` 拦截审批、并发执行与 `tool_result` 改写：
 
 ```python
@@ -339,6 +347,7 @@ async def _execute_tools_turn(
 ```
 
 #### (4) 集中化断头合成辅助函数
+
 ```python
 def _synthesize_interrupted_tool_calls(tool_calls: Sequence[dict[str, Any]]) -> list[Message]:
     """统一生成标准的中断工具结果，彻底消除多处代码重复。"""
@@ -353,7 +362,9 @@ def _synthesize_interrupted_tool_calls(tool_calls: Sequence[dict[str, Any]]) -> 
 ```
 
 #### (5) 瘦身后的主微内核 `run_agent_loop`（精简至约 100 行）
+
 主函数完全回归纯粹的状态机调度：
+
 ```python
 async def run_agent_loop(...) -> AsyncIterator[AgentEvent]:
     # 1. 初始 prompts 注入与前置事件
