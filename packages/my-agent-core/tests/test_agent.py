@@ -14,17 +14,22 @@ from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    AgentStartDecision,
     BeforeModelCall,
+    BeforeModelCallDecision,
     Event,
     HookResult,
     MessageEnd,
     MessageStart,
     MessageUpdate,
+    ToolCallDecision,
     ToolExecutionEnd,
     ToolExecutionStart,
+    ToolResultDecision,
     TurnEnd,
     TurnStart,
     UserInput,
+    UserInputDecision,
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
@@ -272,7 +277,7 @@ async def test_agent_multiple_runs_and_reset():
 
 @pytest.mark.anyio
 async def test_hook_blocks_tool():
-    """ToolExecutionStart hook 返回 block → 工具未执行，tool 消息含 blocked（#7）。"""
+    """ToolCallDecision hook 返回 block → 工具未执行，tool 消息含 blocked（#7）。"""
     tc = [
         {
             "id": "1",
@@ -283,8 +288,8 @@ async def test_hook_blocks_tool():
     called = []
     llm = FakeLLM([_response(tool_calls=tc), _response(content="blocked ok")])
 
-    def guard(event):
-        if isinstance(event, ToolExecutionStart):
+    def guard(decision: ToolCallDecision):
+        if isinstance(decision, ToolCallDecision):
             return HookResult(block=True, reason="no way")
         return None
 
@@ -293,7 +298,7 @@ async def test_hook_blocks_tool():
         return a * b
 
     probe_tool = tool(probe)
-    agent = _agent(llm, tools=[probe_tool], hooks=[(ToolExecutionStart, guard)])
+    agent = _agent(llm, tools=[probe_tool], hooks=[(ToolCallDecision, guard)])
     answer = await agent.run("compute")
     assert answer == "blocked ok"
     assert called == []  # 工具未执行
@@ -303,7 +308,7 @@ async def test_hook_blocks_tool():
 
 @pytest.mark.anyio
 async def test_hook_rewrites_args():
-    """ToolExecutionStart hook 返回 updated_args → 工具收到改写值（#8）。"""
+    """ToolCallDecision hook 返回 updated_args → 工具收到改写值（#8）。"""
     tc = [
         {
             "id": "1",
@@ -313,14 +318,14 @@ async def test_hook_rewrites_args():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
-    def rewrite(event):
-        if isinstance(event, ToolExecutionStart):
+    def rewrite(decision: ToolCallDecision):
+        if isinstance(decision, ToolCallDecision):
             return HookResult(
-                updated_args={"a": event.args["a"] * 10, "b": event.args["b"]}
+                updated_args={"a": decision.args["a"] * 10, "b": decision.args["b"]}
             )
         return None
 
-    agent = _agent(llm, hooks=[(ToolExecutionStart, rewrite)])
+    agent = _agent(llm, hooks=[(ToolCallDecision, rewrite)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "60"  # 2*10 * 3
@@ -328,7 +333,7 @@ async def test_hook_rewrites_args():
 
 @pytest.mark.anyio
 async def test_hook_rewrites_result():
-    """ToolExecutionEnd hook 返回 updated_result → transcript 中是改写后的文本（#9）。"""
+    """ToolResultDecision hook 返回 updated_result → transcript 中是改写后的文本（#9）。"""
     tc = [
         {
             "id": "1",
@@ -338,20 +343,20 @@ async def test_hook_rewrites_result():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
 
-    def rewrite(event):
-        if isinstance(event, ToolExecutionEnd):
-            return HookResult(updated_result=f"[{event.result}]")
+    def rewrite(decision: ToolResultDecision):
+        if isinstance(decision, ToolResultDecision):
+            return HookResult(updated_result=f"[{decision.result}]")
         return None
 
-    agent = _agent(llm, hooks=[(ToolExecutionEnd, rewrite)])
+    agent = _agent(llm, hooks=[(ToolResultDecision, rewrite)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
     assert tool_msgs[0].content == "[6]"
 
 
 @pytest.mark.anyio
-async def test_hook_exception_becomes_error():
-    """hook 抛异常 → 转错误字符串，transcript 不变形（#10）。"""
+async def test_hook_exception_does_not_crash_loop():
+    """ToolCallDecision 回调抛异常时不向外抛，保证 Never-Throw，工具正常执行或放行（#10）。"""
     tc = [
         {
             "id": "1",
@@ -361,18 +366,18 @@ async def test_hook_exception_becomes_error():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(event):
+    def boom(decision: ToolCallDecision):
         raise ValueError("boom")
 
-    agent = _agent(llm, hooks=[(ToolExecutionStart, boom)])
+    agent = _agent(llm, hooks=[(ToolCallDecision, boom)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
-    assert "Error" in tool_msgs[0].content
+    assert tool_msgs[0].content == "6"
 
 
 @pytest.mark.anyio
-async def test_tool_execution_end_hook_exception_becomes_error():
-    """ToolExecutionEnd hook 抛异常 → 转错误字符串，工具已执行但结果被替换。"""
+async def test_tool_result_decision_exception_does_not_crash_loop():
+    """ToolResultDecision 回调抛异常时保证 Never-Throw，原始结果正常传递。"""
     tc = [
         {
             "id": "1",
@@ -382,18 +387,18 @@ async def test_tool_execution_end_hook_exception_becomes_error():
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="ok")])
 
-    def boom(event):
+    def boom(decision: ToolResultDecision):
         raise ValueError("end boom")
 
-    agent = _agent(llm, hooks=[(ToolExecutionEnd, boom)])
+    agent = _agent(llm, hooks=[(ToolResultDecision, boom)])
     await agent.run("compute")
     tool_msgs = [m for m in llm.calls[1]["messages"] if m.role == "tool"]
-    assert "Error" in tool_msgs[0].content  # 工具执行了，但结果被 End hook 异常替换
+    assert tool_msgs[0].content == "6"
 
 
 @pytest.mark.anyio
 async def test_multiple_hooks_same_event():
-    """同一事件挂多个 hook，按注册顺序触发，非 None 短路。"""
+    """同一决策点挂多个 hook，按注册顺序触发，非 None 短路。"""
     tc = [
         {
             "id": "1",
@@ -404,23 +409,23 @@ async def test_multiple_hooks_same_event():
     llm = FakeLLM([_response(tool_calls=tc), _response(content="done")])
     order = []
 
-    def first(event):
+    def first(decision: ToolCallDecision):
         order.append("first")
         return None  # 放行
 
-    def second(event):
+    def second(decision: ToolCallDecision):
         order.append("second")
         return HookResult(updated_args={"a": 100, "b": 1})  # 短路
 
-    def third(event):
+    def third(decision: ToolCallDecision):
         order.append("third")  # 不应被调用
 
     agent = _agent(
         llm,
         hooks=[
-            (ToolExecutionStart, first),
-            (ToolExecutionStart, second),
-            (ToolExecutionStart, third),
+            (ToolCallDecision, first),
+            (ToolCallDecision, second),
+            (ToolCallDecision, third),
         ],
     )
     await agent.run("compute")
@@ -480,12 +485,12 @@ async def test_agent_abort_cancels_and_discards_partial():
 
     agent = _agent(llm, session=session)
 
-    # 注册一个 Hook 在收到第一个 chunk 时调用 agent.abort()
-    def cancel_on_first_chunk(event: MessageUpdate):
-        agent.abort()
-        return None
+    # 注册一个事件监听器，在收到第一个 chunk 时调用 agent.abort()
+    def cancel_on_first_chunk(event: Event):
+        if isinstance(event, MessageUpdate):
+            agent.abort()
 
-    agent.hooks.register(MessageUpdate, cancel_on_first_chunk)
+    agent.subscribe(cancel_on_first_chunk)
 
     result = await agent.run("test abort")
     assert result == "(cancelled)"
@@ -493,42 +498,39 @@ async def test_agent_abort_cancels_and_discards_partial():
     # 验证 Session 中只有 user 消息，半截 assistant 文本未落盘
     entries = list(session.tree.entries.values())
     assert len(entries) == 1
-    assert entries[0].role == "user"
+    assert getattr(entries[0], "role", None) == "user"
 
 
 @pytest.mark.anyio
-async def test_message_update_hook_interception():
-    """MessageUpdate Hook 返回 HookResult(block=True) 实时阻断流式并退出。"""
+async def test_before_model_call_decision_block():
+    """BeforeModelCallDecision 返回 HookResult(block=True) 实时阻断模型调用并结束。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="dangerous payload in stream")])
     agent = _agent(llm, session=session)
 
-    def guard_hook(event: MessageUpdate):
-        if "dangerous" in event.message.content:
-            return HookResult(block=True, reason="Security alert")
-        return None
+    def guard_decision(decision: BeforeModelCallDecision):
+        return HookResult(block=True, reason="Security alert")
 
-    agent.hooks.register(MessageUpdate, guard_hook)
+    agent.decisions.register(BeforeModelCallDecision, guard_decision)
 
     result = await agent.run("danger test")
-    assert result == "(cancelled)"
-    # 半截文本被丢弃，Session 纯净
-    assert not any(e.role == "assistant" for e in session.tree.entries.values())
+    assert result == "(blocked: Security alert)"
+    assert len(llm.calls) == 0
 
 
 @pytest.mark.anyio
 async def test_agent_user_input_hook_block():
-    """UserInput Hook 返回 block=True 阻断输入，不写 Session 且不调大模型。"""
+    """UserInputDecision Hook 返回 block=True 阻断输入，不写 Session 且不调大模型。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="should not be called")])
     agent = _agent(llm, session=session)
 
-    def guard_input(event: UserInput):
-        if "drop database" in event.input_text:
+    def guard_input(decision: UserInputDecision):
+        if "drop database" in decision.input_text:
             return HookResult(block=True, reason="SQL injection detected")
         return None
 
-    agent.hooks.register(UserInput, guard_input)
+    agent.decisions.register(UserInputDecision, guard_input)
 
     result = await agent.run("drop database now")
     assert result == "(blocked: SQL injection detected)"
@@ -540,37 +542,37 @@ async def test_agent_user_input_hook_block():
 
 @pytest.mark.anyio
 async def test_agent_user_input_hook_rewrite():
-    """UserInput Hook 返回 updated_input 改写用户输入文本。"""
+    """UserInputDecision Hook 返回 updated_input 改写用户输入文本。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="echo answer")])
     agent = _agent(llm, session=session)
 
-    def rewrite_input(event: UserInput):
-        if "foo" in event.input_text:
-            return HookResult(updated_input=event.input_text.replace("foo", "bar"))
+    def rewrite_input(decision: UserInputDecision):
+        if "foo" in decision.input_text:
+            return HookResult(updated_input=decision.input_text.replace("foo", "bar"))
         return None
 
-    agent.hooks.register(UserInput, rewrite_input)
+    agent.decisions.register(UserInputDecision, rewrite_input)
 
     result = await agent.run("hello foo")
     assert result == "echo answer"
     # LLM 收到的 user 消息为改写后的文本
     assert llm.calls[0]["messages"][-1].content == "hello bar"
     # Session 记录的也是改写后的文本
-    assert list(session.tree.entries.values())[0].content == "hello bar"
+    assert getattr(list(session.tree.entries.values())[0], "content", None) == "hello bar"
 
 
 @pytest.mark.anyio
 async def test_agent_agent_start_hook_rewrite_system_prompt():
-    """AgentStart Hook 返回 updated_system_prompt 动态修改首条 system 消息。"""
+    """AgentStartDecision Hook 返回 updated_system_prompt 动态修改首条 system 消息。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="persona answer")])
     agent = _agent(llm, session=session, system_prompt="Original Persona")
 
-    def customize_system(event: AgentStart):
+    def customize_system(decision: AgentStartDecision):
         return HookResult(updated_system_prompt="Customized Super Persona")
 
-    agent.hooks.register(AgentStart, customize_system)
+    agent.decisions.register(AgentStartDecision, customize_system)
 
     result = await agent.run("who are you")
     assert result == "persona answer"
@@ -579,17 +581,33 @@ async def test_agent_agent_start_hook_rewrite_system_prompt():
 
 
 @pytest.mark.anyio
+async def test_agent_start_decision_block():
+    """AgentStartDecision 返回 block=True 阻断启动。"""
+    llm = FakeLLM([_response(content="should not run")])
+    agent = _agent(llm, system_prompt="Original Persona")
+
+    def block_start(decision: AgentStartDecision):
+        return HookResult(block=True, reason="maintenance mode")
+
+    agent.decisions.register(AgentStartDecision, block_start)
+
+    result = await agent.run("hi")
+    assert result == "(blocked: maintenance mode)"
+    assert len(llm.calls) == 0
+
+
+@pytest.mark.anyio
 async def test_agent_before_model_call_hook_temporary_view_rewrite():
-    """BeforeModelCall Hook 临时向 view 注入提醒，但 self.messages 与 Session 保持零污染。"""
+    """BeforeModelCallDecision Hook 临时向 view 注入提醒，但 self.messages 与 Session 保持零污染。"""
     session = Session(path=Path(tempfile.mkdtemp()) / "session.jsonl")
     llm = FakeLLM([_response(content="model response")])
     agent = _agent(llm, session=session)
 
-    def inject_ephemeral(event: BeforeModelCall):
+    def inject_ephemeral(decision: BeforeModelCallDecision):
         ephemeral = Message(role="user", content="[EPHEMERAL REMINDER: BE CONCISE]")
-        return HookResult(updated_messages=list(event.messages) + [ephemeral])
+        return HookResult(updated_messages=list(decision.messages) + [ephemeral])
 
-    agent.hooks.register(BeforeModelCall, inject_ephemeral)
+    agent.decisions.register(BeforeModelCallDecision, inject_ephemeral)
 
     result = await agent.run("do something")
     assert result == "model response"
@@ -606,7 +624,9 @@ async def test_agent_before_model_call_hook_temporary_view_rewrite():
     )
 
     # 3. session 磁盘中绝不包含 ephemeral reminder
-    session_contents = [e.content for e in session.tree.entries.values()]
+    session_contents = [
+        getattr(e, "content", "") for e in session.tree.entries.values()
+    ]
     assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in c for c in session_contents)
 
 
@@ -634,7 +654,6 @@ async def test_agent_prompt_stream_emits_events():
     assert MessageStart in event_types
     assert MessageEnd in event_types
     assert TurnStart in event_types
-    assert BeforeModelCall in event_types
     assert MessageUpdate in event_types
     assert ToolExecutionStart in event_types
     assert ToolExecutionEnd in event_types

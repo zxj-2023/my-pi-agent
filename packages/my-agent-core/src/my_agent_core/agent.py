@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -24,13 +25,14 @@ from my_agent_core.context import ContextManager, ContextSessionBridge
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    AgentStartDecision,
     ContextCompacted,
+    DecisionRegistry,
     Event,
-    HookRegistry,
     HookResult,
     MessageEnd,
     TurnEnd,
-    UserInput,
+    UserInputDecision,
 )
 from my_agent_core.extensions import ExtensionManager
 from my_agent_core.loop import CancellationToken, run_agent_loop
@@ -109,7 +111,8 @@ class Agent:
         self._aborted = False  # 中止状态标记
         self._current_signal: CancellationToken | None = None
         self._subscribers: list[Callable[[Event], Any]] = []
-        self.hooks = HookRegistry()
+        self.decisions = DecisionRegistry()
+        self.hooks = self.decisions  # 兼容别名
         self.registry = ToolRegistry()
         self.plugin_manager = PluginManager(plugin_dirs)
         self.skill_manager = SkillManager(
@@ -247,14 +250,34 @@ class Agent:
         )
         self._ctx_bridge.restore_cache(self._ctx)
 
-    def _register_hooks(self, hooks) -> None:
-        """构造时批量注册 hooks（对称 _register_tools）。"""
+    def _register_hooks(
+        self, hooks: list[tuple[type, Callable[..., Any]]] | None
+    ) -> None:
+        """构造时批量注册 hooks / 决策回调（对称 _register_tools）。"""
         if self.task_store:
             guard = TaskGuardHook(self.task_store, self.steer)
-            self.hooks.register(AgentStart, guard.on_agent_start)
-            self.hooks.register(TurnEnd, guard.on_turn_end)
-        for event_cls, callback in hooks or []:
-            self.hooks.register(event_cls, callback)
+            self.subscribe(
+                lambda ev: guard.on_agent_start(ev)
+                if isinstance(ev, AgentStart)
+                else None
+            )
+            self.subscribe(
+                lambda ev: guard.on_turn_end(ev)
+                if isinstance(ev, TurnEnd)
+                else None
+            )
+        for target, callback in hooks or []:
+            if isinstance(target, type) and issubclass(target, Event):
+                def make_listener(cls, cb):
+                    def listener(ev: Event):
+                        if isinstance(ev, cls):
+                            cb(ev)
+
+                    return listener
+
+                self.subscribe(make_listener(target, callback))
+            else:
+                self.decisions.register(target, callback)
 
     # ── 公共 API ────────────────────────────────────────────
 
@@ -318,32 +341,77 @@ class Agent:
             await self.extension_manager.load()
             self._extensions_loaded = True
 
-        # ── 决策点 1: UserInput 拦截与改写（在进入 Session 和消息历史之前触发）
-        user_input_ev = UserInput(input_text=user_input)
-        input_hook = await self._emit(user_input_ev)
-        if isinstance(input_hook, HookResult):
-            if input_hook.block:
-                reason = f": {input_hook.reason}" if input_hook.reason else ""
+        # ── 决策点 1: UserInputDecision 拦截与改写（在进入 Session 和消息历史之前触发）
+        user_input_decision = await self.decisions.emit(
+            UserInputDecision(input_text=user_input)
+        )
+        if isinstance(user_input_decision, HookResult):
+            if user_input_decision.block:
+                reason = (
+                    f": {user_input_decision.reason}"
+                    if user_input_decision.reason
+                    else ""
+                )
                 end_ev = AgentEnd(
                     messages=list(self.messages),
                     final_text=f"(blocked{reason})",
                     iterations=0,
                     stop_reason="blocked",
                 )
-                await self._emit(end_ev)
                 for sub in list(self._subscribers):
                     with contextlib.suppress(Exception):
-                        sub(end_ev)
+                        res = sub(end_ev)
+                        if inspect.isawaitable(res):
+                            await res
                 yield end_ev
                 return
-            if input_hook.updated_input is not None:
-                user_input = input_hook.updated_input
+            if user_input_decision.updated_input is not None:
+                user_input = user_input_decision.updated_input
 
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
         restored = system + self.session.get_current_path_messages()
         # 对齐 Tau: 执行对话历史自愈，保证送入模型的会话转录本没有悬空断头 ToolCall
         self.messages = list(repair_tool_history(restored).messages)
+
+        # 准备 system_prompt
+        system_prompt = self.system_prompt or ""
+        system_msgs = [m for m in self.messages if m.role == "system"]
+        if system_msgs:
+            system_prompt = system_msgs[0].content
+
+        # ── 决策点 2: AgentStartDecision 拦截启动或动态重写 system_prompt
+        start_decision = await self.decisions.emit(
+            AgentStartDecision(system_prompt=system_prompt)
+        )
+        if isinstance(start_decision, HookResult):
+            if start_decision.block:
+                reason = (
+                    f": {start_decision.reason}"
+                    if start_decision.reason
+                    else ""
+                )
+                end_ev = AgentEnd(
+                    messages=list(self.messages),
+                    final_text=f"(blocked{reason})",
+                    iterations=0,
+                    stop_reason="blocked",
+                )
+                for sub in list(self._subscribers):
+                    with contextlib.suppress(Exception):
+                        res = sub(end_ev)
+                        if inspect.isawaitable(res):
+                            await res
+                yield end_ev
+                return
+            if start_decision.updated_system_prompt is not None:
+                system_prompt = start_decision.updated_system_prompt
+                if self.messages and self.messages[0].role == "system":
+                    self.messages[0] = Message(role="system", content=system_prompt)
+                elif system_prompt:
+                    self.messages.insert(
+                        0, Message(role="system", content=system_prompt)
+                    )
 
         # 委托核心 ReAct 纯函数微内核驱动事件流
         loop_gen = run_agent_loop(
@@ -352,20 +420,33 @@ class Agent:
             tools=self.registry,
             context_manager=self._ctx,
             model=self.model,
-            system=self.system_prompt or "",
+            system=system_prompt,
             prompts=[Message(role="user", content=user_input)],
             max_iterations=self.max_iterations,
             signal=self._current_signal,
             get_steering_messages=self._get_steering_messages,
             get_follow_up_messages=self._get_follow_up_messages,
-            hook_registry=self.hooks,
+            before_model_call=self.decisions.emit,
+            before_tool_call=self.decisions.emit,
+            after_tool_call=self.decisions.emit,
         )
 
         async for event in loop_gen:
             # 同步 Session 状态与压缩写回
             if isinstance(event, MessageEnd):
                 msg = event.message
-                if msg.role != "system":
+                is_cancelled_partial_text = (
+                    msg.role == "assistant"
+                    and not (msg.metadata and msg.metadata.get("tool_calls"))
+                    and (
+                        bool(
+                            msg.metadata
+                            and msg.metadata.get("stop_reason") == "cancelled"
+                        )
+                        or self._aborted
+                    )
+                )
+                if msg.role != "system" and not is_cancelled_partial_text:
                     self.session.add_message(
                         msg.role, msg.content, **(msg.metadata or {})
                     )
@@ -375,7 +456,9 @@ class Agent:
             # 分发到订阅者
             for sub in list(self._subscribers):
                 with contextlib.suppress(Exception):
-                    sub(event)
+                    res = sub(event)
+                    if inspect.isawaitable(res):
+                        await res
 
             yield event
 
@@ -405,7 +488,7 @@ class Agent:
         self.messages = self._init_messages(self.session, self._system_prompt)
         self._ctx.reset()
 
-    async def compact(self, custom_instructions: str = "") -> None:
+    async def compact(self, _custom_instructions: str = "") -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
         await self._ctx.force_compact(self.messages)
         await self._handle_compaction()
@@ -417,14 +500,17 @@ class Agent:
         self._ctx_bridge.write_compaction(self._ctx)
         info = self._ctx.pending_compaction
         if info is not None:
-            await self._emit(
-                ContextCompacted(
-                    tokens_before=info.tokens_before,
-                    tokens_after=info.tokens_after,
-                    summarized_count=info.summarized_count,
-                )
+            ev = ContextCompacted(
+                tokens_before=info.tokens_before,
+                tokens_after=info.tokens_after,
+                summarized_count=info.summarized_count,
             )
+            for sub in list(self._subscribers):
+                with contextlib.suppress(Exception):
+                    res = sub(ev)
+                    if inspect.isawaitable(res):
+                        await res
 
-    async def _emit(self, event: Event) -> HookResult | None:
-        """触发事件的所有 hook（委托 HookRegistry）。"""
-        return await self.hooks.emit(event)
+    async def _emit(self, event: Any) -> HookResult | None:
+        """触发决策的所有 hook（委托 decisions.emit）。"""
+        return await self.decisions.emit(event)

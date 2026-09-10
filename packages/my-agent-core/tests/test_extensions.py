@@ -6,9 +6,16 @@ from my_agent_llm import Response  # pyright: ignore[reportMissingImports]
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
     AgentStart,
+    AgentStartDecision,
+    BeforeModelCallDecision,
+    DecisionRegistry,
+    Event,
     HookRegistry,
     HookResult,
+    ToolCallDecision,
     ToolExecutionStart,
+    TurnStart,
+    UserInputDecision,
 )
 from my_agent_core.extensions import ExtensionAPI, ExtensionManager
 from my_agent_core.registry import ToolRegistry
@@ -17,11 +24,22 @@ from my_agent_core.tools import tool
 
 
 class _FakeAgent:
-    """替身 Agent：只有 extension 需要的 hooks + registry。"""
+    """替身 Agent：只有 extension 需要的 decisions/hooks + registry + subscribers。"""
 
     def __init__(self):
-        self.hooks = HookRegistry()
+        self.decisions = DecisionRegistry()
+        self.hooks = self.decisions
         self.registry = ToolRegistry()
+        self._subscribers = []
+
+    def subscribe(self, listener):
+        self._subscribers.append(listener)
+
+        def unsubscribe():
+            if listener in self._subscribers:
+                self._subscribers.remove(listener)
+
+        return unsubscribe
 
 
 @pytest.fixture
@@ -35,14 +53,53 @@ def manager(agent):
 
 
 @pytest.mark.anyio
-async def test_on_register_and_emit(agent):
-    """on 注册 + 触发，handler 收 (event, api) 双参（#1）。"""
+async def test_extension_on_decision_point():
+    """api.on(ToolCallDecision) 注册决策点拦截，支持 block 与改写入参。"""
+    agent = _FakeAgent()
+    api = ExtensionAPI(agent)
+
+    @api.on(ToolCallDecision)
+    async def block_bash(decision: ToolCallDecision, api_ref: ExtensionAPI):
+        if decision.tool_name == "bash":
+            return HookResult(block=True, reason="bash disabled by extension")
+        return None
+
+    res = await agent.decisions.emit(ToolCallDecision("1", "bash", {}))
+    assert res is not None
+    assert res.block is True
+    assert res.reason == "bash disabled by extension"
+
+
+@pytest.mark.anyio
+async def test_extension_on_event_read_only():
+    """api.on(TurnStart) 注册只读事件监听，收到通知并忽略返回值。"""
+    agent = _FakeAgent()
     api = ExtensionAPI(agent)
     seen = []
 
-    api.on(ToolExecutionStart, lambda e, a: seen.append((e, a is api)))
+    @api.on(TurnStart)
+    def on_turn(event: TurnStart, api_ref: ExtensionAPI):
+        seen.append((event, api_ref is api))
+        return HookResult(block=True)  # 返回值被忽略，不影响事件流
 
-    await agent.hooks.emit(ToolExecutionStart("id1", "t", {"a": 1}))
+    ev = TurnStart(iteration=1)
+    for sub in agent._subscribers:
+        sub(ev)
+
+    assert len(seen) == 1
+    assert seen[0][0].iteration == 1
+    assert seen[0][1] is True
+
+
+@pytest.mark.anyio
+async def test_on_register_and_emit(agent):
+    """on 注册决策点 + 触发，handler 收 (decision, api) 双参（#1）。"""
+    api = ExtensionAPI(agent)
+    seen = []
+
+    api.on(ToolCallDecision, lambda d, a: seen.append((d, a is api)))
+
+    await agent.decisions.emit(ToolCallDecision("id1", "t", {"a": 1}))
     assert len(seen) == 1
     assert seen[0][0].tool_name == "t"
     assert seen[0][1] is True
@@ -50,15 +107,15 @@ async def test_on_register_and_emit(agent):
 
 @pytest.mark.anyio
 async def test_on_decorator(agent):
-    """@api.on(EventCls) 装饰器语法（#2）。"""
+    """@api.on(DecisionCls) 装饰器语法（#2）。"""
     api = ExtensionAPI(agent)
     seen = []
 
-    @api.on(AgentStart)
-    def handler(event, api):
-        seen.append(event)
+    @api.on(AgentStartDecision)
+    def handler(decision, api):
+        seen.append(decision)
 
-    await agent.hooks.emit(AgentStart())
+    await agent.decisions.emit(AgentStartDecision("prompt"))
     assert len(seen) == 1
 
 
@@ -67,11 +124,11 @@ async def test_on_intercept(agent):
     """handler 返回 HookResult 被短路返回（#3）。"""
     api = ExtensionAPI(agent)
 
-    @api.on(ToolExecutionStart)
-    def block(event, api):
+    @api.on(ToolCallDecision)
+    def block(decision, api):
         return HookResult(block=True, reason="no")
 
-    result = await agent.hooks.emit(ToolExecutionStart("id1", "t", {}))
+    result = await agent.decisions.emit(ToolCallDecision("id1", "t", {}))
     assert isinstance(result, HookResult)
     assert result.block is True
 
@@ -280,16 +337,16 @@ def extension(api):
 
 @pytest.mark.anyio
 async def test_extension_hook_end_to_end(tmp_path):
-    """extension 注册的 ToolExecutionStart hook 在 run() 中拦截工具（#16）。"""
+    """extension 注册的 ToolCallDecision hook 在 run() 中拦截工具（#16）。"""
     ext_dir = tmp_path / "exts"
     ext_dir.mkdir()
     (ext_dir / "blocker.py").write_text(
         """
-from my_agent_core.events import HookResult, ToolExecutionStart
+from my_agent_core.events import HookResult, ToolCallDecision
 
 def extension(api):
-    @api.on(ToolExecutionStart)
-    def block(event, api):
+    @api.on(ToolCallDecision)
+    def block(decision, api):
         return HookResult(block=True, reason="extension blocked")
 """,
         encoding="utf-8",
@@ -356,24 +413,24 @@ async def test_extension_decision_points_end_to_end(tmp_path):
     ext_dir.mkdir()
     (ext_dir / "lifecycle_guard.py").write_text(
         """
-from my_agent_core.events import UserInput, AgentStart, BeforeModelCall, HookResult
+from my_agent_core.events import UserInputDecision, AgentStartDecision, BeforeModelCallDecision, HookResult
 from my_agent_llm import Message
 
 def extension(api):
-    @api.on(UserInput)
-    def rewrite_input(event, api):
-        if "bad_word" in event.input_text:
-            return HookResult(updated_input=event.input_text.replace("bad_word", "good_word"))
+    @api.on(UserInputDecision)
+    def rewrite_input(decision, api):
+        if "bad_word" in decision.input_text:
+            return HookResult(updated_input=decision.input_text.replace("bad_word", "good_word"))
         return None
 
-    @api.on(AgentStart)
-    def rewrite_system(event, api):
+    @api.on(AgentStartDecision)
+    def rewrite_system(decision, api):
         return HookResult(updated_system_prompt="Guarded System Prompt")
 
-    @api.on(BeforeModelCall)
-    def inject_notice(event, api):
+    @api.on(BeforeModelCallDecision)
+    def inject_notice(decision, api):
         ephemeral = Message(role="user", content="[EPHEMERAL WARNING]")
-        return HookResult(updated_messages=list(event.messages) + [ephemeral])
+        return HookResult(updated_messages=list(decision.messages) + [ephemeral])
 """,
         encoding="utf-8",
     )
@@ -399,6 +456,8 @@ def extension(api):
     assert any("[EPHEMERAL WARNING]" in m.content for m in llm.calls[0]["messages"])
 
     # 4. Session 保持零污染：Session 磁盘绝不包含 [EPHEMERAL WARNING]
-    session_contents = [e.content for e in agent.session.tree.entries.values()]
+    session_contents = [
+        getattr(e, "content", "") for e in agent.session.tree.entries.values()
+    ]
     assert not any("[EPHEMERAL WARNING]" in c for c in session_contents)
     assert any("test good_word" in c for c in session_contents)
