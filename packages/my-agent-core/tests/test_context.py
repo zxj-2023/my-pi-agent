@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false
 """Context 管理测试：估算 + 三层免费压缩（context 设计文档 §8 #1、#4–#6）。"""
 
 import tempfile
@@ -90,7 +91,7 @@ class FakeLLM:
         self.default = default or Response(content="ok", model="fake")
         self.calls: list[dict] = []
 
-    def chat(self, *, messages, tools=None, **kwargs) -> Response:
+    def chat(self, *, messages, tools=None, **_kwargs) -> Response:
         self.calls.append({"messages": list(messages), "tools": tools})
         if self.responses:
             return self.responses.pop(0)
@@ -98,6 +99,17 @@ class FakeLLM:
 
     async def achat(self, *, messages, tools=None, **kwargs) -> Response:
         return self.chat(messages=messages, tools=tools, **kwargs)
+
+    async def achat_stream(self, *, messages, tools=None, **kwargs):
+        resp = await self.achat(messages=messages, tools=tools, **kwargs)
+        from my_agent_llm import StreamChunk
+
+        yield StreamChunk(
+            content=resp.content,
+            tool_calls=resp.tool_calls,
+            usage=resp.usage,
+            finish_reason=resp.finish_reason,
+        )
 
 
 def _response(content: str = "", usage: dict | None = None) -> Response:
@@ -234,7 +246,7 @@ async def test_summary_failure_degrades():
     """摘要失败降级：摘要调用抛异常 → 返回原视图（#13）。"""
 
     class BoomLLM:
-        async def achat(self, *, messages, tools=None, **kwargs):
+        async def achat(self, *, _messages, _tools=None, **_kwargs):
             raise RuntimeError("api down")
 
     ctx = _small_ctx(BoomLLM(), budget=1000, keep_recent_tokens=100)

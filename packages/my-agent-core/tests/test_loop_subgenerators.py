@@ -1,14 +1,13 @@
 """Unit tests for loop sub-generators in loop.py.
 
-Tests the 4 dedicated sub-generators/helpers in isolation:
-1. _stream_llm
-2. _assistant_turn
-3. _synthesize_interrupted_tool_calls
-4. _execute_tools_turn
+Tests the 3 dedicated sub-generators/helpers in isolation:
+1. _assistant_turn
+2. _synthesize_interrupted_tool_calls
+3. _execute_tools_turn
 """
 
 import pytest
-from my_agent_llm import Message, Response, StreamChunk
+from my_agent_llm import Message, StreamChunk
 
 from my_agent_core.agent import CancellationToken
 from my_agent_core.events import (
@@ -26,7 +25,6 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 from my_agent_core.loop import (
     _assistant_turn,
     _execute_tools_turn,
-    _stream_llm,
     _synthesize_interrupted_tool_calls,
 )
 from my_agent_core.registry import ToolRegistry, tool
@@ -42,96 +40,14 @@ class FakeStreamLLM:
             StreamChunk(content="world!"),
         ]
 
-    async def achat_stream(self, messages, tools=None, model=None):
+    async def achat_stream(self, *, messages, tools=None, model=None, **kwargs):
+        _ = (messages, tools, model, kwargs)
         for chunk in self.chunks:
             yield chunk
 
 
-class FakeAsyncChatLLM:
-    """Fake LLM supporting achat (non-streaming)."""
-
-    def __init__(self, response: Response) -> None:
-        self.response = response
-
-    async def achat(self, messages, tools=None, model=None) -> Response:
-        return self.response
-
-
-class FakeSyncChatLLM:
-    """Fake LLM supporting chat (synchronous)."""
-
-    def __init__(self, response: Response) -> None:
-        self.response = response
-
-    def chat(self, messages, tools=None, model=None) -> Response:
-        return self.response
-
-
 # ─────────────────────────────────────────────────────────────
-# 1. _stream_llm Tests
-# ─────────────────────────────────────────────────────────────
-
-
-@pytest.mark.anyio
-async def test_stream_llm_with_achat_stream():
-    llm = FakeStreamLLM(
-        [
-            StreamChunk(content="chunk1"),
-            StreamChunk(
-                content="chunk2", usage={"prompt_tokens": 10, "completion_tokens": 5}
-            ),
-        ]
-    )
-    chunks = []
-    async for chunk in _stream_llm(llm, [Message(role="user", content="hi")], []):
-        chunks.append(chunk)
-
-    assert len(chunks) == 2
-    assert chunks[0].content == "chunk1"
-    assert chunks[1].content == "chunk2"
-    assert chunks[1].usage == {"prompt_tokens": 10, "completion_tokens": 5}
-
-
-@pytest.mark.anyio
-async def test_stream_llm_with_achat():
-    resp = Response(
-        content="async non-streaming reply",
-        model="fake",
-        tool_calls=[{"id": "c1", "function": {"name": "f", "arguments": "{}"}}],
-        usage={"prompt_tokens": 8, "completion_tokens": 4},
-    )
-    llm = FakeAsyncChatLLM(resp)
-    chunks = []
-    async for chunk in _stream_llm(llm, [Message(role="user", content="hi")], []):
-        chunks.append(chunk)
-
-    assert len(chunks) == 1
-    assert chunks[0].content == "async non-streaming reply"
-    assert chunks[0].tool_calls == [
-        {"id": "c1", "function": {"name": "f", "arguments": "{}"}}
-    ]
-    assert chunks[0].usage == {"prompt_tokens": 8, "completion_tokens": 4}
-
-
-@pytest.mark.anyio
-async def test_stream_llm_with_sync_chat():
-    resp = Response(
-        content="sync non-streaming reply",
-        model="fake",
-        usage={"prompt_tokens": 12, "completion_tokens": 6},
-    )
-    llm = FakeSyncChatLLM(resp)
-    chunks = []
-    async for chunk in _stream_llm(llm, [Message(role="user", content="hi")], []):
-        chunks.append(chunk)
-
-    assert len(chunks) == 1
-    assert chunks[0].content == "sync non-streaming reply"
-    assert chunks[0].usage == {"prompt_tokens": 12, "completion_tokens": 6}
-
-
-# ─────────────────────────────────────────────────────────────
-# 2. _assistant_turn Tests
+# 1. _assistant_turn Tests
 # ─────────────────────────────────────────────────────────────
 
 
@@ -201,7 +117,8 @@ async def test_assistant_turn_cancellation():
     token = CancellationToken()
 
     class InfiniteStreamLLM:
-        async def achat_stream(self, messages, tools=None, model=None):
+        async def achat_stream(self, *, messages, tools=None, model=None, **kwargs):
+            _ = (messages, tools, model, kwargs)
             yield StreamChunk(content="part1")
             token.cancel()
             yield StreamChunk(content="part2")
@@ -225,7 +142,8 @@ async def test_assistant_turn_cancellation():
 @pytest.mark.anyio
 async def test_assistant_turn_never_throw_on_exception():
     class BrokenLLM:
-        async def achat_stream(self, messages, tools=None, model=None):
+        async def achat_stream(self, *, messages, tools=None, model=None, **kwargs):
+            _ = (messages, tools, model, kwargs)
             yield StreamChunk(content="before failure")
             raise RuntimeError("API connection broke")
 

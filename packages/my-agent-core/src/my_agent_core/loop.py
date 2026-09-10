@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import inspect
 import json
@@ -13,7 +12,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
-from my_agent_llm import Message, StreamChunk
+from my_agent_llm import Message
 
 from my_agent_core.events import (
     AgentEnd,
@@ -48,7 +47,6 @@ __all__ = [
     "_assistant_turn",
     "_execute_tools_turn",
     "_provider_context",
-    "_stream_llm",
     "_synthesize_interrupted_tool_calls",
     "run_agent_loop",
 ]
@@ -95,43 +93,6 @@ def _provider_context(messages: Sequence[Message]) -> list[Message]:
     return list(repair_tool_history(replayable).messages)
 
 
-async def _stream_llm(
-    llm: Any,
-    messages: list[Message],
-    tool_schemas: list[dict[str, Any]],
-    model: str | None = None,
-) -> AsyncIterator[StreamChunk]:
-    """将各类 LLM 门面 (achat_stream / achat / chat) 统一归一化为标准的异步流式 Chunk 生成器。"""
-    if hasattr(llm, "achat_stream"):
-        async for chunk in llm.achat_stream(
-            messages=messages, tools=tool_schemas, model=model
-        ):
-            yield chunk
-    elif hasattr(llm, "achat"):
-        resp = await llm.achat(messages=messages, tools=tool_schemas, model=model)
-        yield StreamChunk(
-            content=getattr(resp, "content", "") or "",
-            tool_calls=getattr(resp, "tool_calls", None),
-            usage=getattr(resp, "usage", None),
-        )
-    else:
-        chat_fn = getattr(llm, "chat", None)
-        if chat_fn is None and callable(llm):
-            chat_fn = llm
-        if chat_fn is not None:
-            if inspect.iscoroutinefunction(chat_fn):
-                resp = await chat_fn(messages=messages, tools=tool_schemas, model=model)
-            else:
-                resp = await asyncio.to_thread(
-                    chat_fn, messages=messages, tools=tool_schemas, model=model
-                )
-            yield StreamChunk(
-                content=getattr(resp, "content", "") or "",
-                tool_calls=getattr(resp, "tool_calls", None),
-                usage=getattr(resp, "usage", None),
-            )
-
-
 def _is_signal_cancelled(signal: CancellationToken | None) -> bool:
     """安全检查取消信号。"""
     return signal.is_cancelled() if signal is not None else False
@@ -157,7 +118,9 @@ async def _assistant_turn(
         if signal is not None and signal.is_cancelled():
             cancelled = True
         else:
-            async for chunk in _stream_llm(llm, view, tool_schemas, model):
+            async for chunk in llm.achat_stream(
+                messages=view, tools=tool_schemas, model=model
+            ):
                 if chunk.content:
                     content_acc += chunk.content
                 if chunk.tool_calls:
