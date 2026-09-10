@@ -17,15 +17,15 @@
   - `Tool` 实体：支持 `raw_schema`（透传外部 Schema）与 `is_parallel_safe`（声明式并发标记）；
   - `ToolRegistry`：支持单查、批量获取 Schema、`execute_batch` 并发/串行智能分流与严格保序回填；
   - **Never-Throw 保证**：工具异常绝不上抛打崩程序，统一包装为 `ToolResult(ok=False, error=...)` 引导大模型自愈。
-- **只读事实事件流与五大专职决策拦截点正交解耦（`events` & `decisions`）**：
-  - **12 个纯只读事实事件（`Event` / `AgentEvent`）**：所有事件均为不可变 `frozen` dataclass，自带 `timestamp`，彻底剔除 `Interceptable` 混入类，单向广播零侵入，`TurnEnd` 严格配对闭合；
-  - **五大独立专职决策拦截点（`DecisionPoint`）**：
-    1. `UserInputDecision`：用户输入截获，支持 `block` 阻断或 `updated_input` 改写；
-    2. `AgentStartDecision`：启动前拦截，支持 `updated_system_prompt` 动态更新首条 system 消息；
-    3. `BeforeModelCallDecision`：调 LLM 前拦截，支持 `updated_messages` 临时改写上下文视图（**临时 View 隔离 vs Session 磁盘零污染**）；
-    4. `ToolCallDecision`：工具执行前审批，支持 `block` 拦截高危操作或 `updated_args` 修补参数；
-    5. `ToolResultDecision`：工具执行后拦截，支持 `updated_result` 篡改出参。
-  - `DecisionRegistry`：统一调度决策拦截流水线，支持 async/sync 回调混合执行与短路，具备严格的 **Never-Throw 保证**；
+- **只读事实事件流与五大专职 Hook 拦截点物理正交解耦（`events` & `hooks`）**：
+  - **12 个纯只读事实事件（`events.py`，基类 `Event`）**：所有事件均为不可变 `frozen` dataclass，自带 `timestamp`，彻底剔除 `Interceptable` 混入类，单向广播零侵入，`TurnEnd` 严格配对闭合；
+  - **五大独立专职 Hook 拦截点（`hooks.py`，独立于 Event）**：
+    1. `UserInputHook`：用户输入截获，支持 `block` 阻断或 `updated_input` 改写；
+    2. `AgentStartHook`：启动前拦截，支持 `updated_system_prompt` 动态更新首条 system 消息；
+    3. `BeforeModelCallHook`：调 LLM 前拦截，支持 `updated_messages` 临时改写上下文视图（**临时 View 隔离 vs Session 磁盘零污染**）；
+    4. `ToolCallHook`：工具执行前审批，支持 `block` 拦截高危操作或 `updated_args` 修补参数；
+    5. `ToolResultHook`：工具执行后拦截，支持 `updated_result` 篡改出参。
+  - `HookRegistry`：统一调度 Hook 拦截流水线，支持 async/sync 回调混合执行与短路，具备严格的 **Never-Throw 保证**；
   - **Tau 风格微内核子生成器分治（`loop.py`）**：
     - `_stream_llm`：归一化 `achat_stream`、`achat` 与同步 `chat`，抹平协议差异；
     - `_assistant_turn`：专职流式推理车间，精准区分 `cancelled` 与 `error`；
