@@ -587,27 +587,28 @@ my-pi-agent/
 
 - 提交：`9b585f7` `7855e7d` `e13f10f` `a0064b2` `888203a` `0cf6233` `077f45f` `d2ebf79` `b5da6b0` `bc0a5cc` `e35d2d8` `a93d108`
 - **改了什么**：
-  - `events.py` 架构正交解耦：
-    1. 彻底删除 `Interceptable` 混入类，确立纯只读不可变 `Event` 基类（`timestamp: float = field(init=False)`）与 12 个只读事实事件（`AgentStart`, `AgentEnd`, `TurnStart`, `TurnEnd`, `MessageStart`, `MessageUpdate`, `MessageEnd`, `ToolExecutionStart`, `ToolExecutionUpdate`, `ToolExecutionEnd`, `ContextCompacted`, `ToolsChanged`）；
-    2. 提炼五大专职强类型决策点（`UserInputDecision`, `AgentStartDecision`, `BeforeModelCallDecision`, `ToolCallDecision`, `ToolResultDecision`），独立于 `Event`，专职策略拦截与参数/结果改写；
-    3. 重构 `DecisionRegistry`（别名 `HookRegistry`），支持 async/sync 回调混合调用与短路机制，内置严格的 Never-Throw 异常隔离保证；
+  - `events.py` 与 `hooks.py` 架构正交解耦与物理拆分：
+    1. 彻底删除 `Interceptable` 混入类，`events.py` 纯粹承载 12 个不可变事实事件（`AgentStart`, `AgentEnd`, `TurnStart`, `TurnEnd`, `MessageStart`, `MessageUpdate`, `MessageEnd`, `ToolExecutionStart`, `ToolExecutionUpdate`, `ToolExecutionEnd`, `ContextCompacted`, `ToolsChanged`，基类 `Event`）；
+    2. 提炼独立的 `hooks.py` 物理模块，承载五大专职强类型 Hook 拦截点（`UserInputHook`, `AgentStartHook`, `BeforeModelCallHook`, `ToolCallHook`, `ToolResultHook`），专职策略拦截与参数/结果改写；
+    3. `HookRegistry` 专职负责拦截钩子的注册、注销、async/sync 回调混合调用与短路机制，内置严格的 Never-Throw 异常隔离保证，彻底废除生造的 `DecisionRegistry` 与所有 `*Decision`、`UserInput`、`BeforeModelCall`、`AgentEvent` 等兼容别名；
     4. 扩展 `TurnEnd` 支持 `message: Message | None = None` 与 `tool_results: list[Message] = field(default_factory=list)`，并在 `AgentEnd.stop_reason` 中明确支持 `"error"` 枚举。
-  - `loop.py` 子生成器分治与状态机瘦身：
+  - `loop.py` 子生成器分治与状态机极简化：
     1. 提炼 `_stream_llm`：统一归一化 `achat_stream`、`achat` 与同步 `chat`（经 `asyncio.to_thread`），消除 70 余行协议重复适配代码；
-    2. 提炼 `_assistant_turn`：专职大模型流式推理车间，逐字 yield `MessageUpdate`，准确区分 cancellation 与 error，异常时 Never-Throw 封装并于末尾 yield `MessageStart`/`MessageEnd`；
+    2. 提炼 `_assistant_turn`：专职大模型流式推理车间，逐字 yield `MessageUpdate`，精准区分 cancellation 与 error，异常时 Never-Throw 封装并于末尾 yield `MessageStart`/`MessageEnd`；
     3. 提炼 `_synthesize_interrupted_tool_calls`：集中化断头合成自愈辅助函数；
     4. 提炼 `_execute_tools_turn`：严格对齐 Pi 官方时序契约（Preflight 阶段按 source order **率先广播 `ToolExecutionStart`** 供 UI 即时渲染 ➔ 调用 `before_tool_call` 审批改参 ➔ 并发批处理执行 ➔ 调用 `after_tool_call` 改写 ➔ 按完成顺序发射 `ToolExecutionEnd` ➔ 按 source order 发射配对 Tool 消息事件），并在中途取消时自动自愈补齐断头调用；
-    5. 重构 `run_agent_loop`：由 550+ 行单体长函数瘦身为约 **110 行** 纯粹状态机微内核，彻底消灭 30 余处机械式 `if hook_registry is not None: await hook_registry.emit(ev)` 双发冗余，保证在正常完成、取消中断、安全门禁阻断、最大轮次截断等任何退出路径下，已开启轮次 **100% 严格发射配对闭合的 `TurnEnd`**。
+    5. 重构 `run_agent_loop`：彻底清除原本为过渡期保留的 `hook_registry` 参数与 35 行降级垫片代码，微内核纯粹瘦身为约 **110 行** 极简状态机微内核，彻底消灭 30 余处机械式双发冗余，保证在正常完成、取消中断、安全门禁阻断、最大轮次截断等任何退出路径下，已开启轮次 **100% 严格发射配对闭合的 `TurnEnd`**。
   - `extensions/core.py` 与 `agent.py` 强类型智能路由与装配：
-    1. `ExtensionAPI.on(target)`：纯 Python 强类型自动分流：若 `issubclass(target, Event)` 则注册为只读监听器并静默忽略返回值；否则注册为决策拦截中间件（透传 `HookResult` 干预）；
-    2. `Agent` 装配决策管线：在 `prompt_stream` 起始处依次介入 `UserInputDecision` 与 `AgentStartDecision`，将 `before_model_call`、`before_tool_call`、`after_tool_call` 委托给 `run_agent_loop`，直接向 `self._subscribers` 单向广播事实事件；
+    1. `ExtensionAPI.on(target)`：纯 Python 强类型自动分流：若 `issubclass(target, Event)` 则注册为只读监听器并静默忽略返回值；否则注册为拦截钩子中间件（透传 `HookResult` 干预）；
+    2. `Agent` 装配 Hook 管线：在 `prompt_stream` 起始处依次介入 `UserInputHook` 与 `AgentStartHook`，将 `before_model_call`、`before_tool_call`、`after_tool_call` 委托给 `run_agent_loop`，直接向 `self._subscribers` 单向广播事实事件；
     3. 在 `Agent.run()` 中遇到 `event.stop_reason == "error"` 时准确向上抛出 `RuntimeError`，完整维持子代理任务失败报错契约。
-  - 单测重写与新增：
-    1. 彻底重写 `test_events.py`（13 项覆盖 Event 不可变性、决策点属性、DecisionRegistry 短路与 Never-Throw 异常捕获）；
-    2. 新建 `test_loop_subgenerators.py`（13 项覆盖协议归一化、流式推理、Pi 时序前置广播、参数结果改写与中断自愈）；
-    3. 更新 `test_agent_loop_pure.py`（15 项覆盖纯状态机微内核、门禁阻断 TurnEnd 闭环、max_iterations 截断与转向注入）；
-    4. 更新 `test_agent.py` 与 `test_extensions.py`（46 项覆盖强类型决策分流与 Harness 门面）。
-- **验证**：三包全量 **392 个离线测试**（core 334 + llm 36 + coding 22）100% 绿灯全通，零回归，Primary LSP 类型检查 100% clean。
+  - 单测重写与模块化分拆：
+    1. `test_events.py`（4 项覆盖 Event 不可变性、字段、TurnEnd 闭包及负向防御断言）；
+    2. `test_hooks.py`（7 项独立测试 5 大 Hook 拦截点、HookResult 字段及 HookRegistry 短路与 Never-Throw 异常捕获）；
+    3. `test_loop_subgenerators.py`（13 项覆盖协议归一化、流式推理、Pi 时序前置广播、参数结果改写与中断自愈）；
+    4. `test_agent_loop_pure.py`（14 项覆盖纯状态机微内核、门禁阻断 TurnEnd 闭环、max_iterations 截断与转向注入）；
+    5. `test_agent.py` 与 `test_extensions.py`（46 项覆盖强类型 Hook 分流与 Harness 门面）。
+- **验证**：三包全量 **389 个离线测试**（core 331 + llm 36 + coding 22）100% 绿灯全通，零回归，Primary LSP 类型检查 100% clean。
 
 ---
 
