@@ -25,7 +25,9 @@ class LLM:
     def __init__(self, config: Config) -> None:
         """标准工程构造：严格接收 Config 实例。"""
         if not isinstance(config, Config):  # pyright: ignore[reportUnreachable]
-            raise TypeError(f"LLM expects a Config instance, got {type(config).__name__}")  # pyright: ignore[reportUnreachable]
+            raise TypeError(
+                f"LLM expects a Config instance, got {type(config).__name__}"
+            )  # pyright: ignore[reportUnreachable]
         if config.provider not in PROVIDER_REGISTRY:
             raise ValueError(
                 f"Unknown provider '{config.provider}'. "
