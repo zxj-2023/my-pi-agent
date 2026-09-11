@@ -62,7 +62,11 @@ class AnthropicProvider(Provider):
                             tc_name = tc["function"].get("name", "")
                             raw = tc["function"].get("arguments", "{}")
                             try:
-                                tc_args = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw if isinstance(raw, dict) else {})
+                                tc_args = (
+                                    json.loads(raw)
+                                    if isinstance(raw, str) and raw.strip()
+                                    else (raw if isinstance(raw, dict) else {})
+                                )
                             except Exception:
                                 tc_args = {}
                         else:
