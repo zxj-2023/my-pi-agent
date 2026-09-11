@@ -17,7 +17,7 @@ from .events import (
     ThinkingDeltaEvent,
     ToolCallDoneEvent,
 )
-from .models import Message, Response, StreamChunk, ToolCall
+from .models import Message, Response, StreamChunk, ToolCall, TurnOutcome
 
 __all__ = ["StreamAccumulator"]
 
@@ -109,7 +109,7 @@ class StreamAccumulator:
 
         return events
 
-    def finish(self, stop_reason: str = "stop") -> StreamDoneEvent:
+    def finish(self, stop_reason: str | None = None) -> StreamDoneEvent:
         """完成流式会话，交付最终完型的 Message 与 Usage。"""
         if not self.started:
             self.started = True
@@ -128,8 +128,12 @@ class StreamAccumulator:
                     tc.model_dump() if hasattr(tc, "model_dump") else tc
                     for tc in self.tool_calls
                 ]
-            if stop_reason:
-                meta["stop_reason"] = stop_reason
+            effective_stop = stop_reason or (
+                TurnOutcome.TOOL_CALLS.value
+                if self.tool_calls
+                else TurnOutcome.COMPLETED.value
+            )
+            meta["stop_reason"] = effective_stop
             msg = Message(
                 role=self.role,
                 content=self.content,

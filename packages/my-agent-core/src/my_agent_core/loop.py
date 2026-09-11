@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import contextlib
 import inspect
-import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
-from my_agent_llm import Message, StreamChunk
+from my_agent_llm import Message, StreamChunk, ToolCall
 from my_agent_llm.events import (  # pyright: ignore[reportMissingImports]
     StreamDoneEvent,
     StreamErrorEvent,
@@ -172,6 +171,26 @@ def _synthesize_interrupted_tool_calls(
     return out
 
 
+def _coerce_tool_call(tc: Any) -> ToolCall:
+    """安全归一化工具调用为 ToolCall 实体，Never-Throw 捕获畸形入参。"""
+    if isinstance(tc, ToolCall):
+        return tc
+    try:
+        if isinstance(tc, dict) and "id" not in tc:
+            tc = {**tc, "id": ""}
+        return ToolCall.model_validate(tc)
+    except Exception as exc:
+        raw_id = getattr(tc, "id", None) or (
+            tc.get("id", "") if isinstance(tc, dict) else ""
+        )
+        raw_name = getattr(tc, "name", None) or (
+            tc.get("name", "") if isinstance(tc, dict) else ""
+        )
+        return ToolCall(
+            id=str(raw_id), name=str(raw_name), error=f"Invalid tool call: {exc}"
+        )
+
+
 async def _execute_tools_turn(
     *,
     tool_calls: Sequence[Any],
@@ -186,7 +205,7 @@ async def _execute_tools_turn(
     ) = None,
     signal: CancellationToken | None = None,
 ) -> AsyncIterator[Event]:
-    """专职工具执行车间：Preflight 广播 -> 审批改参 -> 并发执行 -> 结果改写 -> 结果广播。
+    """专职工具批处理执行车间：Preflight 广播 -> 审批改参 -> 并发批执行 -> 结果改写 -> 结果广播。
 
     严格遵循 Pi 时序契约：
     1. Preflight 阶段：在调用 before_tool_call 审查与执行之前，率先按 source order 广播 ToolExecutionStart；
@@ -196,102 +215,69 @@ async def _execute_tools_turn(
     5. Message 阶段：按 source order 发射 role="tool" 的 MessageStart / MessageEnd。
     """
     # ── 阶段 A1: Preflight 广播（按 source order 先行发射 ToolExecutionStart）
-    parsed_calls: list[tuple[int, str, str, dict[str, Any], str | None]] = []
-    for idx, tc in enumerate(tool_calls):
-        tc_id = ""
-        name = ""
-        args: dict[str, Any] = {}
-        err: str | None = None
-
-        if hasattr(tc, "id") and hasattr(tc, "name") and hasattr(tc, "args"):
-            tc_id = str(tc.id)  # pyright: ignore[reportAttributeAccessIssue]
-            name = str(tc.name)  # pyright: ignore[reportAttributeAccessIssue]
-            raw_args = tc.args  # pyright: ignore[reportAttributeAccessIssue]
-            args = dict(raw_args) if isinstance(raw_args, dict) else {}
-            err = getattr(tc, "error", None)
-        elif isinstance(tc, dict):
-            tc_id = str(tc.get("id", ""))
-            if "name" in tc and "args" in tc:
-                name = str(tc.get("name", ""))
-                raw_args = tc.get("args")
-                args = dict(raw_args) if isinstance(raw_args, dict) else {}
-                err = tc.get("error")
-            elif "function" in tc:
-                func = tc.get("function") or {}
-                name = str(func.get("name", ""))
-                raw_args = func.get("arguments", "{}")
-                if isinstance(raw_args, dict):
-                    args = raw_args
-                elif isinstance(raw_args, str):
-                    try:
-                        parsed = json.loads(raw_args)
-                        if isinstance(parsed, dict):
-                            args = parsed
-                        else:
-                            err = f"Tool arguments must be a dict, got {type(parsed).__name__}"
-                    except Exception as exc:
-                        err = f"Invalid JSON arguments for tool '{name}': {exc}"
-            else:
-                name = str(tc.get("name", ""))
-                args = {}
-        else:
-            err = f"Unsupported tool call format: {type(tc).__name__}"
-
-        parsed_calls.append((idx, tc_id, name, args, err))
-        yield ToolExecutionStart(tool_call_id=tc_id, tool_name=name, args=args)
+    parsed_calls: list[tuple[int, ToolCall]] = [
+        (idx, _coerce_tool_call(tc)) for idx, tc in enumerate(tool_calls)
+    ]
+    for _idx, call in parsed_calls:
+        yield ToolExecutionStart(
+            tool_call_id=call.id, tool_name=call.name, args=call.args
+        )
 
     # ── 阶段 A2: 前置审查与参数改写 (before_tool_call)
-    prepared_calls: list[tuple[int, str, str, dict[str, Any]]] = []
+    prepared_calls: list[tuple[int, str, dict[str, Any]]] = []
     direct_results: dict[int, ToolResult] = {}
 
-    for idx, tc_id, name, args, err in parsed_calls:
-        if err is not None:
-            direct_results[idx] = ToolResult(ok=False, error=err)
+    for idx, call in parsed_calls:
+        if call.error is not None:
+            direct_results[idx] = ToolResult(ok=False, error=call.error)
             continue
 
         if signal is not None and signal.is_cancelled():
             direct_results[idx] = ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
             continue
 
+        current_args = call.args
+        err: str | None = None
         if before_tool_call is not None:
             try:
                 decision = before_tool_call(
-                    ToolCallHook(tool_call_id=tc_id, tool_name=name, args=args)
+                    ToolCallHook(
+                        tool_call_id=call.id, tool_name=call.name, args=current_args
+                    )
                 )
                 if inspect.isawaitable(decision):
                     decision = await decision
                 if decision is not None:
                     if decision.block:
-                        err = f"Tool '{name}' blocked: {decision.reason or 'blocked by policy'}"
+                        err = f"Tool '{call.name}' blocked: {decision.reason or 'blocked by policy'}"
                     elif decision.updated_args is not None:
-                        args = decision.updated_args
+                        current_args = decision.updated_args
             except Exception as exc:
-                err = f"Error in before_tool_call for '{name}': {exc}"
+                err = f"Error in before_tool_call for '{call.name}': {exc}"
 
         if err is not None:
             direct_results[idx] = ToolResult(ok=False, error=err)
         else:
-            prepared_calls.append((idx, tc_id, name, args))
+            prepared_calls.append((idx, call.name, current_args))
 
-    # ── 阶段 B: 并发执行与中途取消自愈
+    # ── 阶段 B: 并发批执行与中途取消自愈 (100% 保留并发加速)
     if signal is not None and signal.is_cancelled():
-        for idx, _, _, _ in prepared_calls:
+        for idx, _, _ in prepared_calls:
             direct_results[idx] = ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
     elif prepared_calls:
-        # 直接构造 (name, args) 元组提交给 registry.execute_batch！0 行 json.dumps 字符串拼装！
-        calls_to_run = [(name, args) for _, _, name, args in prepared_calls]
+        calls_to_run = [(name, args) for _, name, args in prepared_calls]
         try:
             batch_out = await registry.execute_batch(calls_to_run)
-            for (idx, _, _, _), res in zip(prepared_calls, batch_out, strict=False):
+            for (idx, _, _), res in zip(prepared_calls, batch_out, strict=False):
                 direct_results[idx] = res
         except Exception as exc:
-            for idx, _, _, _ in prepared_calls:
+            for idx, _, _ in prepared_calls:
                 direct_results[idx] = ToolResult(
                     ok=False, error=f"Tool execution failed: {exc}"
                 )
 
     # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
-    for idx, tc_id, name, _, _ in parsed_calls:
+    for idx, call in parsed_calls:
         res = direct_results.get(
             idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
         )
@@ -305,8 +291,8 @@ async def _execute_tools_turn(
             try:
                 decision = after_tool_call(
                     ToolResultHook(
-                        tool_call_id=tc_id,
-                        tool_name=name,
+                        tool_call_id=call.id,
+                        tool_name=call.name,
                         result=obs,
                         is_error=is_err,
                     )
@@ -315,18 +301,18 @@ async def _execute_tools_turn(
                     decision = await decision
                 if decision is not None:
                     if decision.block:
-                        obs = f"Tool '{name}' blocked: {decision.reason or 'blocked by policy'}"
+                        obs = f"Tool '{call.name}' blocked: {decision.reason or 'blocked by policy'}"
                         is_err = True
                     elif decision.updated_result is not None:
                         obs = decision.updated_result
                         is_err = False
             except Exception as exc:
-                obs = f"Error in after_tool_call for '{name}': {exc}"
+                obs = f"Error in after_tool_call for '{call.name}': {exc}"
                 is_err = True
 
         yield ToolExecutionEnd(
-            tool_call_id=tc_id,
-            tool_name=name,
+            tool_call_id=call.id,
+            tool_name=call.name,
             result=obs,
             is_error=is_err,
         )
@@ -335,7 +321,7 @@ async def _execute_tools_turn(
         tool_msg = Message(
             role="tool",
             content=obs,
-            metadata={"tool_call_id": tc_id, "is_error": is_err},
+            metadata={"tool_call_id": call.id, "is_error": is_err},
         )
         yield MessageStart(tool_msg)
         yield MessageEnd(tool_msg)
@@ -521,7 +507,15 @@ async def run_agent_loop(
                 if isinstance(ev, MessageEnd):
                     assistant = ev.message
 
-            assert assistant is not None
+            if assistant is None:
+                assistant = Message(
+                    role="assistant",
+                    content="Provider produced no assistant message",
+                    metadata={"stop_reason": "error"},
+                )
+                yield MessageStart(assistant)
+                yield MessageEnd(assistant)
+
             messages.append(assistant)
 
             # 取消响应、异常阻断与断头自愈

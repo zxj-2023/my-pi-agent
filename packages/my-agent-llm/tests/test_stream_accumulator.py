@@ -154,3 +154,26 @@ def test_accumulator_never_throw_on_exception():
         assert isinstance(last_event.exc, ConnectionResetError)
 
     asyncio.run(run())
+
+
+def test_accumulator_preserves_tool_calls_stop_reason():
+    """验证当存在 tool_calls 时，StreamDoneEvent 的 stop_reason 保持 'tool_calls' 而非被覆盖为 'stop'。"""
+    tc = ToolCall(id="call_1", name="search", args={"q": "tau"})
+
+    async def run():
+        async def fake_chunks():
+            resp = Response(
+                content="",
+                model="gpt-4o",
+                tool_calls=[tc],
+                finish_reason="tool_calls",
+            )
+            yield StreamChunk(content="", tool_calls=[tc], response=resp)
+
+        acc = StreamAccumulator()
+        events = [ev async for ev in acc.stream(fake_chunks())]
+        done = events[-1]
+        assert isinstance(done, StreamDoneEvent)
+        assert (done.message.metadata or {}).get("stop_reason") == "tool_calls"
+
+    asyncio.run(run())

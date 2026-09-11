@@ -401,7 +401,7 @@ async def test_execute_tools_turn_invalid_json_args():
     # ToolExecutionEnd was emitted with is_error=True
     end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
     assert end_ev.is_error
-    assert "Invalid JSON arguments" in end_ev.result
+    assert "JSON" in end_ev.result
 
 
 @pytest.mark.anyio

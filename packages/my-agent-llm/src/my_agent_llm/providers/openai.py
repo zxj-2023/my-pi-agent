@@ -214,7 +214,6 @@ class OpenAIProvider(Provider):
         text_acc = ""
         usage = None
         final_finish_reason: str | None = None
-        chunks: list[StreamChunk] = []
         for chunk in stream:
             chunk_usage = self._extract_usage(chunk)
             if chunk_usage:
@@ -228,11 +227,9 @@ class OpenAIProvider(Provider):
             accumulator.add(delta)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                sc = StreamChunk(
+                yield StreamChunk(
                     content=delta.content, finish_reason=choice.finish_reason
                 )
-                chunks.append(sc)
-                yield sc
         tool_calls = accumulator.finish()
         final_response = Response(
             content=text_acc,
@@ -241,16 +238,13 @@ class OpenAIProvider(Provider):
             usage=usage,
             finish_reason=final_finish_reason,
         )
-        if tool_calls or usage:
-            yield StreamChunk(
-                content="",
-                tool_calls=tool_calls,
-                usage=usage,
-                finish_reason=final_finish_reason,
-                response=final_response,
-            )
-        elif chunks:
-            chunks[-1].response = final_response
+        yield StreamChunk(
+            content="",
+            tool_calls=tool_calls,
+            usage=usage,
+            finish_reason=final_finish_reason,
+            response=final_response,
+        )
 
     async def achat(
         self,
@@ -300,7 +294,6 @@ class OpenAIProvider(Provider):
         text_acc = ""
         usage = None
         final_finish_reason: str | None = None
-        chunks: list[StreamChunk] = []
         async for chunk in stream:
             chunk_usage = self._extract_usage(chunk)
             if chunk_usage:
@@ -314,11 +307,9 @@ class OpenAIProvider(Provider):
             accumulator.add(delta)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                sc = StreamChunk(
+                yield StreamChunk(
                     content=delta.content, finish_reason=choice.finish_reason
                 )
-                chunks.append(sc)
-                yield sc
         tool_calls = accumulator.finish()
         final_response = Response(
             content=text_acc,
@@ -327,13 +318,10 @@ class OpenAIProvider(Provider):
             usage=usage,
             finish_reason=final_finish_reason,
         )
-        if tool_calls or usage:
-            yield StreamChunk(
-                content="",
-                tool_calls=tool_calls,
-                usage=usage,
-                finish_reason=final_finish_reason,
-                response=final_response,
-            )
-        elif chunks:
-            chunks[-1].response = final_response
+        yield StreamChunk(
+            content="",
+            tool_calls=tool_calls,
+            usage=usage,
+            finish_reason=final_finish_reason,
+            response=final_response,
+        )

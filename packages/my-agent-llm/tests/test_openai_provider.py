@@ -134,7 +134,9 @@ def test_stream_yields_chunks():
         )
     )
     chunks = list(p.stream([Message(role="user", content="hi")], model="gpt-4.1-mini"))
-    assert [c.content for c in chunks] == ["a", "b"]
+    assert [c.content for c in chunks] == ["a", "b", ""]
+    assert chunks[-1].response is not None
+    assert chunks[-1].response.content == "ab"
 
 
 def test_stream_aggregates_tool_calls():
