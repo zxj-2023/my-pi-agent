@@ -73,6 +73,7 @@ def test_hook_result_fields_and_defaults():
     assert hr.updated_messages is None
     assert hr.updated_args is None
     assert hr.updated_result is None
+    assert hr.terminate is None
 
     msg = Message(role="system", content="updated")
     hr_custom = HookResult(
@@ -83,6 +84,7 @@ def test_hook_result_fields_and_defaults():
         updated_messages=[msg],
         updated_args={"x": 1},
         updated_result="new_res",
+        terminate=True,
     )
     assert hr_custom.block is True
     assert hr_custom.reason == "blocked"
@@ -91,6 +93,7 @@ def test_hook_result_fields_and_defaults():
     assert hr_custom.updated_messages == [msg]
     assert hr_custom.updated_args == {"x": 1}
     assert hr_custom.updated_result == "new_res"
+    assert hr_custom.terminate is True
 
 
 @pytest.mark.anyio

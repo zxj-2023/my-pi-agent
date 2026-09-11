@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import inspect
 import logging
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
@@ -34,6 +36,7 @@ from my_agent_core.events import (
     MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
+    ToolExecutionUpdate,
     TurnEnd,
     TurnStart,
 )
@@ -180,15 +183,51 @@ def _coerce_tool_call(tc: Any) -> ToolCall:
             tc = {**tc, "id": ""}
         return ToolCall.model_validate(tc)
     except Exception as exc:
-        raw_id = getattr(tc, "id", None) or (
-            tc.get("id", "") if isinstance(tc, dict) else ""
-        )
-        raw_name = getattr(tc, "name", None) or (
-            tc.get("name", "") if isinstance(tc, dict) else ""
-        )
+        raw_id = getattr(tc, "id", None)
+        if not raw_id:
+            raw_id = tc.get("id", "") if isinstance(tc, dict) else ""
+        raw_name = getattr(tc, "name", None)
+        if not raw_name:
+            raw_name = tc.get("name", "") if isinstance(tc, dict) else ""
         return ToolCall(
-            id=str(raw_id), name=str(raw_name), error=f"Invalid tool call: {exc}"
+            id=str(raw_id if raw_id else ""),
+            name=str(raw_name if raw_name else ""),
+            error=f"Invalid tool call: {exc}",
         )
+
+
+async def _fail_tool_calls_from_truncated_message(
+    tool_calls: Sequence[Any],
+) -> AsyncIterator[Event]:
+    """阶段 1: 当模型因触达 Token 上限导致输出截断 (stop_reason='length') 时，安全拦截所有工具调用。
+
+    防范流式 salvage 拼装出残缺的 JSON 参数导致文件写崩或命令截断。
+    生成清晰的重试提示结果回传给大模型，引导其重新完整发起调用。
+    """
+    for tc in tool_calls:
+        call = _coerce_tool_call(tc)
+        yield ToolExecutionStart(
+            tool_call_id=call.id,
+            tool_name=call.name,
+            args=call.args,
+        )
+        err_msg = (
+            f'Tool call "{call.name}" was not executed: the response hit the output '
+            "token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments."
+        )
+        yield ToolExecutionEnd(
+            tool_call_id=call.id,
+            tool_name=call.name,
+            result=err_msg,
+            is_error=True,
+        )
+        tool_msg = Message(
+            role="tool",
+            content=err_msg,
+            metadata={"tool_call_id": call.id, "is_error": True},
+        )
+        yield MessageStart(tool_msg)
+        yield MessageEnd(tool_msg)
 
 
 async def _execute_tools_turn(
@@ -210,8 +249,8 @@ async def _execute_tools_turn(
     严格遵循 Pi 时序契约：
     1. Preflight 阶段：在调用 before_tool_call 审查与执行之前，率先按 source order 广播 ToolExecutionStart；
     2. 审查阶段：调用 before_tool_call 审批与入参改写；
-    3. Execution 阶段：并发批量执行未阻断工具，若取消则合成中断结果；
-    4. Completion 阶段：按 source order 执行 after_tool_call 改写并广播 ToolExecutionEnd；
+    3. Execution 阶段：并发批量执行未阻断工具，支持实时流式进度回传 (ToolExecutionUpdate) 与中途取消自愈；
+    4. Completion 阶段：按 source order 执行 after_tool_call 改写并广播 ToolExecutionEnd (含 terminate 状态)；
     5. Message 阶段：按 source order 发射 role="tool" 的 MessageStart / MessageEnd。
     """
     # ── 阶段 A1: Preflight 广播（按 source order 先行发射 ToolExecutionStart）
@@ -224,7 +263,7 @@ async def _execute_tools_turn(
         )
 
     # ── 阶段 A2: 前置审查与参数改写 (before_tool_call)
-    prepared_calls: list[tuple[int, str, dict[str, Any]]] = []
+    prepared_calls: list[tuple[int, ToolCall, dict[str, Any]]] = []
     direct_results: dict[int, ToolResult] = {}
 
     for idx, call in parsed_calls:
@@ -238,6 +277,7 @@ async def _execute_tools_turn(
 
         current_args = call.args
         err: str | None = None
+        block_terminate: bool = False
         if before_tool_call is not None:
             try:
                 decision = before_tool_call(
@@ -250,31 +290,95 @@ async def _execute_tools_turn(
                 if decision is not None:
                     if decision.block:
                         err = f"Tool '{call.name}' blocked: {decision.reason or 'blocked by policy'}"
+                        if decision.terminate is not None:
+                            block_terminate = decision.terminate
                     elif decision.updated_args is not None:
                         current_args = decision.updated_args
             except Exception as exc:
                 err = f"Error in before_tool_call for '{call.name}': {exc}"
 
         if err is not None:
-            direct_results[idx] = ToolResult(ok=False, error=err)
+            direct_results[idx] = ToolResult(
+                ok=False, error=err, terminate=block_terminate
+            )
         else:
-            prepared_calls.append((idx, call.name, current_args))
+            prepared_calls.append((idx, call, current_args))
 
-    # ── 阶段 B: 并发批执行与中途取消自愈 (100% 保留并发加速)
+    # ── 阶段 B: 并发批执行与实时进度流式广播 (Phase 5)
     if signal is not None and signal.is_cancelled():
         for idx, _, _ in prepared_calls:
             direct_results[idx] = ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
     elif prepared_calls:
-        calls_to_run = [(name, args) for _, name, args in prepared_calls]
+        # 建立线程安全事件队列与哨兵
+        queue: asyncio.Queue[Event | object] = asyncio.Queue()
+        _SENTINEL = object()
+        loop = asyncio.get_running_loop()
+        loop_thread_id = threading.get_ident()
+
+        def safe_put_update(ev: Event) -> None:
+            if threading.get_ident() == loop_thread_id:
+                queue.put_nowait(ev)
+            else:
+                with contextlib.suppress(RuntimeError):
+                    loop.call_soon_threadsafe(queue.put_nowait, ev)
+
+        def make_on_update(
+            call_id: str, tool_name: str, args: dict[str, Any]
+        ) -> Callable[[Any], None]:
+            def on_update(partial: Any) -> None:
+                safe_put_update(
+                    ToolExecutionUpdate(
+                        tool_call_id=call_id,
+                        tool_name=tool_name,
+                        args=args,
+                        partial_result=partial,
+                    )
+                )
+
+            return on_update
+
+        calls_to_run = [
+            (
+                call.name,
+                current_args,
+                make_on_update(call.id, call.name, current_args),
+                call.id,
+            )
+            for _, call, current_args in prepared_calls
+        ]
+
+        async def _run_batch() -> list[ToolResult]:
+            try:
+                return await registry.execute_batch(calls_to_run, signal=signal)
+            finally:
+                if threading.get_ident() == loop_thread_id:
+                    queue.put_nowait(_SENTINEL)
+                else:
+                    with contextlib.suppress(RuntimeError):
+                        loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
+
+        runner = asyncio.create_task(_run_batch())
         try:
-            batch_out = await registry.execute_batch(calls_to_run)
+            while True:
+                item = await queue.get()
+                if item is _SENTINEL:
+                    break
+                if isinstance(item, Event):
+                    yield item
+            batch_out = await runner
             for (idx, _, _), res in zip(prepared_calls, batch_out, strict=False):
                 direct_results[idx] = res
         except Exception as exc:
             for idx, _, _ in prepared_calls:
-                direct_results[idx] = ToolResult(
-                    ok=False, error=f"Tool execution failed: {exc}"
-                )
+                if idx not in direct_results:
+                    direct_results[idx] = ToolResult(
+                        ok=False, error=f"Tool execution failed: {exc}"
+                    )
+        finally:
+            if not runner.done():
+                runner.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await runner
 
     # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
     for idx, call in parsed_calls:
@@ -283,8 +387,9 @@ async def _execute_tools_turn(
         )
         obs = res.serialize()
         is_err = not res.ok
+        effective_terminate = res.terminate
 
-        # 触发决策点 5: tool_result (after_tool_call 结果篡改)
+        # 触发决策点 5: tool_result (after_tool_call 结果篡改与熔断介入)
         if after_tool_call is not None and not (
             signal is not None and signal.is_cancelled()
         ):
@@ -295,6 +400,7 @@ async def _execute_tools_turn(
                         tool_name=call.name,
                         result=obs,
                         is_error=is_err,
+                        terminate=effective_terminate,
                     )
                 )
                 if inspect.isawaitable(decision):
@@ -306,6 +412,8 @@ async def _execute_tools_turn(
                     elif decision.updated_result is not None:
                         obs = decision.updated_result
                         is_err = False
+                    if decision.terminate is not None:
+                        effective_terminate = decision.terminate
             except Exception as exc:
                 obs = f"Error in after_tool_call for '{call.name}': {exc}"
                 is_err = True
@@ -315,13 +423,18 @@ async def _execute_tools_turn(
             tool_name=call.name,
             result=obs,
             is_error=is_err,
+            terminate=effective_terminate,
         )
 
-        # 产出配对的 Tool 消息并广播 Start/End
+        # 产出配对的 Tool 消息并广播 Start/End (阶段 7: 保序写入元数据)
         tool_msg = Message(
             role="tool",
             content=obs,
-            metadata={"tool_call_id": call.id, "is_error": is_err},
+            metadata={
+                "tool_call_id": call.id,
+                "is_error": is_err,
+                "terminate": effective_terminate,
+            },
         )
         yield MessageStart(tool_msg)
         yield MessageEnd(tool_msg)
@@ -542,19 +655,48 @@ async def run_agent_loop(
             # 委托工具车间
             tool_results: list[Message] = []
             calls = assistant.metadata.get("tool_calls") if assistant.metadata else None
+            is_truncated = (assistant.metadata or {}).get("stop_reason") == "length"
             if calls:
-                async for ev in _execute_tools_turn(
-                    tool_calls=calls,
-                    registry=registry,
-                    before_tool_call=before_tool_call,
-                    after_tool_call=after_tool_call,
-                    signal=signal,
-                ):
-                    yield ev
-                    if isinstance(ev, MessageEnd) and ev.message.role == "tool":
-                        tool_results.append(ev.message)
-                        messages.append(ev.message)
-                has_more_tools = True
+                if is_truncated:
+                    # 阶段 1: 输出截断防御，拒绝执行任何残缺参数的工具
+                    async for ev in _fail_tool_calls_from_truncated_message(calls):
+                        yield ev
+                        if isinstance(ev, MessageEnd) and ev.message.role == "tool":
+                            tool_results.append(ev.message)
+                            messages.append(ev.message)
+                    has_more_tools = True
+                else:
+                    async for ev in _execute_tools_turn(
+                        tool_calls=calls,
+                        registry=registry,
+                        before_tool_call=before_tool_call,
+                        after_tool_call=after_tool_call,
+                        signal=signal,
+                    ):
+                        yield ev
+                        if isinstance(ev, MessageEnd) and ev.message.role == "tool":
+                            tool_results.append(ev.message)
+                            messages.append(ev.message)
+
+                    # 阶段 7: 批量优雅熔断判定（any 语义）
+                    should_terminate = bool(tool_results) and any(
+                        bool(m.metadata and m.metadata.get("terminate"))
+                        for m in tool_results
+                    )
+                    if should_terminate:
+                        has_more_tools = False
+                        terminating_obs = [
+                            m.content
+                            for m in tool_results
+                            if m.metadata and m.metadata.get("terminate")
+                        ]
+                        final_text = (
+                            assistant.content
+                            if assistant.content
+                            else (terminating_obs[-1] if terminating_obs else None)
+                        )
+                    else:
+                        has_more_tools = True
             else:
                 has_more_tools = False
                 final_text = assistant.content

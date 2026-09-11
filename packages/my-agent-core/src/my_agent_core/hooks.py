@@ -60,6 +60,7 @@ class ToolResultHook:
     tool_name: str
     result: str
     is_error: bool
+    terminate: bool = False
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ class HookResult:
     updated_messages: list[Message] | None = None
     updated_args: dict[str, Any] | None = None
     updated_result: str | None = None
+    terminate: bool | None = None
 
 
 class HookRegistry:

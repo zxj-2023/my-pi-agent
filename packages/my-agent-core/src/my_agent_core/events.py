@@ -132,6 +132,7 @@ class ToolExecutionEnd(Event):
     tool_name: str
     result: str
     is_error: bool
+    terminate: bool = False
 
 
 # ── 系统内部状态事件

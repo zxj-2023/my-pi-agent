@@ -19,12 +19,18 @@ class ToolResult:
     data: Any = None
     error: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
+    terminate: bool = False
 
     def serialize(self) -> str:
         """转成写入 messages 的字符串。失败时返回错误文本。"""
         if self.ok:
             return str(self.data)
         return self.error or "Unknown error"
+
+
+_FRAMEWORK_RESERVED_PARAMS: frozenset[str] = frozenset(
+    {"on_update", "signal", "tool_call_id"}
+)
 
 
 class Tool:
@@ -48,6 +54,10 @@ class Tool:
         self.timeout = timeout
         self.is_parallel_safe = is_parallel_safe
         self.is_async = inspect.iscoroutinefunction(func)
+        sig = inspect.signature(func)
+        self._accepts_on_update = "on_update" in sig.parameters
+        self._accepts_signal = "signal" in sig.parameters
+        self._accepts_tool_call_id = "tool_call_id" in sig.parameters
         self.params_model = params_model or (
             None if raw_schema else self._create_params_model(func)
         )
@@ -57,6 +67,8 @@ class Tool:
         hints = get_type_hints(func)
         fields: dict[str, Any] = {}
         for param_name, param in inspect.signature(func).parameters.items():
+            if param_name in _FRAMEWORK_RESERVED_PARAMS:
+                continue
             if param.kind in (
                 inspect.Parameter.VAR_POSITIONAL,
                 inspect.Parameter.VAR_KEYWORD,
@@ -102,14 +114,34 @@ class Tool:
             },
         }
 
-    async def execute(self, args: dict[str, Any]) -> ToolResult:
+    async def execute(
+        self,
+        args: dict[str, Any],
+        signal: Any | None = None,
+        on_update: Callable[[Any], None] | None = None,
+        tool_call_id: str | None = None,
+    ) -> ToolResult:
         """校验 + 执行，永不抛（错误全部转 ToolResult）。自动适配 sync/async 函数。"""
+        accepting_updates = True
+
+        def guarded_on_update(partial: Any) -> None:
+            if accepting_updates and on_update is not None:
+                on_update(partial)
+
+        extra_kwargs: dict[str, Any] = {}
+        if self._accepts_on_update:
+            extra_kwargs["on_update"] = guarded_on_update
+        if self._accepts_signal:
+            extra_kwargs["signal"] = signal
+        if self._accepts_tool_call_id and tool_call_id is not None:
+            extra_kwargs["tool_call_id"] = tool_call_id
+
         if self.params_model is not None:
             try:
                 validated = self.params_model.model_validate(args)
             except ValidationError as exc:
                 return ToolResult(ok=False, error=str(exc))
-            kwargs = validated.model_dump()
+            kwargs = {**validated.model_dump(), **extra_kwargs}
 
             def func_call() -> Any:
                 return self.func(**kwargs)
@@ -119,9 +151,13 @@ class Tool:
         else:
 
             def func_call() -> Any:
+                if extra_kwargs:
+                    return self.func(args, **extra_kwargs)
                 return self.func(args)
 
             async def async_func_call() -> Any:
+                if extra_kwargs:
+                    return await self.func(args, **extra_kwargs)
                 return await self.func(args)
 
         try:
@@ -133,6 +169,8 @@ class Tool:
             return ToolResult(
                 ok=False, error=f"Error executing tool '{self.name}': {exc}"
             )
+        finally:
+            accepting_updates = False
 
         if isinstance(result, ToolResult):
             return result

@@ -37,7 +37,7 @@ from my_agent_core.loop import (
     run_agent_loop,
 )
 from my_agent_core.registry import ToolRegistry
-from my_agent_core.tools import tool
+from my_agent_core.tools import ToolResult, tool
 from tests.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
     multiply,
@@ -562,3 +562,252 @@ async def test_run_agent_loop_defensive_function_none():
     ends = [e for e in events if isinstance(e, ToolExecutionEnd)]
     assert len(ends) == 1
     assert ends[0].is_error is True
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_truncation_guard_fails_tool_calls():
+    """验证阶段 1 输出截断防御：当模型触达 max_tokens (stop_reason='length') 时，
+    必须拒绝执行工具，并生成安全错误结果通知大模型重发。
+    """
+    tc = [
+        {
+            "id": "call_danger",
+            "type": "function",
+            "function": {"name": "multiply", "arguments": json.dumps({"a": 3, "b": 7})},
+        }
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc, finish_reason="length"),
+            _response(content="Understood, retrying..."),
+        ]
+    )
+    executed = False
+
+    @tool
+    def multiply(a: int, b: int) -> int:
+        nonlocal executed
+        executed = True
+        return a * b
+
+    registry = ToolRegistry()
+    registry.register(multiply)
+    messages: list[Message] = []
+
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="Calculate")],
+        tools=registry,
+    ):
+        events.append(ev)
+
+    # 1. 验证工具绝对没有被执行！
+    assert not executed
+
+    # 2. 验证发射了 ToolExecutionStart 和 ToolExecutionEnd，且 is_error 为 True
+    starts = [e for e in events if isinstance(e, ToolExecutionStart)]
+    ends = [e for e in events if isinstance(e, ToolExecutionEnd)]
+    assert len(starts) == 1
+    assert len(ends) == 1
+    assert ends[0].is_error
+    assert "token limit" in ends[0].result or "truncated" in ends[0].result
+
+    # 3. 验证生成了错误 tool 消息，且循环正常流转到下一轮并拿到最终文本
+    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
+    assert len(agent_ends) == 1
+    assert agent_ends[0].final_text == "Understood, retrying..."
+    assert agent_ends[0].iterations == 2
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_early_termination_single_tool():
+    """验证阶段 7 优雅熔断：当单工具返回 terminate=True 时，循环立即在当前轮次闭环，不再向模型发起下一轮请求。"""
+    tc = [
+        {
+            "id": "c_finish",
+            "type": "function",
+            "function": {
+                "name": "complete_task",
+                "arguments": json.dumps({"summary": "all done"}),
+            },
+        }
+    ]
+    # FakeLLM 预备两轮响应，但第二轮绝不应该被调用！
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(content="Should not be called!"),
+        ]
+    )
+
+    @tool
+    def complete_task(summary: str) -> ToolResult:
+        return ToolResult(ok=True, data=f"Task completed: {summary}", terminate=True)
+
+    registry = ToolRegistry()
+    registry.register(complete_task)
+    messages: list[Message] = []
+
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="Finish it")],
+        tools=registry,
+    ):
+        events.append(ev)
+
+    # 验证仅运行了 1 轮
+    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
+    assert len(agent_ends) == 1
+    assert agent_ends[0].iterations == 1
+    assert agent_ends[0].stop_reason == "end_turn"
+    assert agent_ends[0].final_text == "Task completed: all done"
+
+    # 验证工具消息被完整固化进上下文
+    tool_msgs = [m for m in messages if m.role == "tool"]
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0].content == "Task completed: all done"
+    assert tool_msgs[0].metadata and tool_msgs[0].metadata.get("terminate") is True
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_early_termination_batch_any_semantics():
+    """验证阶段 7 批量 any 语义：当批次中任一工具声明 terminate=True 时，整批执行完毕后立即停止 ReAct 循环。"""
+    tc = [
+        {
+            "id": "c_ask",
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "arguments": json.dumps({"q": "proceed?"}),
+            },
+        },
+        {
+            "id": "c_read",
+            "type": "function",
+            "function": {
+                "name": "read_info",
+                "arguments": json.dumps({"key": "user_id"}),
+            },
+        },
+    ]
+    llm = FakeLLM(
+        [
+            _response(tool_calls=tc),
+            _response(content="Should not be called!"),
+        ]
+    )
+
+    @tool(is_parallel_safe=True)
+    def ask_user(q: str) -> ToolResult:
+        return ToolResult(ok=True, data=f"Question: {q}", terminate=True)
+
+    @tool(is_parallel_safe=True)
+    def read_info(key: str) -> ToolResult:
+        return ToolResult(ok=True, data=f"value_for_{key}", terminate=False)
+
+    registry = ToolRegistry()
+    registry.register(ask_user)
+    registry.register(read_info)
+    messages: list[Message] = []
+
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="Ask and read")],
+        tools=registry,
+    ):
+        events.append(ev)
+
+    # 验证两工具均已执行且固化进 messages
+    tool_msgs = [m for m in messages if m.role == "tool"]
+    assert len(tool_msgs) == 2
+    assert tool_msgs[0].content == "Question: proceed?"
+    assert tool_msgs[1].content == "value_for_user_id"
+
+    # 验证 any 语义生效：整批完成后立即熔断退出（仅 1 轮）
+    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
+    assert len(agent_ends) == 1
+    assert agent_ends[0].iterations == 1
+    assert agent_ends[0].final_text == "Question: proceed?"
+
+
+@pytest.mark.anyio
+async def test_run_agent_loop_hook_terminate_composition():
+    """验证阶段 7 Hook 熔断合成：
+    1. 普通 Hook 返回 HookResult(terminate=None) 不会冲刷工具的 terminate=True；
+    2. Hook 显式返回 HookResult(terminate=True) 可促成熔断。
+    """
+    tc = [
+        {
+            "id": "c1",
+            "type": "function",
+            "function": {"name": "calc", "arguments": json.dumps({"x": 10})},
+        }
+    ]
+    llm = FakeLLM([_response(tool_calls=tc), _response(content="Unreachable")])
+
+    @tool
+    def calc(x: int) -> ToolResult:
+        return ToolResult(ok=True, data=x * 2, terminate=False)
+
+    registry = ToolRegistry()
+    registry.register(calc)
+
+    async def hook_override(_decision: ToolResultHook) -> HookResult:
+        # Hook 决定进行熔断
+        return HookResult(terminate=True)
+
+    messages: list[Message] = []
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=messages,
+        prompts=[Message(role="user", content="run calc")],
+        tools=registry,
+        after_tool_call=hook_override,
+    ):
+        events.append(ev)
+
+    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
+    assert len(agent_ends) == 1
+    assert agent_ends[0].iterations == 1
+
+    # Case 1: 普通 Hook 返回 HookResult(terminate=None) 绝不冲刷工具自身的 terminate=True
+    tc_term = [
+        {
+            "id": "c_term",
+            "type": "function",
+            "function": {"name": "term_tool", "arguments": "{}"},
+        }
+    ]
+    llm_case1 = FakeLLM([_response(tool_calls=tc_term), _response(content="Unreachable")])
+
+    @tool
+    def term_tool() -> ToolResult:
+        return ToolResult(ok=True, data="original", terminate=True)
+
+    reg1 = ToolRegistry()
+    reg1.register(term_tool)
+
+    async def audit_hook(_dec: ToolResultHook) -> HookResult:
+        return HookResult(updated_result="audited result")  # terminate=None
+
+    events1 = []
+    async for ev in run_agent_loop(
+        llm=llm_case1,
+        messages=[],
+        prompts=[Message(role="user", content="go")],
+        tools=reg1,
+        after_tool_call=audit_hook,
+    ):
+        events1.append(ev)
+
+    agent_ends1 = [e for e in events1 if isinstance(e, AgentEnd)]
+    assert len(agent_ends1) == 1
+    assert agent_ends1[0].iterations == 1
+    assert agent_ends1[0].final_text == "audited result"

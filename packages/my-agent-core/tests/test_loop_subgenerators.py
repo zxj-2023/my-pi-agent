@@ -7,6 +7,8 @@ Tests the 3 dedicated sub-generators/helpers in isolation:
 3. _execute_tools_turn
 """
 
+import asyncio
+
 import pytest
 from my_agent_llm import Message, StreamChunk
 
@@ -17,6 +19,7 @@ from my_agent_core.events import (
     MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
+    ToolExecutionUpdate,
 )
 from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
     HookResult,
@@ -30,6 +33,7 @@ from my_agent_core.loop import (
 )
 from my_agent_core.registry import ToolRegistry, tool
 from my_agent_core.tool_history import _INTERRUPTED_TOOL_RESULT
+from my_agent_core.tools import ToolResult
 
 
 class FakeStreamLLM:
@@ -471,3 +475,102 @@ async def test_execute_tools_turn_structured_tool_call_with_error():
     end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
     assert end_ev.is_error
     assert end_ev.result == "Malformed JSON from model"
+
+
+@pytest.mark.anyio
+async def test_execute_tools_turn_streaming_update_async_and_sync():
+    """验证阶段 5: 无论 async 工具还是工作线程中的 sync 工具，均可安全流式发射 ToolExecutionUpdate。"""
+    reg = ToolRegistry()
+
+    @tool(is_parallel_safe=True)
+    async def async_counter(n: int, on_update=None) -> ToolResult:
+        for i in range(1, n + 1):
+            if on_update:
+                on_update(f"async count {i}")
+            await asyncio.sleep(0.01)
+        return ToolResult(ok=True, data="async done")
+
+    @tool(is_parallel_safe=True)
+    def sync_counter(n: int, on_update=None) -> ToolResult:
+        for i in range(1, n + 1):
+            if on_update:
+                on_update(f"sync count {i}")
+        return ToolResult(ok=True, data="sync done")
+
+    reg.register(async_counter)
+    reg.register(sync_counter)
+
+    tool_calls = [
+        {"id": "c1", "name": "async_counter", "args": {"n": 2}},
+        {"id": "c2", "name": "sync_counter", "args": {"n": 2}},
+    ]
+
+    events = []
+    async for ev in _execute_tools_turn(
+        tool_calls=tool_calls,
+        registry=reg,
+        signal=None,
+    ):
+        events.append(ev)
+
+    updates = [e for e in events if isinstance(e, ToolExecutionUpdate)]
+    assert len(updates) == 4
+    async_updates = [u for u in updates if u.tool_name == "async_counter"]
+    sync_updates = [u for u in updates if u.tool_name == "sync_counter"]
+    assert len(async_updates) == 2
+    assert async_updates[0].partial_result == "async count 1"
+    assert async_updates[1].partial_result == "async count 2"
+    assert len(sync_updates) == 2
+    assert sync_updates[0].partial_result == "sync count 1"
+    assert sync_updates[1].partial_result == "sync count 2"
+
+
+@pytest.mark.anyio
+async def test_execute_tools_turn_accepting_updates_latch():
+    """验证阶段 5 生命周期锁存：工具执行完毕后（settle 后），迟到的 on_update 调用会被静默丢弃。"""
+    reg = ToolRegistry()
+    saved_cb = None
+
+    @tool
+    def leaky_tool(msg: str, on_update=None) -> ToolResult:
+        nonlocal saved_cb
+        saved_cb = on_update
+        if on_update:
+            on_update(f"early update: {msg}")
+        return ToolResult(ok=True, data="ok")
+
+    reg.register(leaky_tool)
+
+    events = []
+    async for ev in _execute_tools_turn(
+        tool_calls=[{"id": "c_leak", "name": "leaky_tool", "args": {"msg": "hi"}}],
+        registry=reg,
+    ):
+        events.append(ev)
+
+    # 此时 leaky_tool 已结束，尝试调用迟到的 saved_cb
+    assert saved_cb is not None
+    saved_cb("late update after tool return")
+
+    updates = [e for e in events if isinstance(e, ToolExecutionUpdate)]
+    assert len(updates) == 1
+    assert updates[0].partial_result == "early update: hi"
+
+
+def test_reserved_params_excluded_from_schema():
+    """验证阶段 5 参数反射保护：on_update, signal, tool_call_id 不会被暴露进 LLM Schema。"""
+
+    @tool
+    def heavy_tool(
+        cmd: str, timeout: int = 10, on_update=None, signal=None, tool_call_id=None
+    ) -> str:
+        _ = (on_update, signal, tool_call_id)
+        return f"{cmd}:{timeout}"
+
+    schema = heavy_tool.to_openai_schema()
+    params = schema["function"]["parameters"]["properties"]
+    assert "cmd" in params
+    assert "timeout" in params
+    assert "on_update" not in params
+    assert "signal" not in params
+    assert "tool_call_id" not in params
