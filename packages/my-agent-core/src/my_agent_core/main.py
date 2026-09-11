@@ -104,17 +104,13 @@ async def amain() -> None:
             tools=TOOLS,
             session=session,
             system_prompt=DEMO_SYSTEM_PROMPT,
-            hooks=[
-                (TurnStart, print_events),
-                (MessageUpdate, print_events),
-                (ToolExecutionStart, print_events),
-                (ToolExecutionEnd, print_events),
-                (AgentEnd, print_events),
-            ],
         )
+        agent.subscribe(print_events)
         answer = await agent.run(question)
         if answer is None:
             print("（达到 max_iterations 上限，未得到最终回答）")
+        else:
+            print(f"\n[Answer] {answer}")
 
 
 def main() -> None:
