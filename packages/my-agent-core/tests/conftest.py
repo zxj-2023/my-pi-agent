@@ -99,6 +99,26 @@ class FakeLLM:
                 response=resp,
             )
 
+    async def astream_events(
+        self,
+        *,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        signal: Any | None = None,
+        **kwargs: Any,
+    ):
+        from my_agent_llm.stream import (  # pyright: ignore[reportMissingImports]
+            StreamAccumulator,
+        )
+
+        acc = StreamAccumulator()
+        async for ev in acc.stream(
+            self.achat_stream(messages=messages, tools=tools, model=model, **kwargs),
+            signal=signal,
+        ):
+            yield ev
+
 
 def make_response(
     content: str = "",

@@ -12,7 +12,18 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
-from my_agent_llm import Message
+from my_agent_llm import Message, StreamChunk
+from my_agent_llm.events import (  # pyright: ignore[reportMissingImports]
+    StreamDoneEvent,
+    StreamErrorEvent,
+    StreamStartEvent,
+    TextDeltaEvent,
+    ThinkingDeltaEvent,
+    ToolCallDoneEvent,
+)
+from my_agent_llm.stream import (  # pyright: ignore[reportMissingImports]
+    StreamAccumulator,
+)
 
 from my_agent_core.events import (
     AgentEnd,
@@ -93,11 +104,6 @@ def _provider_context(messages: Sequence[Message]) -> list[Message]:
     return list(repair_tool_history(replayable).messages)
 
 
-def _is_signal_cancelled(signal: CancellationToken | None) -> bool:
-    """安全检查取消信号。"""
-    return signal.is_cancelled() if signal is not None else False
-
-
 async def _assistant_turn(
     *,
     llm: Any,
@@ -107,90 +113,44 @@ async def _assistant_turn(
     signal: CancellationToken | None = None,
     context_manager: Any | None = None,
 ) -> AsyncIterator[Event]:
-    """专职大模型推理车间：
-    1. 首个 Chunk 到达时发射 MessageStart(assistant)；
-    2. 流式期间逐字发射 MessageUpdate；
-    3. 流式终态直接接收模型层交付的完整 Response 实体，转为 MessageEnd(assistant)。
-    """
-    final_response: Any | None = None
-    fallback_content = ""
-    fallback_tools: list[dict[str, Any]] | None = None
-    last_usage: dict[str, Any] | None = None
-    cancelled = False
-    error_occurred = False
-    started = False
-
-    try:
-        if signal is not None and signal.is_cancelled():
-            cancelled = True
-        else:
-            async for chunk in llm.achat_stream(
-                messages=view, tools=tool_schemas, model=model
-            ):
-                if not started:
-                    started = True
-                    yield MessageStart(Message(role="assistant", content=""))
-
-                if chunk.content:
-                    fallback_content += chunk.content
-                if chunk.tool_calls:
-                    fallback_tools = chunk.tool_calls
-                if chunk.usage:
-                    last_usage = chunk.usage
-
-                yield MessageUpdate(
-                    message=Message(role="assistant", content=fallback_content),
-                    chunk=chunk,
-                )
-
-                if getattr(chunk, "response", None) is not None:
-                    final_response = chunk.response
-
-                if signal is not None and signal.is_cancelled():
-                    cancelled = True
-                    break
-    except Exception as exc:
-        if _is_signal_cancelled(signal):
-            cancelled = True
-        else:
-            err_msg = str(exc)
-            fallback_content = (
-                f"{fallback_content} (Error during model stream: {err_msg})"
-                if fallback_content
-                else err_msg
-            )
-            error_occurred = True
-
-    stop_reason = "cancelled" if cancelled else ("error" if error_occurred else None)
-
-    # 优先使用模型层直接交付的已拼装 Response 实体，彻底消除调度层的人肉拼装
-    if final_response is not None and hasattr(final_response, "to_message"):
-        assistant = final_response.to_message(role="assistant", stop_reason=stop_reason)
-        if last_usage is None and getattr(final_response, "usage", None):
-            last_usage = final_response.usage
+    """专职大模型推理车间：纯粹转译模型层产出的高阶 StreamEvent（对标 Tau _assistant_events）。"""
+    if hasattr(llm, "astream_events"):
+        event_stream = llm.astream_events(
+            messages=view, tools=tool_schemas, model=model, signal=signal
+        )
     else:
-        meta: dict[str, Any] = {}
-        if fallback_tools:
-            meta["tool_calls"] = fallback_tools
-        if stop_reason:
-            meta["stop_reason"] = stop_reason
-        assistant = Message(
-            role="assistant",
-            content=fallback_content,
-            metadata=meta if meta else None,
+        acc = StreamAccumulator()
+        event_stream = acc.stream(
+            llm.achat_stream(messages=view, tools=tool_schemas, model=model),
+            signal=signal,
         )
 
-    if (
-        last_usage
-        and context_manager is not None
-        and hasattr(context_manager, "record_usage")
-    ):
-        with contextlib.suppress(Exception):
-            context_manager.record_usage(last_usage)
-
-    if not started:
-        yield MessageStart(assistant)
-    yield MessageEnd(assistant)
+    async for ev in event_stream:
+        if isinstance(ev, StreamStartEvent):
+            yield MessageStart(ev.partial)
+        elif isinstance(ev, TextDeltaEvent):
+            yield MessageUpdate(message=ev.partial, chunk=StreamChunk(content=ev.delta))
+        elif isinstance(ev, ThinkingDeltaEvent):
+            yield MessageUpdate(
+                message=ev.partial,
+                chunk=StreamChunk(content="", metadata={"reasoning_content": ev.delta}),
+            )
+        elif isinstance(ev, ToolCallDoneEvent):
+            yield MessageUpdate(
+                message=ev.partial,
+                chunk=StreamChunk(content="", tool_calls=[ev.tool_call]),
+            )
+        elif isinstance(ev, StreamDoneEvent):
+            if (
+                ev.usage
+                and context_manager is not None
+                and hasattr(context_manager, "record_usage")
+            ):
+                with contextlib.suppress(Exception):
+                    context_manager.record_usage(ev.usage)
+            yield MessageEnd(ev.message)
+        elif isinstance(ev, StreamErrorEvent):
+            yield MessageEnd(ev.error)
 
 
 def _synthesize_interrupted_tool_calls(
