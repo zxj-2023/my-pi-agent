@@ -247,3 +247,32 @@ async def test_registry_execute_batch_sequential_fallback_causal_ordering():
         "start_read_2",
         "end_read_2",
     ]
+
+
+@pytest.mark.anyio
+async def test_execute_tool_with_dict_args():
+    """execute_tool: 支持直接传入字典参数，无需 json 字符串解析。"""
+    reg = _registry(multiply)
+    res = await reg.execute_tool(name="multiply", args={"a": 3, "b": 4})  # pyright: ignore[reportCallIssue]
+    assert res.ok is True
+    assert res.data == 12
+
+
+@pytest.mark.anyio
+async def test_execute_tool_with_tuple():
+    """execute_tool: 支持传入 (name, args_dict) 元组。"""
+    reg = _registry(multiply)
+    res = await reg.execute_tool(("multiply", {"a": 2, "b": 5}))
+    assert res.ok is True
+    assert res.data == 10
+
+
+@pytest.mark.anyio
+async def test_execute_batch_with_tuples():
+    """execute_batch: 支持传入 (name, args_dict) 批量执行。"""
+    reg = _registry(multiply)
+    batch = [("multiply", {"a": 2, "b": 3}), ("multiply", {"a": 4, "b": 5})]
+    results = await reg.execute_batch(batch)
+    assert len(results) == 2
+    assert results[0].data == 6
+    assert results[1].data == 20

@@ -468,10 +468,7 @@ class ContextManager:
             Message(role="system", content=SUMMARIZATION_SYSTEM_PROMPT),
             Message(role="user", content=user_content),
         ]
-        if hasattr(self.llm, "achat"):
-            resp = await self.llm.achat(messages=msgs, tools=[])
-        else:
-            resp = self.llm.chat(messages=msgs, tools=[])
+        resp = await self.llm.achat(messages=msgs, tools=[])
 
         summary_text = self._extract_summary(resp.content)
         read_files, modified_files = extract_file_operations(messages, self._summary)
