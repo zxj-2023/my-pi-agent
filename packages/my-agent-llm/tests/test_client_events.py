@@ -80,9 +80,7 @@ def test_provider_default_astream_events_wrapping():
             _ = (messages, model, tools, kwargs)
             raise NotImplementedError
 
-        async def achat_stream(
-            self, messages, *, model, tools=None, **kwargs
-        ):
+        async def achat_stream(self, messages, *, model, tools=None, **kwargs):
             _ = (messages, tools, kwargs)
             yield StreamChunk(content="chunk1")
             yield StreamChunk(content="chunk2")
