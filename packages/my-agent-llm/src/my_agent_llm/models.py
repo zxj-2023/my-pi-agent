@@ -1,4 +1,5 @@
 """统一数据模型：保证内部数据流通，屏蔽 provider 差异。"""
+
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -68,4 +69,6 @@ class StreamChunk(BaseModel):
     tool_calls: list[dict[str, Any]] | None = None
     usage: dict[str, int] | None = None
     metadata: dict[str, Any] | None = None  # 承载流式 reasoning 等附加信息
-    response: Response | None = None  # 流式终态携带的已由模型层拼装完毕的完整 Response 实体
+    response: Response | None = (
+        None  # 流式终态携带的已由模型层拼装完毕的完整 Response 实体
+    )

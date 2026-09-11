@@ -1,5 +1,6 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 """OpenAI provider：基准实现，deepseek 以此为模板。"""
+
 from collections.abc import AsyncIterator, Iterator
 
 import openai
@@ -23,7 +24,9 @@ class _ToolCallAccumulator:
         """消费一个 delta 的 tool_calls 片段。"""
         for tc in getattr(delta, "tool_calls", None) or []:
             index = getattr(tc, "index", 0) or 0
-            slot = self._by_index.setdefault(index, {"id": "", "name": "", "arguments": ""})
+            slot = self._by_index.setdefault(
+                index, {"id": "", "name": "", "arguments": ""}
+            )
             if getattr(tc, "id", None):
                 slot["id"] = tc.id
             fn = getattr(tc, "function", None)
@@ -40,7 +43,9 @@ class _ToolCallAccumulator:
         return [
             ToolCall(
                 id=slot["id"],
-                function=ToolCallFunction(name=slot["name"], arguments=slot["arguments"]),
+                function=ToolCallFunction(
+                    name=slot["name"], arguments=slot["arguments"]
+                ),
             ).model_dump()
             for _, slot in sorted(self._by_index.items())
         ]
@@ -70,7 +75,11 @@ class OpenAIProvider(Provider):
         """Message → OpenAI wire dict。"""
         result = []
         for msg in messages:
-            if msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
+            if (
+                msg.role == "assistant"
+                and msg.metadata
+                and "tool_calls" in msg.metadata
+            ):
                 result.append(
                     {
                         "role": "assistant",
@@ -98,7 +107,9 @@ class OpenAIProvider(Provider):
         return [
             ToolCall(
                 id=tc.id,
-                function=ToolCallFunction(name=tc.function.name, arguments=tc.function.arguments),
+                function=ToolCallFunction(
+                    name=tc.function.name, arguments=tc.function.arguments
+                ),
             ).model_dump()
             for tc in message.tool_calls
         ]
@@ -173,7 +184,9 @@ class OpenAIProvider(Provider):
             accumulator.add(delta)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                sc = StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                sc = StreamChunk(
+                    content=delta.content, finish_reason=choice.finish_reason
+                )
                 chunks.append(sc)
                 yield sc
         tool_calls = accumulator.finish()
@@ -257,7 +270,9 @@ class OpenAIProvider(Provider):
             accumulator.add(delta)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                sc = StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                sc = StreamChunk(
+                    content=delta.content, finish_reason=choice.finish_reason
+                )
                 chunks.append(sc)
                 yield sc
         tool_calls = accumulator.finish()

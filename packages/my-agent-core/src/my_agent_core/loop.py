@@ -165,9 +165,7 @@ async def _assistant_turn(
 
     # 优先使用模型层直接交付的已拼装 Response 实体，彻底消除调度层的人肉拼装
     if final_response is not None and hasattr(final_response, "to_message"):
-        assistant = final_response.to_message(
-            role="assistant", stop_reason=stop_reason
-        )
+        assistant = final_response.to_message(role="assistant", stop_reason=stop_reason)
         if last_usage is None and getattr(final_response, "usage", None):
             last_usage = final_response.usage
     else:

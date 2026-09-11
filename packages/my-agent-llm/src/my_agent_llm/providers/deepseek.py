@@ -1,5 +1,6 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 """DeepSeek provider：OpenAI 兼容端点 + reasoning_content 提取。"""
+
 from collections.abc import AsyncIterator, Iterator
 
 from ..config import Config
@@ -79,7 +80,9 @@ class DeepSeekProvider(OpenAIProvider):
                 reasoning_parts.append(delta.reasoning_content)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                yield StreamChunk(
+                    content=delta.content, finish_reason=choice.finish_reason
+                )
         tool_calls = accumulator.finish()
         reasoning = "".join(reasoning_parts) if reasoning_parts else None
         final_response = Response(
@@ -162,7 +165,9 @@ class DeepSeekProvider(OpenAIProvider):
                 reasoning_parts.append(delta.reasoning_content)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                yield StreamChunk(
+                    content=delta.content, finish_reason=choice.finish_reason
+                )
         tool_calls = accumulator.finish()
         reasoning = "".join(reasoning_parts) if reasoning_parts else None
         final_response = Response(

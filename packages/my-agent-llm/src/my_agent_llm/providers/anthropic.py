@@ -1,5 +1,6 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 """Anthropic provider：block 双向翻译 + 原生 web_search 增强。"""
+
 import json
 from collections.abc import AsyncIterator, Iterator
 
@@ -30,14 +31,20 @@ class AnthropicProvider(Provider):
         self.client = anthropic.Anthropic(**kwargs)
         self.async_client = anthropic.AsyncAnthropic(**kwargs)
 
-    def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict]]:
+    def _convert_messages(
+        self, messages: list[Message]
+    ) -> tuple[str | None, list[dict]]:
         """Message → Anthropic 格式。返回 (system, messages)。"""
         system_message = None
         anthropic_messages = []
         for msg in messages:
             if msg.role == "system":
                 system_message = msg.content
-            elif msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
+            elif (
+                msg.role == "assistant"
+                and msg.metadata
+                and "tool_calls" in msg.metadata
+            ):
                 content = []
                 if msg.content:
                     content.append({"type": "text", "text": msg.content})
@@ -92,7 +99,13 @@ class AnthropicProvider(Provider):
         out = self._convert_tools(tools) or []
         if enable_web:
             out = list(out)
-            out.append({"type": "web_search_20250305", "name": "web_search", "max_uses": max_uses})
+            out.append(
+                {
+                    "type": "web_search_20250305",
+                    "name": "web_search",
+                    "max_uses": max_uses,
+                }
+            )
         return out or None
 
     @staticmethod
@@ -103,7 +116,11 @@ class AnthropicProvider(Provider):
     @staticmethod
     def _extract_reasoning(blocks) -> str | None:
         """thinking blocks → reasoning_content。"""
-        parts = [b.thinking for b in blocks if getattr(b, "type", None) == "thinking" and getattr(b, "thinking", None)]
+        parts = [
+            b.thinking
+            for b in blocks
+            if getattr(b, "type", None) == "thinking" and getattr(b, "thinking", None)
+        ]
         return "".join(parts) or None
 
     @staticmethod
@@ -116,7 +133,8 @@ class AnthropicProvider(Provider):
                     ToolCall(
                         id=block.id,
                         function=ToolCallFunction(
-                            name=block.name, arguments=json.dumps(block.input),
+                            name=block.name,
+                            arguments=json.dumps(block.input),
                         ),
                     ).model_dump()
                 )
@@ -130,7 +148,11 @@ class AnthropicProvider(Provider):
             return None
         in_t = int(getattr(u, "input_tokens", 0) or 0)
         out_t = int(getattr(u, "output_tokens", 0) or 0)
-        return {"prompt_tokens": in_t, "completion_tokens": out_t, "total_tokens": in_t + out_t}
+        return {
+            "prompt_tokens": in_t,
+            "completion_tokens": out_t,
+            "total_tokens": in_t + out_t,
+        }
 
     def chat(self, messages, *, model, tools=None, **kwargs) -> Response:
         system, ant_messages = self._convert_messages(messages)
@@ -211,7 +233,9 @@ class AnthropicProvider(Provider):
             tool_calls=self._extract_tool_calls(response.content),
         )
 
-    async def achat_stream(self, messages, *, model, tools=None, **kwargs) -> AsyncIterator[StreamChunk]:
+    async def achat_stream(
+        self, messages, *, model, tools=None, **kwargs
+    ) -> AsyncIterator[StreamChunk]:
         if self.async_client is None:
             raise RuntimeError("async_client not provided; cannot run async methods")
         system, ant_messages = self._convert_messages(messages)
