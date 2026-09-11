@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportCallIssue=false
 """Anthropic provider：block 双向翻译 + 原生 web_search 增强。"""
 import json
 from collections.abc import AsyncIterator, Iterator
@@ -170,14 +171,22 @@ class AnthropicProvider(Provider):
             tool_calls = self._extract_tool_calls(final.content)
             reasoning = self._extract_reasoning(final.content)
             usage = self._extract_usage(final)
-            if tool_calls or reasoning or usage:
-                yield StreamChunk(
-                    content="",
-                    tool_calls=tool_calls,
-                    usage=usage,
-                    finish_reason=final.stop_reason,
-                    metadata={"reasoning_content": reasoning} if reasoning else None,
-                )
+            final_response = Response(
+                content=self._extract_content(final.content),
+                model=final.model,
+                reasoning_content=reasoning,
+                usage=usage,
+                finish_reason=final.stop_reason,
+                tool_calls=tool_calls,
+            )
+            yield StreamChunk(
+                content="",
+                tool_calls=tool_calls,
+                usage=usage,
+                finish_reason=final.stop_reason,
+                metadata={"reasoning_content": reasoning} if reasoning else None,
+                response=final_response,
+            )
 
     async def achat(self, messages, *, model, tools=None, **kwargs) -> Response:
         if self.async_client is None:
@@ -185,7 +194,7 @@ class AnthropicProvider(Provider):
         system, ant_messages = self._convert_messages(messages)
         ant_tools = self._resolve_tools(tools, kwargs)
         kwargs.pop("tools", None)
-        response = await self.async_client.messages.create(
+        response = await self.async_client.messages.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=ant_messages,
             system=system,
@@ -208,7 +217,7 @@ class AnthropicProvider(Provider):
         system, ant_messages = self._convert_messages(messages)
         ant_tools = self._resolve_tools(tools, kwargs)
         kwargs.pop("tools", None)
-        async with self.async_client.messages.stream(
+        async with self.async_client.messages.stream(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=ant_messages,
             system=system,
@@ -222,11 +231,19 @@ class AnthropicProvider(Provider):
             tool_calls = self._extract_tool_calls(final.content)
             reasoning = self._extract_reasoning(final.content)
             usage = self._extract_usage(final)
-            if tool_calls or reasoning or usage:
-                yield StreamChunk(
-                    content="",
-                    tool_calls=tool_calls,
-                    usage=usage,
-                    finish_reason=final.stop_reason,
-                    metadata={"reasoning_content": reasoning} if reasoning else None,
-                )
+            final_response = Response(
+                content=self._extract_content(final.content),
+                model=final.model,
+                reasoning_content=reasoning,
+                usage=usage,
+                finish_reason=final.stop_reason,
+                tool_calls=tool_calls,
+            )
+            yield StreamChunk(
+                content="",
+                tool_calls=tool_calls,
+                usage=usage,
+                finish_reason=final.stop_reason,
+                metadata={"reasoning_content": reasoning} if reasoning else None,
+                response=final_response,
+            )

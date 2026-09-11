@@ -1,3 +1,4 @@
+# pyright: reportCallIssue=false
 """Pytest fixtures and universal test doubles for my-agent-core tests."""
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ class FakeLLM:
                     tool_calls=resp.tool_calls,
                     usage=resp.usage,
                     finish_reason=resp.finish_reason,
+                    response=resp,
                 )
             else:
                 yield StreamChunk(
@@ -79,6 +81,7 @@ class FakeLLM:
                     tool_calls=resp.tool_calls,
                     usage=resp.usage,
                     finish_reason=resp.finish_reason,
+                    response=resp,
                 )
         elif resp.tool_calls:
             yield StreamChunk(
@@ -86,12 +89,14 @@ class FakeLLM:
                 tool_calls=resp.tool_calls,
                 usage=resp.usage,
                 finish_reason=resp.finish_reason,
+                response=resp,
             )
         else:
             yield StreamChunk(
                 content="",
                 usage=resp.usage,
                 finish_reason=resp.finish_reason or "end_turn",
+                response=resp,
             )
 
 

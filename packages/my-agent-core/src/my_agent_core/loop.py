@@ -107,9 +107,14 @@ async def _assistant_turn(
     signal: CancellationToken | None = None,
     context_manager: Any | None = None,
 ) -> AsyncIterator[Event]:
-    """专职大模型推理车间：逐字 yield MessageUpdate，在末尾 yield MessageStart 与 MessageEnd。"""
-    content_acc = ""
-    final_tool_calls: list[dict[str, Any]] | None = None
+    """专职大模型推理车间：
+    1. 首个 Chunk 到达时发射 MessageStart(assistant)；
+    2. 流式期间逐字发射 MessageUpdate；
+    3. 流式终态直接接收模型层交付的完整 Response 实体，转为 MessageEnd(assistant)。
+    """
+    final_response: Any | None = None
+    fallback_content = ""
+    fallback_tools: list[dict[str, Any]] | None = None
     last_usage: dict[str, Any] | None = None
     cancelled = False
     error_occurred = False
@@ -127,16 +132,19 @@ async def _assistant_turn(
                     yield MessageStart(Message(role="assistant", content=""))
 
                 if chunk.content:
-                    content_acc += chunk.content
+                    fallback_content += chunk.content
                 if chunk.tool_calls:
-                    final_tool_calls = chunk.tool_calls
+                    fallback_tools = chunk.tool_calls
                 if chunk.usage:
                     last_usage = chunk.usage
 
                 yield MessageUpdate(
-                    message=Message(role="assistant", content=content_acc),
+                    message=Message(role="assistant", content=fallback_content),
                     chunk=chunk,
                 )
+
+                if getattr(chunk, "response", None) is not None:
+                    final_response = chunk.response
 
                 if signal is not None and signal.is_cancelled():
                     cancelled = True
@@ -146,12 +154,33 @@ async def _assistant_turn(
             cancelled = True
         else:
             err_msg = str(exc)
-            content_acc = (
-                f"{content_acc} (Error during model stream: {err_msg})"
-                if content_acc
+            fallback_content = (
+                f"{fallback_content} (Error during model stream: {err_msg})"
+                if fallback_content
                 else err_msg
             )
             error_occurred = True
+
+    stop_reason = "cancelled" if cancelled else ("error" if error_occurred else None)
+
+    # 优先使用模型层直接交付的已拼装 Response 实体，彻底消除调度层的人肉拼装
+    if final_response is not None and hasattr(final_response, "to_message"):
+        assistant = final_response.to_message(
+            role="assistant", stop_reason=stop_reason
+        )
+        if last_usage is None and getattr(final_response, "usage", None):
+            last_usage = final_response.usage
+    else:
+        meta: dict[str, Any] = {}
+        if fallback_tools:
+            meta["tool_calls"] = fallback_tools
+        if stop_reason:
+            meta["stop_reason"] = stop_reason
+        assistant = Message(
+            role="assistant",
+            content=fallback_content,
+            metadata=meta if meta else None,
+        )
 
     if (
         last_usage
@@ -161,19 +190,6 @@ async def _assistant_turn(
         with contextlib.suppress(Exception):
             context_manager.record_usage(last_usage)
 
-    metadata: dict[str, Any] = {}
-    if final_tool_calls:
-        metadata["tool_calls"] = final_tool_calls
-    if cancelled:
-        metadata["stop_reason"] = "cancelled"
-    elif error_occurred:
-        metadata["stop_reason"] = "error"
-
-    assistant = Message(
-        role="assistant",
-        content=content_acc,
-        metadata=metadata if metadata else None,
-    )
     if not started:
         yield MessageStart(assistant)
     yield MessageEnd(assistant)

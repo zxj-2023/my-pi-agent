@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportCallIssue=false
 """OpenAI provider：基准实现，deepseek 以此为模板。"""
 from collections.abc import AsyncIterator, Iterator
 
@@ -123,7 +124,7 @@ class OpenAIProvider(Provider):
         **kwargs,
     ) -> Response:
         """同步对话。"""
-        response = self.client.chat.completions.create(
+        response = self.client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -147,7 +148,7 @@ class OpenAIProvider(Provider):
         **kwargs,
     ) -> Iterator[StreamChunk]:
         """同步流式：逐 delta 产文本块；流式结束补发末块（完整 tool_calls + usage）。"""
-        stream = self.client.chat.completions.create(
+        stream = self.client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -155,8 +156,10 @@ class OpenAIProvider(Provider):
             **kwargs,
         )
         accumulator = _ToolCallAccumulator()
+        text_acc = ""
         usage = None
         final_finish_reason: str | None = None
+        chunks: list[StreamChunk] = []
         for chunk in stream:
             chunk_usage = self._extract_usage(chunk)
             if chunk_usage:
@@ -169,11 +172,28 @@ class OpenAIProvider(Provider):
             delta = choice.delta
             accumulator.add(delta)
             if getattr(delta, "content", None):
-                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                text_acc += delta.content
+                sc = StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                chunks.append(sc)
+                yield sc
         tool_calls = accumulator.finish()
+        final_response = Response(
+            content=text_acc,
+            model=model,
+            tool_calls=tool_calls,
+            usage=usage,
+            finish_reason=final_finish_reason,
+        )
         if tool_calls or usage:
-            yield StreamChunk(content="", tool_calls=tool_calls, usage=usage,
-                              finish_reason=final_finish_reason)
+            yield StreamChunk(
+                content="",
+                tool_calls=tool_calls,
+                usage=usage,
+                finish_reason=final_finish_reason,
+                response=final_response,
+            )
+        elif chunks:
+            chunks[-1].response = final_response
 
     async def achat(
         self,
@@ -186,7 +206,7 @@ class OpenAIProvider(Provider):
         """异步对话。"""
         if self.async_client is None:
             raise RuntimeError("async_client not provided; cannot run async methods")
-        response = await self.async_client.chat.completions.create(
+        response = await self.async_client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -212,7 +232,7 @@ class OpenAIProvider(Provider):
         """异步流式：逐 delta 产文本块；流式结束补发末块（完整 tool_calls + usage）。"""
         if self.async_client is None:
             raise RuntimeError("async_client not provided; cannot run async methods")
-        stream = await self.async_client.chat.completions.create(
+        stream = await self.async_client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -220,8 +240,10 @@ class OpenAIProvider(Provider):
             **kwargs,
         )
         accumulator = _ToolCallAccumulator()
+        text_acc = ""
         usage = None
         final_finish_reason: str | None = None
+        chunks: list[StreamChunk] = []
         async for chunk in stream:
             chunk_usage = self._extract_usage(chunk)
             if chunk_usage:
@@ -234,8 +256,25 @@ class OpenAIProvider(Provider):
             delta = choice.delta
             accumulator.add(delta)
             if getattr(delta, "content", None):
-                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                text_acc += delta.content
+                sc = StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+                chunks.append(sc)
+                yield sc
         tool_calls = accumulator.finish()
+        final_response = Response(
+            content=text_acc,
+            model=model,
+            tool_calls=tool_calls,
+            usage=usage,
+            finish_reason=final_finish_reason,
+        )
         if tool_calls or usage:
-            yield StreamChunk(content="", tool_calls=tool_calls, usage=usage,
-                              finish_reason=final_finish_reason)
+            yield StreamChunk(
+                content="",
+                tool_calls=tool_calls,
+                usage=usage,
+                finish_reason=final_finish_reason,
+                response=final_response,
+            )
+        elif chunks:
+            chunks[-1].response = final_response

@@ -41,12 +41,31 @@ class Response(BaseModel):
     usage: dict[str, int] | None = None
     finish_reason: str | None = None
 
+    def to_message(
+        self,
+        role: Literal["system", "developer", "user", "assistant", "tool"] = "assistant",
+        stop_reason: str | None = None,
+    ) -> Message:
+        """将模型层完整响应直接转换为标准 Message 实体，彻底消除调度层手动累加拼装。"""
+        meta: dict[str, Any] = {}
+        if self.tool_calls:
+            meta["tool_calls"] = self.tool_calls
+        if self.usage:
+            meta["usage"] = self.usage
+        if self.reasoning_content:
+            meta["reasoning_content"] = self.reasoning_content
+        effective_stop = stop_reason or self.finish_reason
+        if effective_stop:
+            meta["stop_reason"] = effective_stop
+        return Message(role=role, content=self.content, metadata=meta if meta else None)
+
 
 class StreamChunk(BaseModel):
-    """流式增量块：文本增量 + 末块携带完整 tool_calls。"""
+    """流式增量块：文本增量 + 末块携带完整 tool_calls 与终态已拼装好的 Response。"""
 
     content: str
     finish_reason: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     usage: dict[str, int] | None = None
-    metadata: dict[str, Any] | None = None   # 承载流式 reasoning 等附加信息
+    metadata: dict[str, Any] | None = None  # 承载流式 reasoning 等附加信息
+    response: Response | None = None  # 流式终态携带的已由模型层拼装完毕的完整 Response 实体

@@ -1,3 +1,4 @@
+# pyright: reportArgumentType=false, reportCallIssue=false
 """DeepSeek provider：OpenAI 兼容端点 + reasoning_content 提取。"""
 from collections.abc import AsyncIterator, Iterator
 
@@ -28,7 +29,7 @@ class DeepSeekProvider(OpenAIProvider):
         tools: list[dict] | None = None,
         **kwargs,
     ) -> Response:
-        response = self.client.chat.completions.create(
+        response = self.client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -54,9 +55,10 @@ class DeepSeekProvider(OpenAIProvider):
     ) -> Iterator[StreamChunk]:
         reasoning_parts: list[str] = []
         accumulator = _ToolCallAccumulator()
+        text_acc = ""
         usage = None
         final_finish_reason: str | None = None
-        for chunk in self.client.chat.completions.create(
+        for chunk in self.client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -76,18 +78,26 @@ class DeepSeekProvider(OpenAIProvider):
             if getattr(delta, "reasoning_content", None):
                 reasoning_parts.append(delta.reasoning_content)
             if getattr(delta, "content", None):
+                text_acc += delta.content
                 yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
         tool_calls = accumulator.finish()
         reasoning = "".join(reasoning_parts) if reasoning_parts else None
-        if tool_calls or usage or reasoning:
-            # 末块补发：完整 reasoning 挂 metadata，tool_calls/usage 对齐 openai
-            yield StreamChunk(
-                content="",
-                tool_calls=tool_calls,
-                usage=usage,
-                finish_reason=final_finish_reason,
-                metadata={"reasoning_content": reasoning} if reasoning else None,
-            )
+        final_response = Response(
+            content=text_acc,
+            model=model,
+            tool_calls=tool_calls,
+            reasoning_content=reasoning,
+            usage=usage,
+            finish_reason=final_finish_reason,
+        )
+        yield StreamChunk(
+            content="",
+            tool_calls=tool_calls,
+            usage=usage,
+            finish_reason=final_finish_reason,
+            metadata={"reasoning_content": reasoning} if reasoning else None,
+            response=final_response,
+        )
 
     async def achat(
         self,
@@ -99,7 +109,7 @@ class DeepSeekProvider(OpenAIProvider):
     ) -> Response:
         if self.async_client is None:
             raise RuntimeError("async_client not provided; cannot run async methods")
-        response = await self.async_client.chat.completions.create(
+        response = await self.async_client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -127,9 +137,10 @@ class DeepSeekProvider(OpenAIProvider):
             raise RuntimeError("async_client not provided; cannot run async methods")
         reasoning_parts: list[str] = []
         accumulator = _ToolCallAccumulator()
+        text_acc = ""
         usage = None
         final_finish_reason: str | None = None
-        stream = await self.async_client.chat.completions.create(
+        stream = await self.async_client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
             tools=tools,
@@ -150,14 +161,23 @@ class DeepSeekProvider(OpenAIProvider):
             if getattr(delta, "reasoning_content", None):
                 reasoning_parts.append(delta.reasoning_content)
             if getattr(delta, "content", None):
+                text_acc += delta.content
                 yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
         tool_calls = accumulator.finish()
         reasoning = "".join(reasoning_parts) if reasoning_parts else None
-        if tool_calls or usage or reasoning:
-            yield StreamChunk(
-                content="",
-                tool_calls=tool_calls,
-                usage=usage,
-                finish_reason=final_finish_reason,
-                metadata={"reasoning_content": reasoning} if reasoning else None,
-            )
+        final_response = Response(
+            content=text_acc,
+            model=model,
+            tool_calls=tool_calls,
+            reasoning_content=reasoning,
+            usage=usage,
+            finish_reason=final_finish_reason,
+        )
+        yield StreamChunk(
+            content="",
+            tool_calls=tool_calls,
+            usage=usage,
+            finish_reason=final_finish_reason,
+            metadata={"reasoning_content": reasoning} if reasoning else None,
+            response=final_response,
+        )

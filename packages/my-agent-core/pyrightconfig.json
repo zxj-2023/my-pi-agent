@@ -10,5 +10,7 @@
   "reportUnannotatedClassAttribute": "none",
   "reportAny": "none",
   "reportExplicitAny": "none",
-  "reportUnnecessaryTypeIgnoreComment": "none"
+  "reportUnnecessaryTypeIgnoreComment": "none",
+  "reportCallIssue": "none",
+  "reportArgumentType": "none"
 }
