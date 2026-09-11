@@ -72,9 +72,9 @@ async def test_assistant_turn_streaming():
     assert updates[0].message.content == "Hello "
     assert updates[1].message.content == "Hello world!"
 
-    # Check termination
-    assert isinstance(events[-2], MessageStart)
-    assert events[-2].message.content == "Hello world!"
+    # Check start, updates, and termination sequence
+    assert isinstance(events[0], MessageStart)
+    assert events[0].message.role == "assistant"
     assert isinstance(events[-1], MessageEnd)
     assert events[-1].message.content == "Hello world!"
 
@@ -322,7 +322,7 @@ async def test_execute_tools_turn_args_and_result_rewriting():
 
     end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
     assert end_ev.result == "welcome Bob"
-    assert end_ev.is_error is False
+    assert not end_ev.is_error
 
     msg_ev = [
         e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
@@ -358,7 +358,7 @@ async def test_execute_tools_turn_cancellation_synthesizes_interrupted():
         events.append(ev)
 
     end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
-    assert end_ev.is_error is True
+    assert end_ev.is_error
     assert end_ev.result == _INTERRUPTED_TOOL_RESULT
 
     msg_ev = [
@@ -366,7 +366,7 @@ async def test_execute_tools_turn_cancellation_synthesizes_interrupted():
     ][0]
     assert msg_ev.message.content == _INTERRUPTED_TOOL_RESULT
     assert msg_ev.message.metadata is not None
-    assert msg_ev.message.metadata["is_error"] is True
+    assert msg_ev.message.metadata["is_error"]
 
 
 @pytest.mark.anyio
@@ -399,5 +399,5 @@ async def test_execute_tools_turn_invalid_json_args():
 
     # ToolExecutionEnd was emitted with is_error=True
     end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
-    assert end_ev.is_error is True
+    assert end_ev.is_error
     assert "Invalid JSON arguments" in end_ev.result

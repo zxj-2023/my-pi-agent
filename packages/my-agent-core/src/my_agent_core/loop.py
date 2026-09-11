@@ -113,6 +113,7 @@ async def _assistant_turn(
     last_usage: dict[str, Any] | None = None
     cancelled = False
     error_occurred = False
+    started = False
 
     try:
         if signal is not None and signal.is_cancelled():
@@ -121,6 +122,10 @@ async def _assistant_turn(
             async for chunk in llm.achat_stream(
                 messages=view, tools=tool_schemas, model=model
             ):
+                if not started:
+                    started = True
+                    yield MessageStart(Message(role="assistant", content=""))
+
                 if chunk.content:
                     content_acc += chunk.content
                 if chunk.tool_calls:
@@ -169,7 +174,8 @@ async def _assistant_turn(
         content=content_acc,
         metadata=metadata if metadata else None,
     )
-    yield MessageStart(assistant)
+    if not started:
+        yield MessageStart(assistant)
     yield MessageEnd(assistant)
 
 
