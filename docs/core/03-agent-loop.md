@@ -1,70 +1,158 @@
-# 单层 Agent 与原生异步 ReAct 循环设计规范 (`my_agent_core.agent`)
+# 单层 Agent 与纯函数微内核调度设计规范 (`my_agent_core.agent` & `loop`)
 
-- **定位**：Agent 核心执行中枢与内联状态机 (`packages/my-agent-core/src/my_agent_core/agent.py`, `loop.py`)
-- **核心类**：`Agent`, `run_agent_loop`
-- **关键 API**：`run(user_input)`, `prompt_stream(user_input)`, `subscribe(handler)`, `invoke_skill(name, instructions)`, `reset()`, `compact()`, `abort()`
-
-> 💡 **Tau 微内核演进注记 (Phase 18)**：
-> 在阶段 18 的架构演进中，原内联在 `Agent` 类中的 ReAct 双层循环核心已深度重构并彻底下沉为 `packages/my-agent-core/src/my_agent_core/loop.py` 中的纯函数无状态异步生成器 `run_agent_loop`。
-> 此时 `Agent` 类演进为轻量有状态外壳（`AgentHarness`），主要负责持有对话状态、缓冲消息队列与管理事件订阅者，对外暴露 `prompt_stream(prompt)` 流式生成器与 `subscribe(handler)` 事件订阅接口，将事件流提升为系统级一等公民。
-> 详细设计与重构背景参见：[13. Tau 对齐与核心框架深度重构设计文档](13-tau-alignment-architecture-redesign.md)。
+- **定位**：Agent 执行中枢、ReAct 微内核状态机与转录本自愈引擎 (`packages/my-agent-core/src/my_agent_core/agent.py`, `loop.py`, `tool_history.py`)
+- **核心组件**：
+  - `run_agent_loop`：无状态纯函数异步生成器微内核（约 110 行优雅状态机）
+  - `_assistant_turn` & `_execute_tools_turn`：专职子生成器车间
+  - `_provider_context` & `repair_tool_history`：上下文前置清洗与转录本自愈引擎
+  - `Agent`：轻量有状态外壳（`AgentHarness`），对外暴露 `prompt_stream` 一等公民事件流与 `subscribe` 观察者接口
+- **关键 API**：`agent.prompt_stream(user_input)`, `agent.run(user_input)`, `agent.subscribe(listener)`, `agent.steer(msg)`, `agent.follow_up(msg)`, `agent.abort()`
 
 ---
 
-## 一、架构设计与定位
+## 一、架构设计演进：从单体上帝类到 Tau 风格分治微内核
 
-`Agent` 是整个框架的核心中枢。我们摒弃了复杂的状态图机制（如 LangGraph），采用了清晰的 **单层架构（Single-Layer Architecture）**：
+在早期版本中，`Agent` 类是一个集状态持有、事件分发、双通道广播、网络请求、多协议适配、参数序列化与工具执行于一体的“大泥球”。
 
-- **状态集中**：单一 `Agent` 类直接持有 `LLM` 门面、`ToolRegistry` 注册表、`Session` 会话树、`ContextManager` 上下文管线与 `HookRegistry` 事件总线；
-- **原生异步 ReAct 循环**：在 `Agent.run()` 中直接以异步原生 `while` 循环完成 Reason ➔ Act ➔ Observe 状态迭代；
-- **生命周期编排**：协调决策拦截点、流式中断丢弃与多工具批执行回填。
+在对标 **Tau (`tau-ai`)** 与 **Pi (`@earendil-works/pi-coding-agent`)** 的架构重塑后，调度体系实现了清晰的分层分治：
 
 ```text
-                           Agent.run(user_input)
-                                     │
-                                     ▼
-                ┌────────────────────────────────────────┐
-                │ 1. 决策点 1: UserInput 前置拦截改写     │
-                │ 2. 写入 Session 树并生成 user Message  │
-                │ 3. 决策点 2: AgentStart 动态系统提示词 │
-                └────────────────────┬───────────────────┘
-                                     │
-                                     ▼ (进入 ReAct 异步循环)
-    ┌─────────────────────────────────────────────────────────────────┐
-    │ while iteration < max_iterations:                               │
-    │   1. _ctx.prepare(messages) ➔ 产出压缩上下文视图 view            │
-    │   2. 决策点 3: BeforeModelCall 临时视图改写 (Session 零污染)    │
-    │   3. llm.achat_stream(view, tools) ➔ 流式接收 Token             │
-    │      └─ MessageUpdate Hook 实时熔断监控 (丢弃未完成半截)        │
-    │   4. 检查是否有 tool_calls:                                     │
-    │      ├─ 无 ➔ 结束循环，发射 AgentEnd，返回最终回答文本           │
-    │      └─ 有 ➔ 5. 批准备与 ToolExecutionStart 参数拦截/阻断       │
-    │              6. registry.execute_batch (全只读并发/含写保序串行) │
-    │              7. ToolExecutionEnd 篡改出参                       │
-    │              8. 严格保序回填 Session 树与 messages              │
-    └─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 【外壳层: Agent (AgentHarness)】                                            │
+│   • 负责组件组装（Session、LLM、ToolRegistry、Hooks、ContextManager）       │
+│   • 持有内存会话与消息队列（Steering / Follow-up 队列）                      │
+│   • 暴露 prompt_stream(user_input) 异步事件生成器与 subscribe() 观察者      │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ 消费生成器事件流
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 【微内核层: run_agent_loop (loop.py)】(~110 行无状态纯函数异步生成器)       │
+│                                                                             │
+│ while True: (外层 Follow-up 宏观任务流转)                                   │
+│   while has_more_tools or pending_messages: (内层 ReAct 循环)               │
+│     1. 清洗并注入 pending_messages (Steering 纠偏)                          │
+│     2. yield TurnStart(iteration)                                           │
+│     3. 上下文准备 _ctx.prepare() ➔ Hook 3: BeforeModelCallHook (零污染视图) │
+│     4. 委托模型车间: async for ev in _assistant_turn(...)                    │
+│     5. 委托工具车间: async for ev in _execute_tools_turn(...)                │
+│     6. 严格闭环当前轮次: yield TurnEnd(...)                                 │
+│     7. 收割 steer 即时转向                                                  │
+│   收割 follow_up 追问                                                       │
+│ yield AgentEnd(...)                                                         │
+└──────────────┬───────────────────────────────┬──────────────────────────────┘
+               │ 委托子生成器                  │ 委托子生成器
+               ▼                               ▼
+┌──────────────────────────────┐ ┌────────────────────────────────────────────┐
+│ 车间 ①: _assistant_turn      │ │ 车间 ②: _execute_tools_turn                │
+│ (模型流式推理车间)           │ │ (工具批处理执行车间)                       │
+│ • 首 Chunk 发射 MessageStart │ │ • 阶段 A (Preflight):                      │
+│ • 逐字 yield MessageUpdate   │ │   按声明顺序率先广播 ToolExecutionStart    │
+│ • 接收完整 Response 实体     │ │   调用 before_tool_call (ToolCallHook)     │
+│ • 发射 MessageEnd 终态定型   │ │ • 阶段 B (Execution): 并发批执行工具 (dict)│
+│ • 取消/异常时优雅闭环        │ │ • 阶段 C (Completion):                     │
+│                              │ │   调用 after_tool_call (ToolResultHook)    │
+│                              │ │   广播 ToolExecutionEnd                    │
+│                              │ │   按序发射 role="tool" 的 MessageStart/End │
+│                              │ │ • 阶段 D (Self-Healing):                   │
+│                              │ │   中途取消自动补齐断头调用                 │
+└──────────────────────────────┘ └────────────────────────────────────────────┘
 ```
 
 ---
 
-## 二、关键机制与实现细节
+## 二、微内核子生成器分治机制 (`loop.py`)
 
-### 1. 经典退出条件与最大迭代保护
+### 1. 专职模型推理车间：`_assistant_turn`
 
-- **自然退出**：当大模型在一轮推理后不再发起任何 `tool_calls` 时，循环自然终止，触发 `AgentEnd(stop_reason="end_turn")` 并返回文本答案；
-- **迭代保护**：支持配置 `max_iterations`，达到上限时安全退出并返回 `None`。
+- **流式增量与状态定型**：
+  首个 Chunk 到达时发射 `MessageStart(assistant)`；在流式生成中逐字发射 `MessageUpdate` 驱动终端打字机；流式结束时直接接收模型边界层交付的完整 `Response` 实体，发射 `MessageEnd` 定型。
+- **取消与异常 Never-Throw**：
+  若检测到 `CancellationToken.is_cancelled()`，优雅中断并标记 `stop_reason="cancelled"`；模型报错时封装为错误消息，保证上层轮次能安全闭环。
 
-### 2. 状态重置与多轮恢复
+### 2. 专职工具执行车间：`_execute_tools_turn`
 
-- **`reset()`**：清空会话树，并重新从磁盘读取 Memory 记忆快照、重新拼装首条 System Message，恢复为全新会话起点；
-- **`abort()`**：异步取消正在运行的任务，将内部状态标记为 `_aborted = True`，并在流式循环中立即截断且**不向 Session 写入半截脏数据**。
+- **Pi 时序 Preflight 保证**：
+  在审批与执行前，**率先按 source order 发射 `ToolExecutionStart`**，使 UI 能够毫秒级渲染工具准备运行状态。
+- **原生结构化字典派发**：
+  直接消费 `ToolCall.args: dict`，调用 `before_tool_call` 审批改参，并直接将字典提交给 `ToolRegistry.execute_batch` 执行，**全程 0 行 JSON 编解码**。
+- **断头调用集中自愈**：
+  若工具执行前夕或执行中途收到取消信号，通过 `_synthesize_interrupted_tool_calls` 为所有未执行的调用自动生成 `Tool call interrupted by user` 错误结果，绝不产生悬空断头调用。
 
-### 3. 三态资源自动装配
+---
 
-构造函数 `Agent.__init__` 支持统一的三态装配模式：
+## 三、上下文前置清洗与转录本自愈 (`tool_history.py`)
 
-- `skill_dirs`：`None` 自动探测 `<cwd>/.agents/skills` / `[]` 禁用 / 自定义路径；
-- `subagent_dirs`：`None` 自动探测 `<cwd>/.agents/agents` / `[]` 禁用 / 自定义路径；
-- `extension_dirs`：`None` 自动探测 `<cwd>/.agents/extensions` / `[]` 禁用 / 自定义路径；
-- `memory_dir`：`None` 自动探测 `<cwd>/.my_agent_core/memory` / `False` 显式禁用 / 自定义路径；
-- `plugin_dirs`：`None` 自动探测 `<cwd>/.agents/plugins` / `[]` 禁用 / 自定义路径。
+大模型提供商（如 OpenAI、Anthropic）对上下文格式有着极其严苛的校验规则：
+
+- **禁止悬空断头调用**：Assistant 发起了 `tool_calls`，后面必须紧随对应 ID 的 `tool` 消息，否则直接报 API 400；
+- **禁止孤儿结果**：没有对应 `tool_calls` 的 `role="tool"` 消息会被拒绝；
+- **禁止空失败轮次**：以 `stop_reason="error"` 结尾且 `content=""` 的中断消息会导致上下文语法错误。
+
+### 1. `_provider_context` 前置清洗
+
+在每次向大模型发送消息列表前，微内核自动执行 `_provider_context(messages)`：
+
+1. 剔除无正文且以异常中断结尾的终端 assistant 失败轮次；
+2. 串联 `repair_tool_history` 进行转录本拓扑自愈。
+
+### 2. `repair_tool_history` 三阶段确定性状态机
+
+```text
+原始乱序/断头消息
+       │
+       ▼ Phase 1 (建立索引): 收集所有 Assistant 节点的 tool_calls 声明
+       ▼ Phase 2 (孤儿与重复清洗): 从后往前扫描，丢弃无主结果与重复结果
+       ▼ Phase 3 (重排与断头补齐): 严格按 Assistant 声明顺序重排 Tool 消息，
+                                  对缺失结果的断头调用自动合成
+                                  role="tool", content="Tool call interrupted by user"
+       │
+       ▼
+格式 100% 严谨合法的消息历史 (免疫任何 LLM API 400 校验死锁)
+```
+
+---
+
+## 四、外壳装配：`Agent` (`AgentHarness`)
+
+`Agent` 类蜕变为轻量外壳，负责生命周期资源的组装与管理：
+
+### 1. 一等公民事件流：`prompt_stream`
+
+调用方可以直接以异步迭代器的方式消费微内核发射的每一个纯只读事件：
+
+```python
+agent = Agent(llm=llm, tools=[...])
+
+async for event in agent.prompt_stream("帮我重构这个模块"):
+    if isinstance(event, MessageUpdate):
+        print(event.chunk.content, end="", flush=True)
+    elif isinstance(event, ToolExecutionStart):
+        print(f"\n[Tool Start] {event.tool_name} with {event.args}")
+    elif isinstance(event, AgentEnd):
+        print(f"\n[Finished] Total iterations: {event.iterations}")
+```
+
+### 2. 观察者模式：`subscribe`
+
+支持向 Agent 注册只读监听函数：
+
+```python
+agent.subscribe(lambda event: print(f"Audit log: {type(event).__name__}"))
+```
+
+### 3. 便利门面：`run`
+
+经典阻塞式调用，内部纯粹消费 `prompt_stream` 并在 `AgentEnd` 时提取 `final_text` 返回：
+
+```python
+async def run(self, user_input: str) -> str | None:
+    final_text = None
+    async for event in self.prompt_stream(user_input):
+        if isinstance(event, AgentEnd):
+            final_text = event.final_text
+    return final_text
+```
+
+### 4. 协作式中断：`abort`
+
+通过 `agent.abort()` 触发内部 `CancellationToken.cancel()`，流式推理与工具执行车间将在下一个检查点安全终止，并完成断头结果自动合成与原子落盘，**绝不向 Session 写入半截脏数据**。
