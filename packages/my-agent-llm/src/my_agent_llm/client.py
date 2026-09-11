@@ -1,10 +1,21 @@
 """LLM 门面：按 provider 路由到对应实现，对外一套 API，只透传不碰 SDK。"""
-from collections.abc import AsyncIterator, Iterator
 
-from .config import Config
-from .models import Message, Response, StreamChunk
-from .providers import Provider
-from .providers.registry import PROVIDER_REGISTRY
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
+
+from .config import Config  # pyright: ignore[reportMissingImports]
+from .events import StreamEvent  # pyright: ignore[reportMissingImports]
+from .models import (  # pyright: ignore[reportMissingImports]
+    Message,
+    Response,
+    StreamChunk,
+)
+from .providers import Provider  # pyright: ignore[reportMissingImports]
+from .providers.registry import (
+    PROVIDER_REGISTRY,  # pyright: ignore[reportMissingImports]
+)
 
 
 class LLM:
@@ -32,9 +43,16 @@ class LLM:
             raise ValueError("No model specified. Pass model=... or set Config.model.")
         return self.config.model
 
-    def chat(self, messages: list[Message], *, tools: list[dict] | None = None,
-             model: str | None = None, temperature: float | None = None,
-             max_tokens: int | None = None, **kwargs) -> Response:
+    def chat(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> Response:
         """同步对话：完整历史 + 可选工具。核心方法。"""
         if temperature is not None:
             kwargs.setdefault("temperature", temperature)
@@ -48,20 +66,57 @@ class LLM:
             messages, model=model or self.model, tools=tools, **kwargs
         )
 
-    def stream(self, messages: list[Message], *, tools: list[dict] | None = None,
-               model: str | None = None, **kwargs) -> Iterator[StreamChunk]:
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        **kwargs,
+    ) -> Iterator[StreamChunk]:
         """同步流式。"""
-        return self._provider.stream(messages, model=model or self.model, tools=tools, **kwargs)
+        return self._provider.stream(
+            messages, model=model or self.model, tools=tools, **kwargs
+        )
 
-    async def achat(self, messages: list[Message], *, tools: list[dict] | None = None,
-                    model: str | None = None, **kwargs) -> Response:
+    async def achat(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        **kwargs,
+    ) -> Response:
         """异步对话。"""
-        return await self._provider.achat(messages, model=model or self.model, tools=tools, **kwargs)
+        return await self._provider.achat(
+            messages, model=model or self.model, tools=tools, **kwargs
+        )
 
-    async def achat_stream(self, messages: list[Message], *, tools: list[dict] | None = None,
-                           model: str | None = None, **kwargs) -> AsyncIterator[StreamChunk]:
+    async def achat_stream(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        **kwargs,
+    ) -> AsyncIterator[StreamChunk]:
         """异步流式。调用方直接 `async for chunk in llm.achat_stream(...)` 迭代，不 await。"""
         async for chunk in self._provider.achat_stream(
             messages, model=model or self.model, tools=tools, **kwargs
         ):
             yield chunk
+
+    async def astream_events(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        signal: Any | None = None,
+        **kwargs,
+    ) -> AsyncIterator[StreamEvent]:
+        """异步高阶流式事件流：直接产出 StreamStartEvent/TextDeltaEvent/StreamDoneEvent/StreamErrorEvent。"""
+        async for ev in self._provider.astream_events(
+            messages, model=model or self.model, tools=tools, signal=signal, **kwargs
+        ):
+            yield ev
