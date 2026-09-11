@@ -69,14 +69,24 @@
 - **取消与异常 Never-Throw**：
   若检测到 `CancellationToken.is_cancelled()`，优雅中断并标记 `stop_reason="cancelled"`；模型报错时封装为错误消息，保证上层轮次能安全闭环。
 
-### 2. 专职工具执行车间：`_execute_tools_turn`
+### 2. 专职工具执行车间：`_execute_tools_turn`（工业级七阶段流水线）
 
-- **Pi 时序 Preflight 保证**：
-  在审批与执行前，**率先按 source order 发射 `ToolExecutionStart`**，使 UI 能够毫秒级渲染工具准备运行状态。
-- **原生结构化字典派发**：
-  直接消费 `ToolCall.args: dict`，调用 `before_tool_call` 审批改参，并直接将字典提交给 `ToolRegistry.execute_batch` 执行，**全程 0 行 JSON 编解码**。
-- **断头调用集中自愈**：
-  若工具执行前夕或执行中途收到取消信号，通过 `_synthesize_interrupted_tool_calls` 为所有未执行的调用自动生成 `Tool call interrupted by user` 错误结果，绝不产生悬空断头调用。
+严格对齐 Pi 官方架构契约与 Tau 微内核设计，工具执行划分为七个确定性阶段：
+
+1. **阶段 1：输出截断防御检查 (`_fail_tool_calls_from_truncated_message`)**：
+   当检测到模型输出触达 Token 上限被截断（`stop_reason == "length"`）时，断然拒绝执行任何工具，防止流式 salvage 拼出残缺参数导致代码写崩或命令腰斩。自动合成警告错误并回传模型引导重新完整发起调用。
+2. **阶段 2：Preflight 广播 (`ToolExecutionStart`)**：
+   在审批与执行前，**率先按 source order 广播 `ToolExecutionStart`**，使 UI 能够毫秒级渲染工具准备运行状态。
+3. **阶段 3：串并行决策网关 (`ToolRegistry.execute_batch`)**：
+   悲观读写分流：全只读安全工具（`is_parallel_safe=True`）启用 `asyncio.gather` 全并发加速；只要包含任一写入/串行工具，整批退化为保序串行执行，防止因果时序倒置。
+4. **阶段 4：前置审查审批与改参 (`before_tool_call`)**：
+   通过 `_coerce_tool_call` 归一化入参，调用 `before_tool_call` 审批，支持安全阻断（`block`）与参数就地热修改（`updated_args`）。
+5. **阶段 5：并发批执行与流式进度回传 (`ToolExecutionUpdate`)**：
+   采用 `asyncio.Queue` 与 `loop.call_soon_threadsafe` 跨线程安全桥接，支持长耗时工具（如 Bash 编译或子代理）在运行态向外广播累积快照（Cumulative Snapshot）。生命周期锁存（`accepting_updates`）确保工具返回后丢弃迟到回调。
+6. **阶段 6：后置改写与单工具终态广播 (`after_tool_call` & `ToolExecutionEnd`)**：
+   调用 `after_tool_call` 支持结果脱敏与改写（`updated_result`），广播包含 `terminate` 状态的 `ToolExecutionEnd`。
+7. **阶段 7：转录本保序归档与批量优雅熔断 (`MessageStart/End` & `should_terminate`)**：
+   无论并发执行完成顺序如何，回传大模型的 `role="tool"` 消息严格按 Assistant 原始 Source Order 恢复排布。若批次中任一工具（`any()` 语义）或 Hook 返回 `terminate=True`，立即终结 ReAct 循环，保全 `final_text` 并正常交付结果。
 
 ---
 
