@@ -1,3 +1,4 @@
+# pyright: reportUnreachable=false
 """LLM 门面：按 provider 路由到对应实现，对外一套 API，只透传不碰 SDK。"""
 
 from __future__ import annotations
@@ -19,12 +20,12 @@ from .providers.registry import (
 
 
 class LLM:
-    """统一 LLM 客户端：对外一套 API，屏蔽 provider 差异。"""
+    """统一 LLM 客户端门面：严格接收强类型 Config 配置，多态路由至具体 Provider。"""
 
-    def __init__(self, *, config: Config | None = None, **kwargs):
-        """两种构造：传 Config 对象，或散参（内部包成 Config）。"""
-        if config is None:
-            config = Config(**kwargs)
+    def __init__(self, config: Config) -> None:
+        """标准工程构造：严格接收 Config 实例。"""
+        if not isinstance(config, Config):  # pyright: ignore[reportUnreachable]
+            raise TypeError(f"LLM expects a Config instance, got {type(config).__name__}")  # pyright: ignore[reportUnreachable]
         if config.provider not in PROVIDER_REGISTRY:
             raise ValueError(
                 f"Unknown provider '{config.provider}'. "
@@ -43,27 +44,27 @@ class LLM:
             raise ValueError("No model specified. Pass model=... or set Config.model.")
         return self.config.model
 
+    def _resolve_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """统一合并调用参数与全局 Config 中的默认采样配置。"""
+        opts = dict(kwargs)
+        if self.config.temperature is not None:
+            opts.setdefault("temperature", self.config.temperature)
+        if self.config.max_tokens is not None:
+            opts.setdefault("max_tokens", self.config.max_tokens)
+        return opts
+
     def chat(
         self,
         messages: list[Message],
         *,
         tools: list[dict] | None = None,
         model: str | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Response:
-        """同步对话：完整历史 + 可选工具。核心方法。"""
-        if temperature is not None:
-            kwargs.setdefault("temperature", temperature)
-        else:
-            kwargs.setdefault("temperature", self.config.temperature)
-        if max_tokens is not None:
-            kwargs.setdefault("max_tokens", max_tokens)
-        elif self.config.max_tokens is not None:
-            kwargs.setdefault("max_tokens", self.config.max_tokens)
+        """同步对话：完整历史 + 可选工具。"""
+        opts = self._resolve_kwargs(kwargs)
         return self._provider.chat(
-            messages, model=model or self.model, tools=tools, **kwargs
+            messages, model=model or self.model, tools=tools, **opts
         )
 
     def stream(
@@ -72,11 +73,12 @@ class LLM:
         *,
         tools: list[dict] | None = None,
         model: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Iterator[StreamChunk]:
         """同步流式。"""
+        opts = self._resolve_kwargs(kwargs)
         return self._provider.stream(
-            messages, model=model or self.model, tools=tools, **kwargs
+            messages, model=model or self.model, tools=tools, **opts
         )
 
     async def achat(
@@ -85,11 +87,12 @@ class LLM:
         *,
         tools: list[dict] | None = None,
         model: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Response:
         """异步对话。"""
+        opts = self._resolve_kwargs(kwargs)
         return await self._provider.achat(
-            messages, model=model or self.model, tools=tools, **kwargs
+            messages, model=model or self.model, tools=tools, **opts
         )
 
     async def achat_stream(
@@ -98,11 +101,12 @@ class LLM:
         *,
         tools: list[dict] | None = None,
         model: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
         """异步流式。调用方直接 `async for chunk in llm.achat_stream(...)` 迭代，不 await。"""
+        opts = self._resolve_kwargs(kwargs)
         async for chunk in self._provider.achat_stream(
-            messages, model=model or self.model, tools=tools, **kwargs
+            messages, model=model or self.model, tools=tools, **opts
         ):
             yield chunk
 
@@ -113,10 +117,11 @@ class LLM:
         tools: list[dict] | None = None,
         model: str | None = None,
         signal: Any | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
         """异步高阶流式事件流：直接产出 StreamStartEvent/TextDeltaEvent/StreamDoneEvent/StreamErrorEvent。"""
+        opts = self._resolve_kwargs(kwargs)
         async for ev in self._provider.astream_events(
-            messages, model=model or self.model, tools=tools, signal=signal, **kwargs
+            messages, model=model or self.model, tools=tools, signal=signal, **opts
         ):
             yield ev
