@@ -47,8 +47,8 @@ class StreamAccumulator:
             metadata=meta if meta else None,
         )
 
-    def feed(self, chunk: StreamChunk) -> list[StreamEvent]:
-        """消化单个底层 StreamChunk 并产出对应的上层高阶事件。"""
+    def feed(self, chunk: Any) -> list[StreamEvent]:
+        """消化单个底层 StreamChunk / Response 并产出对应的上层高阶事件。"""
         events: list[StreamEvent] = []
 
         if not self.started:
@@ -56,9 +56,13 @@ class StreamAccumulator:
             events.append(StreamStartEvent(partial=self._snapshot()))
 
         # 1. 思考链增量 (Reasoning / Thinking)
+        meta = getattr(chunk, "metadata", None)
         reasoning_delta: str | None = None
-        if chunk.metadata and "reasoning_content" in chunk.metadata:
-            reasoning_delta = chunk.metadata["reasoning_content"]
+        if isinstance(meta, dict) and "reasoning_content" in meta:
+            reasoning_delta = meta["reasoning_content"]
+        elif getattr(chunk, "reasoning_content", None):
+            reasoning_delta = chunk.reasoning_content
+
         if reasoning_delta:
             prev_reasoning = str(self.metadata.get("reasoning_content", ""))
             self.metadata["reasoning_content"] = prev_reasoning + reasoning_delta
@@ -67,30 +71,41 @@ class StreamAccumulator:
             )
 
         # 2. 正文文本增量 (Text Delta)
-        if chunk.content:
-            self.content += chunk.content
-            events.append(TextDeltaEvent(delta=chunk.content, partial=self._snapshot()))
+        content = getattr(chunk, "content", "") or ""
+        if content:
+            self.content += content
+            events.append(TextDeltaEvent(delta=content, partial=self._snapshot()))
 
         # 3. 工具调用增量 (Tool Calls)
-        if chunk.tool_calls:
-            self.tool_calls = list(chunk.tool_calls)
-            for idx, tc in enumerate(chunk.tool_calls):
+        tool_calls = getattr(chunk, "tool_calls", None)
+        if tool_calls:
+            self.tool_calls = []
+            for idx, tc in enumerate(tool_calls):
+                if isinstance(tc, dict):
+                    tc_obj = ToolCall.model_validate(tc)
+                else:
+                    tc_obj = tc
+                self.tool_calls.append(tc_obj)
                 events.append(
                     ToolCallDoneEvent(
                         index=idx,
-                        tool_call=tc,
+                        tool_call=tc_obj,
                         partial=self._snapshot(),
                     )
                 )
 
         # 4. Usage 统计
-        if chunk.usage:
-            self.last_usage = chunk.usage
-            self.metadata["usage"] = chunk.usage
+        usage = getattr(chunk, "usage", None)
+        if isinstance(usage, dict):
+            self.last_usage = usage
+            self.metadata["usage"] = usage
 
         # 5. 终态已拼装好的 Response 实体
-        if getattr(chunk, "response", None) is not None:
-            self.final_response = chunk.response
+        resp = getattr(chunk, "response", None)
+        if resp is not None and isinstance(resp, Response):
+            self.final_response = resp
+        elif isinstance(chunk, Response):
+            self.final_response = chunk
 
         return events
 
