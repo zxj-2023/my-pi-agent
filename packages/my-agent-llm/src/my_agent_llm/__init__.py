@@ -2,6 +2,16 @@
 
 from .client import LLM
 from .config import Config
+from .events import (  # pyright: ignore[reportMissingImports]
+    StreamDoneEvent,
+    StreamErrorEvent,
+    StreamEvent,
+    StreamStartEvent,
+    TextDeltaEvent,
+    ThinkingDeltaEvent,
+    ToolCallDeltaEvent,
+    ToolCallDoneEvent,
+)
 from .models import (
     Message,
     Response,
@@ -18,6 +28,14 @@ __all__ = [
     "Message",
     "Response",
     "StreamChunk",
+    "StreamDoneEvent",
+    "StreamErrorEvent",
+    "StreamEvent",
+    "StreamStartEvent",
+    "TextDeltaEvent",
+    "ThinkingDeltaEvent",
+    "ToolCallDeltaEvent",
+    "ToolCallDoneEvent",
     "ToolCall",
     "TurnOutcome",
     "normalize_finish_reason",
