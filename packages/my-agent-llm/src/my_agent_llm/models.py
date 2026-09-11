@@ -112,6 +112,7 @@ class ToolCall(BaseModel):
                             error = f"Tool arguments must be a dict, got {type(parsed).__name__}"
                             args = {}
                     else:
+                        error = "Malformed JSON arguments: empty string"
                         args = {}
                 except Exception as exc:
                     args = {}

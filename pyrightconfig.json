@@ -1,4 +1,9 @@
 {
+  "extraPaths": [
+    "packages/my-agent-llm/src",
+    "packages/my-agent-core/src",
+    "packages/my-coding-agent/src"
+  ],
   "typeCheckingMode": "standard",
   "reportMissingTypeArgument": "none",
   "reportImportCycles": "none",

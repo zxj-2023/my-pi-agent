@@ -1,3 +1,4 @@
+# pyright: reportCallIssue=false
 """Unit tests for loop sub-generators in loop.py.
 
 Tests the 3 dedicated sub-generators/helpers in isolation:
@@ -401,3 +402,72 @@ async def test_execute_tools_turn_invalid_json_args():
     end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
     assert end_ev.is_error
     assert "Invalid JSON arguments" in end_ev.result
+
+
+@pytest.mark.anyio
+async def test_execute_tools_turn_structured_tool_call():
+    """验证 _execute_tools_turn 原生消费结构化 ToolCall，零 JSON 编解码。"""
+    from my_agent_llm.models import ToolCall
+
+    reg = ToolRegistry()
+
+    @tool(description="add")
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    reg.register(add)
+
+    tool_calls = [
+        ToolCall(id="tc_1", name="add", args={"a": 10, "b": 20}),
+    ]
+
+    events = []
+    async for ev in _execute_tools_turn(
+        tool_calls=tool_calls,
+        registry=reg,
+        before_tool_call=None,
+        after_tool_call=None,
+        signal=None,
+    ):
+        events.append(ev)
+
+    start_ev = [e for e in events if isinstance(e, ToolExecutionStart)][0]
+    assert start_ev.tool_call_id == "tc_1"
+    assert start_ev.tool_name == "add"
+    assert start_ev.args == {"a": 10, "b": 20}
+
+    end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
+    assert not end_ev.is_error
+    assert end_ev.result == "30"
+
+
+@pytest.mark.anyio
+async def test_execute_tools_turn_structured_tool_call_with_error():
+    """验证结构化 ToolCall 携带 error 时安全转为失败结果。"""
+    from my_agent_llm.models import ToolCall
+
+    reg = ToolRegistry()
+
+    @tool(description="add")
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    reg.register(add)
+
+    tool_calls = [
+        ToolCall(id="tc_bad", name="add", args={}, error="Malformed JSON from model"),
+    ]
+
+    events = []
+    async for ev in _execute_tools_turn(
+        tool_calls=tool_calls,
+        registry=reg,
+        before_tool_call=None,
+        after_tool_call=None,
+        signal=None,
+    ):
+        events.append(ev)
+
+    end_ev = [e for e in events if isinstance(e, ToolExecutionEnd)][0]
+    assert end_ev.is_error
+    assert end_ev.result == "Malformed JSON from model"

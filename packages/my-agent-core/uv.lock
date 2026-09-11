@@ -244,7 +244,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "my-agent-llm", directory = "../my-agent-llm" },
+    { name = "my-agent-llm", editable = "../my-agent-llm" },
     { name = "openai", specifier = ">=2.50.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-dotenv", specifier = ">=1.0,<2.0" },
@@ -257,7 +257,7 @@ dev = [{ name = "pytest", specifier = ">=8.0,<10.0" }]
 [[package]]
 name = "my-agent-llm"
 version = "0.1.0"
-source = { directory = "../my-agent-llm" }
+source = { editable = "../my-agent-llm" }
 dependencies = [
     { name = "anthropic" },
     { name = "openai" },

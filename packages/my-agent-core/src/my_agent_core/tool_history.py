@@ -45,7 +45,13 @@ def _get_tool_calls(msg: Message) -> list[dict[str, Any]]:
     if msg.role == "assistant" and msg.metadata:
         calls = msg.metadata.get("tool_calls")
         if isinstance(calls, list):
-            return [c for c in calls if isinstance(c, dict)]
+            out: list[dict[str, Any]] = []
+            for c in calls:
+                if isinstance(c, dict):
+                    out.append(c)
+                elif hasattr(c, "model_dump"):
+                    out.append(c.model_dump())
+            return out
     return []
 
 

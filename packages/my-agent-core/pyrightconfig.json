@@ -1,4 +1,8 @@
 {
+  "extraPaths": [
+    "../my-agent-llm/src",
+    "src"
+  ],
   "typeCheckingMode": "standard",
   "reportMissingTypeArgument": "none",
   "reportImportCycles": "none",

@@ -194,22 +194,27 @@ async def _assistant_turn(
 
 
 def _synthesize_interrupted_tool_calls(
-    tool_calls: Sequence[dict[str, Any]],
+    tool_calls: Sequence[Any],
 ) -> list[Message]:
     """统一生成标准的中断工具结果，彻底消除多处代码重复。"""
-    return [
-        Message(
-            role="tool",
-            content=_INTERRUPTED_TOOL_RESULT,
-            metadata={"tool_call_id": tc.get("id", ""), "is_error": True},
+    out = []
+    for tc in tool_calls:
+        tc_id = getattr(tc, "id", None) or (
+            tc.get("id", "") if isinstance(tc, dict) else ""
         )
-        for tc in tool_calls
-    ]
+        out.append(
+            Message(
+                role="tool",
+                content=_INTERRUPTED_TOOL_RESULT,
+                metadata={"tool_call_id": str(tc_id), "is_error": True},
+            )
+        )
+    return out
 
 
 async def _execute_tools_turn(
     *,
-    tool_calls: Sequence[dict[str, Any]],
+    tool_calls: Sequence[Any],
     registry: ToolRegistry,
     before_tool_call: (
         Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None]
@@ -233,34 +238,53 @@ async def _execute_tools_turn(
     # ── 阶段 A1: Preflight 广播（按 source order 先行发射 ToolExecutionStart）
     parsed_calls: list[tuple[int, str, str, dict[str, Any], str | None]] = []
     for idx, tc in enumerate(tool_calls):
-        tc_id = tc.get("id", "")
-        func = tc.get("function") or {}
-        name = func.get("name", "")
-        raw_args = func.get("arguments", "{}")
-        try:
-            if isinstance(raw_args, str):
-                args = json.loads(raw_args)
-            elif isinstance(raw_args, dict):
-                args = raw_args
+        tc_id = ""
+        name = ""
+        args: dict[str, Any] = {}
+        err: str | None = None
+
+        if hasattr(tc, "id") and hasattr(tc, "name") and hasattr(tc, "args"):
+            tc_id = str(tc.id)  # pyright: ignore[reportAttributeAccessIssue]
+            name = str(tc.name)  # pyright: ignore[reportAttributeAccessIssue]
+            raw_args = tc.args  # pyright: ignore[reportAttributeAccessIssue]
+            args = dict(raw_args) if isinstance(raw_args, dict) else {}
+            err = getattr(tc, "error", None)
+        elif isinstance(tc, dict):
+            tc_id = str(tc.get("id", ""))
+            if "name" in tc and "args" in tc:
+                name = str(tc.get("name", ""))
+                raw_args = tc.get("args")
+                args = dict(raw_args) if isinstance(raw_args, dict) else {}
+                err = tc.get("error")
+            elif "function" in tc:
+                func = tc.get("function") or {}
+                name = str(func.get("name", ""))
+                raw_args = func.get("arguments", "{}")
+                if isinstance(raw_args, dict):
+                    args = raw_args
+                elif isinstance(raw_args, str):
+                    try:
+                        parsed = json.loads(raw_args)
+                        if isinstance(parsed, dict):
+                            args = parsed
+                        else:
+                            err = f"Tool arguments must be a dict, got {type(parsed).__name__}"
+                    except Exception as exc:
+                        err = f"Invalid JSON arguments for tool '{name}': {exc}"
             else:
-                args = raw_args or {}
-            if not isinstance(args, dict):
-                err = f"Tool arguments must be a JSON object, got {type(args).__name__}"
+                name = str(tc.get("name", ""))
                 args = {}
-            else:
-                err = None
-        except Exception as exc:
-            args = {}
-            err = f"Invalid JSON arguments for tool '{name}': {exc}"
+        else:
+            err = f"Unsupported tool call format: {type(tc).__name__}"
+
         parsed_calls.append((idx, tc_id, name, args, err))
         yield ToolExecutionStart(tool_call_id=tc_id, tool_name=name, args=args)
 
     # ── 阶段 A2: 前置审查与参数改写 (before_tool_call)
-    prepared_calls: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+    prepared_calls: list[tuple[int, str, str, dict[str, Any]]] = []
     direct_results: dict[int, ToolResult] = {}
 
     for idx, tc_id, name, args, err in parsed_calls:
-        tc = tool_calls[idx]
         if err is not None:
             direct_results[idx] = ToolResult(ok=False, error=err)
             continue
@@ -287,38 +311,27 @@ async def _execute_tools_turn(
         if err is not None:
             direct_results[idx] = ToolResult(ok=False, error=err)
         else:
-            prepared_calls.append((idx, tc, args))
+            prepared_calls.append((idx, tc_id, name, args))
 
     # ── 阶段 B: 并发执行与中途取消自愈
     if signal is not None and signal.is_cancelled():
-        for idx, _, _ in prepared_calls:
+        for idx, _, _, _ in prepared_calls:
             direct_results[idx] = ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
     elif prepared_calls:
-        calls_to_run = [
-            {
-                **tc,
-                "function": {
-                    **(tc.get("function") or {}),
-                    "arguments": json.dumps(args),
-                },
-            }
-            for _, tc, args in prepared_calls
-        ]
+        # 直接构造 (name, args) 元组提交给 registry.execute_batch！0 行 json.dumps 字符串拼装！
+        calls_to_run = [(name, args) for _, _, name, args in prepared_calls]
         try:
             batch_out = await registry.execute_batch(calls_to_run)
-            for (idx, _, _), res in zip(prepared_calls, batch_out, strict=False):
+            for (idx, _, _, _), res in zip(prepared_calls, batch_out, strict=False):
                 direct_results[idx] = res
         except Exception as exc:
-            for idx, _, _ in prepared_calls:
+            for idx, _, _, _ in prepared_calls:
                 direct_results[idx] = ToolResult(
                     ok=False, error=f"Tool execution failed: {exc}"
                 )
 
     # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
-    for idx, tc in enumerate(tool_calls):
-        tc_id = tc.get("id", "")
-        func = tc.get("function") or {}
-        name = func.get("name", "")
+    for idx, tc_id, name, _, _ in parsed_calls:
         res = direct_results.get(
             idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
         )

@@ -10,8 +10,8 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-my-agent-core = { path = "../my-agent-core" }
-my-agent-llm = { path = "../my-agent-llm" }
+my-agent-core = { path = "../my-agent-core", editable = true }
+my-agent-llm = { path = "../my-agent-llm", editable = true }
 
 [build-system]
 requires = ["hatchling"]
