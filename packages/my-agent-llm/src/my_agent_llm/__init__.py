@@ -21,12 +21,14 @@ from .models import (
     normalize_finish_reason,
 )
 from .providers import Provider
+from .stream import StreamAccumulator  # pyright: ignore[reportMissingImports]
 
 __all__ = [
     "LLM",
     "Config",
     "Message",
     "Response",
+    "StreamAccumulator",
     "StreamChunk",
     "StreamDoneEvent",
     "StreamErrorEvent",
