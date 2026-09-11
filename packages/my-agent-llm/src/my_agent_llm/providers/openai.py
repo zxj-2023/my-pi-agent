@@ -1,12 +1,13 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 """OpenAI provider：基准实现，deepseek 以此为模板。"""
 
+import json
 from collections.abc import AsyncIterator, Iterator
 
 import openai
 
 from ..config import Config
-from ..models import Message, Response, StreamChunk, ToolCall, ToolCallFunction
+from ..models import Message, Response, StreamChunk, ToolCall
 from ._base import Provider
 
 
@@ -36,19 +37,33 @@ class _ToolCallAccumulator:
                 if getattr(fn, "arguments", None):
                     slot["arguments"] += fn.arguments
 
-    def finish(self) -> list[dict] | None:
+    def finish(self) -> list[ToolCall] | None:
         """流式结束：产出完整 tool_calls（无则 None）。"""
         if not self._by_index:
             return None
-        return [
-            ToolCall(
-                id=slot["id"],
-                function=ToolCallFunction(
-                    name=slot["name"], arguments=slot["arguments"]
-                ),
-            ).model_dump()
-            for _, slot in sorted(self._by_index.items())
-        ]
+        out: list[ToolCall] = []
+        for _, slot in sorted(self._by_index.items()):
+            raw_args = slot["arguments"]
+            args = {}
+            error = None
+            try:
+                if raw_args.strip():
+                    parsed = json.loads(raw_args)
+                    if isinstance(parsed, dict):
+                        args = parsed
+                    else:
+                        error = f"Tool arguments must be a dict, got {type(parsed).__name__}"
+            except Exception as exc:
+                error = f"Malformed JSON arguments: {exc}"
+            out.append(
+                ToolCall(
+                    id=slot["id"],
+                    name=slot["name"],
+                    args=args,
+                    error=error,
+                )
+            )
+        return out
 
 
 class OpenAIProvider(Provider):
@@ -80,11 +95,22 @@ class OpenAIProvider(Provider):
                 and msg.metadata
                 and "tool_calls" in msg.metadata
             ):
+                wire_calls = []
+                for tc in msg.metadata["tool_calls"]:
+                    if isinstance(tc, ToolCall):
+                        wire_calls.append(tc.to_wire_dict())
+                    elif isinstance(tc, dict):
+                        if "function" in tc:
+                            wire_calls.append(tc)
+                        else:
+                            wire_calls.append(
+                                ToolCall.model_validate(tc).to_wire_dict()
+                            )
                 result.append(
                     {
                         "role": "assistant",
                         "content": msg.content or None,
-                        "tool_calls": msg.metadata["tool_calls"],
+                        "tool_calls": wire_calls,
                     }
                 )
             elif msg.role == "tool" and msg.metadata:
@@ -100,19 +126,37 @@ class OpenAIProvider(Provider):
         return result
 
     @staticmethod
-    def _extract_tool_calls(message) -> list[dict] | None:
+    def _extract_tool_calls(message) -> list[ToolCall] | None:
         """从 OpenAI 响应 message 提取 tool_calls（统一形状）。"""
         if not getattr(message, "tool_calls", None):
             return None
-        return [
-            ToolCall(
-                id=tc.id,
-                function=ToolCallFunction(
-                    name=tc.function.name, arguments=tc.function.arguments
-                ),
-            ).model_dump()
-            for tc in message.tool_calls
-        ]
+        out: list[ToolCall] = []
+        for tc in message.tool_calls:
+            fn = getattr(tc, "function", None)
+            name = getattr(fn, "name", "") if fn else ""
+            raw_args = getattr(fn, "arguments", "{}") if fn else "{}"
+            args = {}
+            error = None
+            try:
+                if isinstance(raw_args, str) and raw_args.strip():
+                    parsed = json.loads(raw_args)
+                    if isinstance(parsed, dict):
+                        args = parsed
+                    else:
+                        error = f"Tool arguments must be a dict, got {type(parsed).__name__}"
+                elif isinstance(raw_args, dict):
+                    args = raw_args
+            except Exception as exc:
+                error = f"Malformed JSON arguments: {exc}"
+            out.append(
+                ToolCall(
+                    id=getattr(tc, "id", ""),
+                    name=name,
+                    args=args,
+                    error=error,
+                )
+            )
+        return out
 
     @staticmethod
     def _extract_usage(response) -> dict[str, int] | None:

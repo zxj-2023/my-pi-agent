@@ -1,8 +1,10 @@
+# pyright: reportAttributeAccessIssue=false
 """OpenAIProvider 翻译测试（假 SDK）。"""
+
 from types import SimpleNamespace
 
 from my_agent_llm.config import Config
-from my_agent_llm.models import Message, Response
+from my_agent_llm.models import Message, Response, ToolCall
 from my_agent_llm.providers.openai import OpenAIProvider
 from tests.fakes import FakeOpenAI, make_openai_response
 
@@ -59,11 +61,11 @@ def test_chat_converts_tool_messages():
 
 
 def test_chat_extracts_tool_calls():
-    """响应 tool_calls → Response.tool_calls（统一 OpenAI 形状）。"""
+    """响应 tool_calls → Response.tool_calls（统一结构化实体）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
     p = _provider([make_openai_response(tool_calls=tc)])
     resp = p.chat([Message(role="user", content="hi")], model="gpt-4.1-mini")
-    assert resp.tool_calls == tc
+    assert resp.tool_calls == [ToolCall(id="1", name="f", args={})]
 
 
 def test_stream_yields_chunks():
@@ -130,10 +132,8 @@ def test_stream_aggregates_tool_calls():
     chunks = list(p.stream([Message(role="user", content="hi")], model="gpt-4.1-mini"))
     # 无文本增量（content=None），只剩一个聚合末块
     assert [c.content for c in chunks] == [""]
-    assert chunks[0].tool_calls == [{
-        "id": "call_1",
-        "type": "function",
-        "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'},
-    }]
+    assert chunks[0].tool_calls == [
+        ToolCall(id="call_1", name="get_weather", args={"city": "Tokyo"})
+    ]
     assert chunks[0].usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
     assert chunks[0].finish_reason == "tool_calls"  # 末块透传循环内捕获的 finish_reason

@@ -1,6 +1,7 @@
+# pyright: reportAttributeAccessIssue=false
 """AnthropicProvider 双向翻译测试。"""
 from my_agent_llm.config import Config
-from my_agent_llm.models import Message
+from my_agent_llm.models import Message, ToolCall
 from my_agent_llm.providers.anthropic import AnthropicProvider
 from tests.fake_anthropic import FakeAnthropic, make_anthropic_response
 
@@ -48,7 +49,7 @@ def test_chat_extracts_text_and_tool_calls():
     p = _provider([make_anthropic_response(text="answer", tool_uses=[{"id": "2", "name": "g", "input": {"y": 2}}])])
     resp = p.chat([Message(role="user", content="hi")], model="claude-sonnet-4-5")
     assert resp.content == "answer"
-    assert resp.tool_calls == [{"id": "2", "type": "function", "function": {"name": "g", "arguments": '{"y": 2}'}}]
+    assert resp.tool_calls == [ToolCall(id="2", name="g", args={"y": 2})]
 
 
 def test_chat_web_search_enhancement():

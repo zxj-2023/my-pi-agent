@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from my_agent_llm.config import Config
-from my_agent_llm.models import Message, Response
+from my_agent_llm.models import Message, Response, ToolCall
 from my_agent_llm.providers.anthropic import AnthropicProvider
 from my_agent_llm.providers.openai import OpenAIProvider
 from tests.fake_anthropic import make_anthropic_response, make_block
@@ -172,11 +172,7 @@ def test_openai_achat_stream_aggregates_tool_calls():
 
     out = asyncio.run(collect())
     assert [c.content for c in out] == [""]
-    assert out[0].tool_calls == [{
-        "id": "call_1",
-        "type": "function",
-        "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'},
-    }]
+    assert out[0].tool_calls == [ToolCall(id="call_1", name="get_weather", args={"city": "Tokyo"})]
     assert out[0].usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
     assert out[0].finish_reason == "tool_calls"  # 末块透传循环内捕获的 finish_reason
 

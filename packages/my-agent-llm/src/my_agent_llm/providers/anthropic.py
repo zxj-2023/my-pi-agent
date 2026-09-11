@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Iterator
 import anthropic
 
 from ..config import Config
-from ..models import Message, Response, StreamChunk, ToolCall, ToolCallFunction
+from ..models import Message, Response, StreamChunk, ToolCall
 from ._base import Provider
 
 
@@ -49,12 +49,35 @@ class AnthropicProvider(Provider):
                 if msg.content:
                     content.append({"type": "text", "text": msg.content})
                 for tc in msg.metadata["tool_calls"]:
+                    if isinstance(tc, ToolCall):
+                        tc_id = tc.id
+                        tc_name = tc.name
+                        tc_args = tc.args
+                    elif isinstance(tc, dict):
+                        tc_id = tc.get("id", "")
+                        if "name" in tc and "args" in tc:
+                            tc_name = tc["name"]
+                            tc_args = tc["args"]
+                        elif "function" in tc:
+                            tc_name = tc["function"].get("name", "")
+                            raw = tc["function"].get("arguments", "{}")
+                            try:
+                                tc_args = json.loads(raw) if isinstance(raw, str) and raw.strip() else (raw if isinstance(raw, dict) else {})
+                            except Exception:
+                                tc_args = {}
+                        else:
+                            tc_name = tc.get("name", "")
+                            tc_args = tc.get("args", {})
+                    else:
+                        tc_id = getattr(tc, "id", "")
+                        tc_name = getattr(tc, "name", "")
+                        tc_args = getattr(tc, "args", {})
                     content.append(
                         {
                             "type": "tool_use",
-                            "id": tc["id"],
-                            "name": tc["function"]["name"],
-                            "input": json.loads(tc["function"]["arguments"]),
+                            "id": tc_id,
+                            "name": tc_name,
+                            "input": tc_args,
                         }
                     )
                 anthropic_messages.append({"role": "assistant", "content": content})
@@ -124,19 +147,19 @@ class AnthropicProvider(Provider):
         return "".join(parts) or None
 
     @staticmethod
-    def _extract_tool_calls(blocks) -> list[dict] | None:
-        """tool_use blocks → OpenAI 形状 tool_calls。"""
+    def _extract_tool_calls(blocks) -> list[ToolCall] | None:
+        """tool_use blocks → 统一 ToolCall。原生使用 block.input (dict)，消灭冗余 dumps。"""
         out = []
         for block in blocks:
             if getattr(block, "type", None) == "tool_use":
+                input_args = getattr(block, "input", None)
+                args = input_args if isinstance(input_args, dict) else {}
                 out.append(
                     ToolCall(
-                        id=block.id,
-                        function=ToolCallFunction(
-                            name=block.name,
-                            arguments=json.dumps(block.input),
-                        ),
-                    ).model_dump()
+                        id=getattr(block, "id", ""),
+                        name=getattr(block, "name", ""),
+                        args=args,
+                    )
                 )
         return out or None
 
@@ -146,8 +169,11 @@ class AnthropicProvider(Provider):
         u = getattr(response, "usage", None)
         if u is None:
             return None
-        in_t = int(getattr(u, "input_tokens", 0) or 0)
-        out_t = int(getattr(u, "output_tokens", 0) or 0)
+        try:
+            in_t = int(getattr(u, "input_tokens", 0) or 0)
+            out_t = int(getattr(u, "output_tokens", 0) or 0)
+        except (TypeError, ValueError):
+            in_t, out_t = 0, 0
         return {
             "prompt_tokens": in_t,
             "completion_tokens": out_t,

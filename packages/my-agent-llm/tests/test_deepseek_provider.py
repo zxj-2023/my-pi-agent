@@ -1,8 +1,10 @@
+# pyright: reportAttributeAccessIssue=false
 """DeepSeekProvider 翻译测试：OpenAI 兼容 + reasoning 提取。"""
+
 from types import SimpleNamespace
 
 from my_agent_llm.config import Config
-from my_agent_llm.models import Message
+from my_agent_llm.models import Message, ToolCall
 from my_agent_llm.providers.deepseek import DeepSeekProvider
 from tests.fakes import FakeOpenAI
 
@@ -66,11 +68,7 @@ def test_stream_aggregates_tool_calls_and_reasoning():
     chunks = list(p.stream([Message(role="user", content="hi")], model="deepseek-chat"))
     assert [c.content for c in chunks] == [""]
     last = chunks[0]
-    assert last.tool_calls == [{
-        "id": "call_1",
-        "type": "function",
-        "function": {"name": "f", "arguments": "{}"},
-    }]
+    assert last.tool_calls == [ToolCall(id="call_1", name="f", args={})]
     assert last.metadata == {"reasoning_content": "thinking"}
     assert last.usage == {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
     assert last.finish_reason == "tool_calls"  # 末块透传循环内捕获的 finish_reason
