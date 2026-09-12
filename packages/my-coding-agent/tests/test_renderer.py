@@ -167,13 +167,8 @@ def test_renderer_tool_execution_end_tool_name_badge():
     console = Console(file=buf, force_terminal=True, color_system="truecolor")
     renderer = EventRenderer(console=console)
 
-    renderer.on_event(
-        ToolExecutionEnd(
-            tool_call_id="c99", tool_name="read", result="file content", is_error=False
-        )
-    )
+    renderer.on_event(ToolExecutionEnd(tool_call_id="c99", tool_name="read", result="file content", is_error=False))
 
     output = buf.getvalue()
     assert "✓ OK" in output
     assert "[read]" in output
-

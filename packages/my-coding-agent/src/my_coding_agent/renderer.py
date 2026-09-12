@@ -88,9 +88,7 @@ class EventRenderer:
 
         elif isinstance(event, ToolExecutionEnd):
             status = "[red]✗ Failed[/red]" if event.is_error else "[green]✓ OK[/green]"
-            self.console.print(
-                f"   {status} \\[{escape(event.tool_name)}]", highlight=False
-            )
+            self.console.print(f"   {status} \\[{escape(event.tool_name)}]", highlight=False)
 
             res_str = str(event.result) if event.result is not None else ""
             # 提取并高亮 Diff
