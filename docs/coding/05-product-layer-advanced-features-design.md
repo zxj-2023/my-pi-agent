@@ -232,6 +232,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pig-Mono** 的 `packages/pig-coding-agent/src/pig_coding_agent/operations.py`。
 
 ### 8.1 架构与解耦机制
+
 - 目前 `my-coding-agent` 的工具（`read`, `write`, `edit`, `bash`）直接硬编码调用本地文件 API 与 `asyncio.create_subprocess_shell`；
 - 引入 Python `Protocol` 将文件与子进程 I/O 抽象化：
   - `FileOperations`: 抽象 `read_text`, `write_text`, `exists`, `mkdir`, `iterdir`, `glob` 等方法；
@@ -248,6 +249,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pig-Mono** 的 `packages/pig-tui/src/pig_tui/keylistener.py` 与 **Pi** 的 Steering 机制。
 
 ### 9.1 痛点与解决方案
+
 - **痛点**：在大模型流式输出几十秒或正在调用工具时，底层的 `prompt_toolkit` 是处于未激活状态的，此时终端完全无法响应用户的键盘输入。用户如果发现模型理解错了，只能被动干等，或者强行 Ctrl+C 粗暴杀死会话；
 - **解决方案 (`LiveInputListener`)**：
   - 在大模型流式生成与工具执行期间，以非阻塞方式在后台监听键盘输入：
@@ -260,7 +262,26 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 
 ---
 
-## 十、建议的分期推进路线图 (Roadmap)
+## 十、模块九：命令路由哲学对比（为何拒绝拆分 6 个 `interaction_*.py`？）
+
+深入审视 **Pig-Mono** 的 `interaction_routes.py`、`interaction_dispatcher.py`、`interaction_views.py`、`interaction_flows.py`、`interaction_runtime.py`、`interaction_catalog.py`。
+
+### 10.1 Pig-Mono 为什么要拆出 6 个 interaction 文件？
+- Pig-Mono 在终端设计了一套类似 Web 前端框架（如 React-Router / Vue-Router）的路由跳转机制：
+  - `interaction_routes.py` 是路由映射表（区分无参路由 `simple_routes` 与带参前缀路由 `prefix_routes`）；
+  - `interaction_dispatcher.py` 是分发匹配引擎；
+  - `interaction_views.py` 负责展示面板（视图层）；
+  - `interaction_flows.py` 负责处理多步向导（比如弹出选择会话的交互列表）；
+  - `interaction_runtime.py` 负责覆盖层状态机。
+
+### 10.2 我们需要照搬吗？（决策：坚决不照搬，保持极简 CommandDispatcher）
+- **判定：不需要照搬拆分，严防过度设计**！
+  - 理由：将 ~10 个命令的交互拆成 6 个文件会导致阅读与追踪代码极其碎片化，违反了“50 行能清晰解决绝不写 200 行”的原则；
+  - **我们的演进方案**：保留目前在 `my_agent_tui/commands.py` 中实现的单一高内聚 `CommandDispatcher`（约 180 行），仅吸收其**“前缀带参路由支持（如 `/skill:<name>`）”**与**“多步选择向导（Picker Flows）”**的逻辑，使代码保持紧凑、直观且零过度抽象。
+
+---
+
+## 十一、建议的分期推进路线图 (Roadmap)
 
 ```text
 Phase 3A: Antigravity OAuth 专项直连与本地凭据无缝继承 ⭐ 【立即推进 / 免费顶尖大模型接入】
