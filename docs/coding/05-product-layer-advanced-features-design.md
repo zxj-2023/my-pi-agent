@@ -288,12 +288,15 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/coding-agent/src/modes/interactive/components/footer.ts` 与 `footer-data-provider.ts`。
 
 ### 11.1 痛点与解决方案
-- **痛点**：目前终端提示符只有一孤零零的 `>>> `，开发者完全无法直观感知当前所在工作区深度、在哪个 Git 分支、当前生效的大模型是谁、思考等级（Thinking Level）是多少，以及当前上下文已经占用了窗口上限的百分之几；
+
+- **痛点**：目前终端提示符只有一孤零零的 `>>>`，开发者完全无法直观感知当前所在工作区深度、在哪个 Git 分支、当前生效的大模型是谁、思考等级（Thinking Level）是多少，以及当前上下文已经占用了窗口上限的百分之几；
 - **实现方案 (`FooterComponent`)**：
   - 在每次用户输入提示符上方或每轮交互结束时，打印一行专业紧凑的终端状态底栏：
+
     ```text
     [📁 ~/.../my-project] [🌿 main] [🤖 gemini-3.8-flash (thinking)] [📊 14.2k/1M (1.4%)] [$0.02]
     ```
+
   - **Git 分支动态探测**：调用轻量级 `git symbolic-ref --quiet --short HEAD` 自动获取当前分支名（无 git 环境或游离 HEAD 优雅兜底）；
   - **上下文健康度实时看板**：从当前 `session` 计算累计 Token，除以当前模型的最大上下文窗口（从 `catalog` 获取），显示 `已用Token/上限 (百分比)`，让开发者时刻掌握是否需要手动 `/compact`！
 
@@ -304,6 +307,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/coding-agent/src/modes/interactive/components/diff.ts` 与 `Diff.diffWords`。
 
 ### 12.1 痛点与解决方案
+
 - **痛点**：目前我们在终端打印的 Unified Diff 是行级粗粒度高亮（整行变红 `-`、整行变绿 `+`）。但真实开发修改时，一行代码通常有 60–100 个字符，模型往往只改了其中的 1 个变量名或 1 个运算符。如果整行变绿，开发者肉眼寻找具体变动点极其费力；
 - **实现方案 (`diffWords` 增强)**：
   - 在 `my-agent-tui/src/my_agent_tui/renderer.py` 中，当解析到相邻配对的 `-` 删行与 `+` 增行时；
@@ -318,12 +322,15 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/coding-agent/src/core/slash-commands.ts:model` 与 `model-selector.ts`。
 
 ### 13.1 核心价值
+
 配合我们即将接入的 **Antigravity** 与已有的 `deepseek-flash`，开发者手头同时拥有了：
+
 - **极速轻量模型**：`gemini-3.8-flash`（适合小改动、单行修复、日常问答，响应 1 秒级）；
 - **深度推理模型**：`gemini-3.1-pro` / `claude-sonnet-4-6` / `deepseek-reasoner`（适合复杂重构、架构方案规划）；
 无需退出当前终端，直接在当前会话中无缝热切换模型！
 
 ### 13.2 实现方案
+
 - 在 `my-agent-tui/commands.py` 中扩充 `/model` 命令：
   - 输入 `/model`：列出当前可用的候选模型列表、提供商及简短特性；
   - 输入 `/model 3.8` 或 `/model sonnet`：直接热更新当前 `CodingAgent` 的 `llm` 实例与底层 `agent.llm` 属性，并输出：
@@ -332,7 +339,79 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 
 ---
 
-## 十四、建议的分期推进路线图 (Roadmap)
+## 十四、模块十三：终端防花屏输出接管与背压守护 (`OutputGuard`) (P1)
+
+学习自 **Pi** 的 `packages/coding-agent/src/core/output-guard.ts`。
+
+### 14.1 痛点与解决方案
+- **痛点**：在 Python 交互式终端运行时，底层第三方网络库（如 `httpx`、`urllib3`、未静默的 `logging`）或某些调用了 `print()` 的库函数可能随时向 `sys.stdout` 写入乱入文本，这会直接击穿终端的流式输出缓冲区，导致光标错位、文字重叠折叠与花屏；
+- **实现方案 (`OutputGuard`)**：
+  - 启动终端交互时，调用 `take_over_stdout()` 接管标准输出：
+    - 将外部未受控的 `sys.stdout` 临时重定向至内部缓冲队列或 `sys.stderr`；
+    - TUI 自身的渲染器直接通过底层原生句柄（`sys.__stdout__`）进行独占式排他渲染；
+  - **背压与缓冲区耗尽防护**：针对快速大批量文本输出，捕获 `BlockingIOError` / `EWOULDBLOCK` 并以微秒级短休眠轮询重试，防止高速流式输出在 Windows 控制台丢包掉字；
+  - 退出会话时调用 `restore_stdout()` 完全恢复原有管道。
+
+---
+
+## 十五、模块十四：终端历史文本全文检索 (`AltScreenSearch` / `/search`) (P2)
+
+学习自 **Pi** 的 `packages/tui/src/alt-screen-search.ts`。
+
+### 15.1 痛点与解决方案
+- **痛点**：随着多轮开发深入，会话历史可能累积数千行代码与思考记录，终端自带的滚轮向上翻找极其低效，而在某些终端模式下系统 Ctrl+F 搜索无法定位动态滚动的字符流；
+- **实现方案 (`/search` 与快捷检索)**：
+  - 构建轻量级纯文本分词索引库（去除 ANSI 转义序列），维护行号与字符坐标投影；
+  - 在 `my-agent-tui` 中支持 `/search <query>` 或快捷键触发搜索；
+  - 命中结果以反色或高亮徽标在终端直观标注匹配段（如 `[Match 2 of 7: line 142]`），并支持按 `n`/`N` 上下跳转，秒级定位历史工具调用与测试输出。
+
+---
+
+## 十六、模块十五：上下文动态水线自动压缩 (`shouldCompact`) 与跨压缩文件足迹持久继承 (`extractFileOperations`) (P0)
+
+学习自 **Pi** 的 `packages/coding-agent/src/core/compaction/compaction.ts`。
+
+### 16.1 动态 Token 水线自动压缩 (`shouldCompact`)
+- **机制**：摆脱依赖用户每次在脑海中估算 Token 并手动敲 `/compact` 的笨拙体验；
+- **判定公式**：
+  ```python
+  def should_compact(context_tokens: int, context_window: int, reserve_tokens: int = 16384) -> bool:
+      return context_tokens > (context_window - reserve_tokens)
+  ```
+- **最近轮次安全护栏 (`keepRecentTokens = 20000`)**：
+  - 触发压缩时，从最新一条消息向前倒推累加，保留至少 20,000 Token 的最近完整对话**绝对不予裁剪压缩**；
+  - 仅对更早的历史会话发起 LLM 结构化摘要总结，确保开发者当前正在讨论的代码和思路 100% 保持精准原貌！
+
+### 16.2 跨多轮压缩的文件足迹持久继承 (`extractFileOperations`)
+- **痛点**：在长达几小时的长任务中，往往会发生 2 次甚至 3 次连续上下文压缩。如果每次压缩只从当前被裁剪的消息中抓取文件，那么更早之前修改或读取过的核心文件列表就会在第二次压缩时被彻底抹去！
+- **解法**：
+  - `CompactionEntry` 中持久化记录 `details = {"readFiles": [...], "modifiedFiles": [...]}`；
+  - 每次执行压缩时，首先继承上一次 `prev_compaction.details` 中的文件集合，再与本次处理的工具调用增量并集累加；
+  - 确保无论经过多少次压缩，智能体的系统提示词中永远清晰保留着整个项目从第一天开始**被阅读过与被修改过的完整文件轨迹**！
+
+---
+
+## 十七、模块十六：长任务容错重试与上下文溢出自动纠正自愈 (`isContextOverflow` & `RetryPolicy`) (P0 健壮性基石)
+
+学习自 **Pi** 的 `packages/coding-agent/src/core/agent-session.ts`。
+
+### 17.1 上下文超限自动纠正自愈 (`isContextOverflow`)
+- **痛点**：当大模型因单轮提问过长或工具返回极其庞大导致抛出 API 400（"maximum context length exceeded"）或 `stop_reason="length"` 截断异常时，普通框架会直接向用户抛异常崩溃；
+- **自愈机制**：
+  1. `AgentSession` 自动拦截探测 `is_context_overflow(err_msg, context_window)`；
+  2. 自动从活跃内存中移除导致溢出的那条失败半截回复；
+  3. 立即在后台静默触发一次**应急上下文深度压缩**，腾出 50% 以上的空间；
+  4. 压缩完成后自动调用 `agent.continue()` 无缝重试该轮请求！长任务在遇到上下文天花板时**自动脱困自愈，绝不崩溃**！
+
+### 17.2 网络抖动与临时故障指数退避重试 (`RetryPolicy`)
+- 针对可恢复的瞬态故障（HTTP 429 速率限制、500/502/503/504 服务器过载、网络连接重置）：
+- 采用严格的指数退避重试算法：
+  `delay = min(max_delay, base_delay * (backoff_factor ** attempt))`
+- 重试期间向 TUI 广播调度事件，终端实时显示微标：`[dim]🔄 API 503 临时抖动，将在 3.5s 后自动发起第 2/5 次重试...[/dim]`，无需开发者手动干预，长夜无人值守运行稳如磐石。
+
+---
+
+## 十八、建议的分期推进路线图 (Roadmap)
 
 ```text
 Phase 3A: Antigravity OAuth 专项直连与本地凭据无缝继承 ⭐ 【立即推进 / 免费顶尖大模型接入】
@@ -341,20 +420,26 @@ Phase 3A: Antigravity OAuth 专项直连与本地凭据无缝继承 ⭐ 【立�
   ├── 3. my-agent-tui 增加 /login antigravity 与 /quota 配额查询命令
   └── 4. my-agent-tui 增加 /model 命令支持在当前会话热切换模型
 
-Phase 3B: Accept-on-Diff 权限审查门禁与词级 Diff 增强 ⭐ 【安全与阅读体验核心】
+Phase 3B: 长任务抗挫韧性与上下文自愈体系 ⭐ 【健壮性基石】
+  ├── 1. 实现 isContextOverflow 探测与溢出自动压缩脱困自愈重试
+  ├── 2. 实现 RetryPolicy 瞬态网络异常与 429/503 指数退避重试
+  └── 3. 实现 shouldCompact 动态水线自动压缩与 extractFileOperations 跨压缩文件足迹持久累积
+
+Phase 3C: Accept-on-Diff 权限审查门禁与词级 Diff 增强 ⭐ 【安全与阅读体验核心】
   ├── 1. my-agent-tui 构建 ConfirmView 终端确认与彩色 Diff 审查组件
   ├── 2. renderer.py 实现 diffWords 单词级反色加亮 (一眼看出细微改动)
   └── 3. my-coding-agent 实现 PermissionGate（基于 ToolCallHook 拦截高危写操作与命令）
 
-Phase 3C: 提示词 @ 文件引用快速补全与工作区 Turnkey MCP
+Phase 3D: 提示词 @ 文件引用快速补全与工作区 Turnkey MCP
   ├── 1. my-agent-tui 输入框支持 @ 文件名 Tab 自动补全并在提交前自动注入文件快照
   └── 2. CodingAgent 启动时自动探测并挂载工作区 .mcp.json
 
-Phase 3D: 终端状态底栏 (Footer) 与流式动态转向 (LiveInputListener)
+Phase 3E: 终端状态底栏 (Footer) 与流式动态转向 (LiveInputListener)
   ├── 1. my-agent-tui 增加 FooterComponent (实时展示 Git 分支、模型状态、Token 上下文占比)
   └── 2. my-agent-tui 增加 LiveInputListener (流式输出期间按 Esc 取消 / 敲字回车触发 Steer 即时转向)
 
-Phase 3E: 分支失败记忆 (branch_summary.py) 与模型知识库 (catalog.toml)
+Phase 3F: 分支失败记忆 (branch_summary.py)、输出防花屏 (OutputGuard) 与模型知识库 (catalog.toml)
   ├── 1. 回退分支时自动触发轻量模型生成 BranchSummaryEntry 挂载公共祖先
-  └── 2. 引入 catalog.toml 统一模型上下文窗口与计费单价，支持 /cost 账单
+  ├── 2. my-agent-tui 增加 OutputGuard 独占式管道接管，杜绝第三方日志花屏
+  └── 3. 引入 catalog.toml 统一模型上下文窗口与计费单价，支持 /cost 账单
 ```
