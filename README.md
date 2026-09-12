@@ -28,11 +28,12 @@
 ## 参考
 
 功能实现整合参考 **pi**（[earendil-works/pi](https://github.com/earendil-works/pi)）、
+**Tau**（Python 版 Pi Harness 标杆，纯函数微内核、历史自愈与模块化存储）、
 **pig-mono**（[kangkona/pig-mono](https://github.com/kangkona/pig-mono)）、
 **learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)）、
 **Hermes Agent**（[hermes-agent](https://github.com/NousResearch/Hermes-Agent)）与
 **OpenHands**（[software-agent-sdk](https://github.com/All-Hands-AI/OpenHands)）等标杆项目的架构思路。
-详细的技术设计参考、源码映射与裁剪对比见根目录的 **[REFERENCES.md](REFERENCES.md)**。
+详细的技术设计参考、源码映射与裁剪对比见根目录的 **[REFERENCES.md](REFERENCES.md)** 以及专属对标报告 **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**。
 
 ---
 
