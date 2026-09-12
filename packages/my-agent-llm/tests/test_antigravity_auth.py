@@ -183,7 +183,9 @@ def test_refresh_token_http_error_raises():
     mock_resp.text = "invalid_grant"
 
     with patch("httpx.post", return_value=mock_resp):
-        with pytest.raises(RuntimeError, match="Failed to refresh Antigravity token: 400"):
+        with pytest.raises(
+            RuntimeError, match="Failed to refresh Antigravity token: 400"
+        ):
             resolver.refresh(creds)
 
 

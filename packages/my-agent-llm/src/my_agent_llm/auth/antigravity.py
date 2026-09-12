@@ -18,9 +18,7 @@ _OAUTH_CLIENT_SECRET = base64.b64decode(  # noqa: S105
 ).decode("utf-8")
 
 DEFAULT_ANTIGRAVITY_ENDPOINT = "https://cloudcode-pa.googleapis.com"
-ANTIGRAVITY_USER_AGENT = (
-    "antigravity/cli/1.1.23 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)"
-)
+ANTIGRAVITY_USER_AGENT = "antigravity/cli/1.1.23 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 
 
@@ -44,7 +42,9 @@ class AntigravityAuthResolver:
         pi_auth_path: Path | None = None,
         credentials_path: Path | None = None,
     ) -> None:
-        home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~").expanduser()
+        home = Path(
+            os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~"
+        ).expanduser()
         if pi_auth_path is not None:
             self.pi_auth_path = Path(pi_auth_path).resolve()
         else:
@@ -58,7 +58,9 @@ class AntigravityAuthResolver:
     def resolve_credentials_raw(self) -> AntigravityCredentials | None:
         """执行三级凭据查找（环境变量 -> credentials.json -> auth.json）。"""
         # 1. 环境变量优先
-        env_token = os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("ANTIGRAVITY_API_KEY")
+        env_token = os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get(
+            "ANTIGRAVITY_API_KEY"
+        )
         if env_token:
             return AntigravityCredentials(
                 access_token=env_token,
@@ -76,9 +78,13 @@ class AntigravityAuthResolver:
                     if access:
                         return AntigravityCredentials(
                             access_token=access,
-                            refresh_token=entry.get("refresh") or entry.get("refresh_token"),
-                            expires_at=int(entry.get("expires", entry.get("expires_at", 0))),
-                            project_id=entry.get("projectId") or entry.get("project_id", "aicode-consumers"),
+                            refresh_token=entry.get("refresh")
+                            or entry.get("refresh_token"),
+                            expires_at=int(
+                                entry.get("expires", entry.get("expires_at", 0))
+                            ),
+                            project_id=entry.get("projectId")
+                            or entry.get("project_id", "aicode-consumers"),
                             email=entry.get("email"),
                             auth_file_path=self.credentials_path,
                         )
@@ -95,9 +101,13 @@ class AntigravityAuthResolver:
                     if access:
                         return AntigravityCredentials(
                             access_token=access,
-                            refresh_token=entry.get("refresh") or entry.get("refresh_token"),
-                            expires_at=int(entry.get("expires", entry.get("expires_at", 0))),
-                            project_id=entry.get("projectId") or entry.get("project_id", "aicode-consumers"),
+                            refresh_token=entry.get("refresh")
+                            or entry.get("refresh_token"),
+                            expires_at=int(
+                                entry.get("expires", entry.get("expires_at", 0))
+                            ),
+                            project_id=entry.get("projectId")
+                            or entry.get("project_id", "aicode-consumers"),
                             email=entry.get("email"),
                             auth_file_path=self.pi_auth_path,
                         )
@@ -122,7 +132,9 @@ class AntigravityAuthResolver:
     def refresh(self, creds: AntigravityCredentials) -> AntigravityCredentials:
         """向 Google OAuth 端点发起刷新请求换取新 token 并持久化写回。"""
         if not creds.refresh_token:
-            raise RuntimeError("Cannot refresh Antigravity token: missing refresh_token.")
+            raise RuntimeError(
+                "Cannot refresh Antigravity token: missing refresh_token."
+            )
 
         payload = {
             "client_id": _OAUTH_CLIENT_ID,
@@ -132,7 +144,9 @@ class AntigravityAuthResolver:
         }
         res = httpx.post(GOOGLE_OAUTH_TOKEN_URL, data=payload, timeout=15.0)
         if res.status_code != 200:
-            raise RuntimeError(f"Failed to refresh Antigravity token: {res.status_code} {res.text}")
+            raise RuntimeError(
+                f"Failed to refresh Antigravity token: {res.status_code} {res.text}"
+            )
 
         data = res.json()
         new_access = data["access_token"]
@@ -155,11 +169,18 @@ class AntigravityAuthResolver:
                 target_key = (
                     "antigravity"
                     if "antigravity" in raw_data
-                    else ("google-antigravity" if "google-antigravity" in raw_data else "antigravity")
+                    else (
+                        "google-antigravity"
+                        if "google-antigravity" in raw_data
+                        else "antigravity"
+                    )
                 )
                 if target_key not in raw_data:
                     raw_data[target_key] = {}
-                if "access" in raw_data[target_key] or "access_token" not in raw_data[target_key]:
+                if (
+                    "access" in raw_data[target_key]
+                    or "access_token" not in raw_data[target_key]
+                ):
                     raw_data[target_key]["access"] = new_access
                 if "access_token" in raw_data[target_key]:
                     raw_data[target_key]["access_token"] = new_access
