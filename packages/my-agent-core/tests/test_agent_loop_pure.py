@@ -839,6 +839,7 @@ async def test_run_agent_loop_hook_terminate_composition():
 
     agent_ends2 = [e for e in events2 if isinstance(e, AgentEnd)]
     assert len(agent_ends2) == 1
-    assert agent_ends2[0].iterations == 2  # 成功跑了 2 轮，没有被第一轮的工具强行提前退出
+    assert (
+        agent_ends2[0].iterations == 2
+    )  # 成功跑了 2 轮，没有被第一轮的工具强行提前退出
     assert agent_ends2[0].final_text == "Continued after suppression"
-

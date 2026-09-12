@@ -672,4 +672,3 @@ async def test_agent_notify_async_and_never_throw(tmp_path: Path):
     assert len(async_events) >= 3
     assert any(isinstance(e, AgentStart) for e in async_events)
     assert any(isinstance(e, AgentEnd) for e in async_events)
-

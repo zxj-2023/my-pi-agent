@@ -211,7 +211,8 @@ unsubscribe = agent.subscribe(lambda event: print(f"Audit log: {type(event).__na
 unsubscribe()
 ```
 
-#### 核心实现不变式（`Agent._notify`）：
+#### 核心实现不变式（`Agent._notify`）
+
 1. **快照遍历（Snapshot Iteration）**：使用 `for sub in list(self._subscribers)` 遍历快照，防止回调函数在执行中反注册导致的遍历变异竞态；
 2. **异常隔离（Never-Throw Guarantee）**：使用 `with contextlib.suppress(Exception):` 隔离监听器异常，旁路订阅者的任何错误绝对不会中断主循环；
 3. **同异步自适应（Adaptive Dispatch）**：`if inspect.isawaitable(res): await res`，无论监听器写成同步 `def` 还是异步 `async def` 均能无缝等待；

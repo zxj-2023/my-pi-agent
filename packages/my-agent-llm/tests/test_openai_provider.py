@@ -257,4 +257,3 @@ def test_convert_messages_skips_empty_tool_calls():
     call = p.client.calls[0]
     assert call["messages"] == [{"role": "assistant", "content": "done"}]
     assert "tool_calls" not in call["messages"][0]
-
