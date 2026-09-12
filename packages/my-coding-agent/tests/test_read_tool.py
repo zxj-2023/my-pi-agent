@@ -83,8 +83,25 @@ async def test_read_byte_truncation(tmp_path: Path):
     f.write_text("\n".join("a" * 1000 for _ in range(60)), encoding="utf-8")
     tool = make_read_tool(tmp_path)
     res = await tool.execute(path="huge_bytes.txt")
-    assert "[Showing lines 1-" in res
-    assert "of 60" in res
+    assert "[Showing lines 1-51 of 60. Use offset=52 to continue.]" in res
+    assert "Use offset=52 to continue" in res
+
+
+@pytest.mark.anyio
+async def test_read_byte_truncation_continuation(tmp_path: Path):
+    # 60 lines, each 1000 chars -> total > 50KB
+    f = tmp_path / "long_lines.txt"
+    f.write_text("\n".join(f"line {i:03d}: " + ("x" * 990) for i in range(1, 61)), encoding="utf-8")
+    tool = make_read_tool(tmp_path)
+    res = await tool.execute(path="long_lines.txt")
+
+    assert "[Showing lines 1-51 of 60. Use offset=52 to continue.]" in res
+
+    # Verify continuing from the suggested offset works cleanly without EOF error
+    res_cont = await tool.execute(path="long_lines.txt", offset=52)
+    assert "Error: Offset" not in res_cont
+    assert "line 052:" in res_cont
+    assert "line 060:" in res_cont
 
 
 @pytest.mark.anyio

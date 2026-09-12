@@ -82,7 +82,11 @@ def make_read_tool(workspace: Path) -> Tool:
             encoded = result_text.encode("utf-8")
             if len(encoded) > DEFAULT_MAX_BYTES:
                 encoded = encoded[:DEFAULT_MAX_BYTES]
+                last_nl = encoded.rfind(b"\n")
+                if last_nl != -1:
+                    encoded = encoded[:last_nl]
                 result_text = encoded.decode("utf-8", errors="ignore")
+                end_idx = start_idx + len(result_text.splitlines())
                 is_byte_truncated = True
 
             truncated = (
