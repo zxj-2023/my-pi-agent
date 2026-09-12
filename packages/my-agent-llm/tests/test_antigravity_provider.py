@@ -74,7 +74,9 @@ def test_antigravity_provider_in_registry():
 
 
 def test_llm_routes_to_antigravity_provider():
-    llm = LLM(Config(provider="antigravity", api_key="ya29.test", model="gemini-1.5-pro"))
+    llm = LLM(
+        Config(provider="antigravity", api_key="ya29.test", model="gemini-1.5-pro")
+    )
     assert isinstance(llm._provider, AntigravityProvider)
     assert llm.model == "gemini-1.5-pro"
 
@@ -84,9 +86,7 @@ def test_antigravity_provider_chat_with_fake():
         content="Hello from Antigravity!", model="gemini-1.5-flash"
     )
     fake_client = FakeOpenAI([resp])
-    cfg = Config(
-        provider="antigravity", model="gemini-1.5-flash", api_key="ya29.test"
-    )
+    cfg = Config(provider="antigravity", model="gemini-1.5-flash", api_key="ya29.test")
     provider = AntigravityProvider(cfg, client=fake_client)
 
     out = provider.chat(
@@ -139,9 +139,7 @@ def test_antigravity_provider_stream_with_fake():
         def __iter__(self):
             return iter(self.chunks)
 
-    cfg = Config(
-        provider="antigravity", model="gemini-1.5-flash", api_key="ya29.test"
-    )
+    cfg = Config(provider="antigravity", model="gemini-1.5-flash", api_key="ya29.test")
     provider = AntigravityProvider(cfg)
     provider.client = SimpleNamespace(
         chat=SimpleNamespace(
@@ -170,9 +168,7 @@ def test_antigravity_provider_stream_with_fake():
 
 @pytest.mark.anyio
 async def test_antigravity_provider_achat_with_fake():
-    resp = make_openai_response(
-        content="Async hello!", model="gemini-1.5-pro"
-    )
+    resp = make_openai_response(content="Async hello!", model="gemini-1.5-pro")
     mock_async_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(
@@ -180,9 +176,7 @@ async def test_antigravity_provider_achat_with_fake():
             )
         )
     )
-    cfg = Config(
-        provider="antigravity", model="gemini-1.5-pro", api_key="ya29.test"
-    )
+    cfg = Config(provider="antigravity", model="gemini-1.5-pro", api_key="ya29.test")
     provider = AntigravityProvider(cfg, async_client=mock_async_client)
 
     out = await provider.achat(
@@ -252,9 +246,7 @@ async def test_antigravity_provider_achat_stream_with_fake():
             )
         )
     )
-    cfg = Config(
-        provider="antigravity", model="gemini-1.5-pro", api_key="ya29.test"
-    )
+    cfg = Config(provider="antigravity", model="gemini-1.5-pro", api_key="ya29.test")
     provider = AntigravityProvider(cfg, async_client=mock_async_client)
 
     chunks = []
@@ -275,4 +267,3 @@ async def test_antigravity_provider_achat_stream_with_fake():
         "completion_tokens": 2,
         "total_tokens": 6,
     }
-
