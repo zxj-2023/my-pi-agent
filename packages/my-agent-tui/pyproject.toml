@@ -1,0 +1,42 @@
+[project]
+name = "my-agent-tui"
+version = "0.1.0"
+description = "my_agent_tui: terminal UI, REPL, and interactive presentation layer for my-pi-agent"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "my-coding-agent",
+    "prompt-toolkit>=3.0.43",
+    "rich>=13.7.0",
+]
+
+[tool.uv.sources]
+my-coding-agent = { path = "../my-coding-agent", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_agent_tui"]
+
+[project.scripts]
+my-agent-tui = "my_agent_tui.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<10.0",
+    "ruff>=0.16.7",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]
