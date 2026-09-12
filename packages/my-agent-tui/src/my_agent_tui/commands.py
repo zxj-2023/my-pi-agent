@@ -199,7 +199,7 @@ class CommandDispatcher:
             ctx.console.print(f"  • [cyan]{t.name}[/cyan]: {t.description}")
 
     async def _cmd_quota(self, ctx: CommandContext) -> None:
-        ctx.console.print("[cyan]📊 正在查询 Antigravity 模型配额余量...[/cyan]", highlight=False)
+        ctx.console.print("[cyan]⚙️  正在查询 Antigravity 模型配额余量...[/cyan]", highlight=False)
         resolver = antigravity_auth.AntigravityAuthResolver()
         creds = resolver.resolve_credentials_raw()
         if creds is None:
@@ -273,7 +273,7 @@ class CommandDispatcher:
 
         if resolver.is_expired(creds):
             if creds.refresh_token:
-                ctx.console.print("[cyan]🔄 检测到凭据已过期，正在尝试静默刷新...[/cyan]", highlight=False)
+                ctx.console.print("[cyan]⚙️  检测到凭据已过期，正在尝试静默刷新...[/cyan]", highlight=False)
                 try:
                     creds = resolver.refresh(creds)
                     ctx.console.print("[green]✓ Antigravity 凭据已成功刷新！[/green]", highlight=False)
