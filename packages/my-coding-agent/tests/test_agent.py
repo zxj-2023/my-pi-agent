@@ -103,3 +103,14 @@ async def test_coding_agent_prompt_and_mutation_queue(tmp_path: Path):
         system_prompt="",
     )
     assert agent_empty.agent.system_prompt == ""
+
+
+async def test_coding_agent_session_and_compact(tmp_path: Path):
+    session = Session(path=tmp_path / "session_prop.jsonl")
+    fake_llm = FakeCodingLLM([Response(content="ok", model="fake")])
+    agent = CodingAgent(workspace=tmp_path, llm=fake_llm, session=session)
+
+    assert agent.session is agent.agent.session
+    # Compact without crash
+    res = await agent.compact()
+    assert res is None

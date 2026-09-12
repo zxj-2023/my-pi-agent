@@ -65,6 +65,15 @@ class CodingAgent:
         """底层的后台作业执行器。"""
         return self.agent.background_runner
 
+    @property
+    def session(self) -> Session:
+        """底层会话对象。"""
+        return self.agent.session
+
+    async def compact(self):
+        """手动触发智能上下文压缩。"""
+        return await self.agent.compact()
+
     async def run(self, user_input: str) -> str:
         """批处理高阶入口：聚合最终助手文本"""
         res = await self.agent.run(user_input)
