@@ -45,9 +45,7 @@ class EditBlock(BaseModel):
     old_text: str = Field(
         ..., alias="oldText", description="Exact original code block to replace"
     )
-    new_text: str = Field(
-        ..., alias="newText", description="New code block to insert"
-    )
+    new_text: str = Field(..., alias="newText", description="New code block to insert")
 
 
 @dataclass
@@ -160,23 +158,25 @@ def make_edit_tool(
                     old_norm = b.old_text.replace("\r\n", "\n")
                     new_norm = b.new_text.replace("\r\n", "\n")
                     if not old_norm:
-                        return f"Error: 'oldText' cannot be empty (edit #{i+1})."
+                        return f"Error: 'oldText' cannot be empty (edit #{i + 1})."
 
                     count = normalized_content.count(old_norm)
                     if count == 0:
                         lines_count = len(normalized_content.splitlines())
                         return (
-                            f"Error: 'oldText' not found in {path} (edit #{i+1}). "
+                            f"Error: 'oldText' not found in {path} (edit #{i + 1}). "
                             f"The file has {lines_count} lines. Please read the file first to check exact indentation."
                         )
                     if count > 1:
                         return (
-                            f"Error: 'oldText' matched {count} times in {path} (edit #{i+1}). "
+                            f"Error: 'oldText' matched {count} times in {path} (edit #{i + 1}). "
                             f"Please provide more surrounding context lines to ensure a unique match."
                         )
 
                     idx = normalized_content.find(old_norm)
-                    matches.append((idx, idx + len(old_norm), old_norm, new_norm, i + 1))
+                    matches.append(
+                        (idx, idx + len(old_norm), old_norm, new_norm, i + 1)
+                    )
 
                 # 5. 校验区间非重叠
                 matches.sort(key=lambda m: (m[0], m[1]))

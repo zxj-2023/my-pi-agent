@@ -136,7 +136,9 @@ async def test_edit_no_params_error(tmp_path: Path):
     f.write_text("test", encoding="utf-8")
     tool = make_edit_tool(tmp_path)
     res = await tool.execute(path="code.py")
-    assert "Error: Either 'edits' or ('old_text' and 'new_text') must be provided." in res
+    assert (
+        "Error: Either 'edits' or ('old_text' and 'new_text') must be provided." in res
+    )
 
     res_empty = await tool.execute(path="code.py", edits=[])
     assert "Error: No edits provided." in res_empty
