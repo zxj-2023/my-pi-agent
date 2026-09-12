@@ -1,40 +1,19 @@
 from __future__ import annotations
 
 import difflib
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from my_agent_core.tools import Tool, ToolResult, tool
+from my_agent_core.tools import Tool, tool
 from pydantic import BaseModel, ConfigDict, Field
 
 from my_coding_agent.mutation_queue import FileMutationQueue
-from my_coding_agent.tools.base import is_binary_file, resolve_path
-
-if not hasattr(FileMutationQueue, "acquire"):
-
-    @asynccontextmanager
-    async def _fmq_acquire(self: FileMutationQueue, path: Path) -> AsyncIterator[None]:
-        lock = await self.get_lock(path)
-        async with lock:
-            yield
-
-    FileMutationQueue.acquire = _fmq_acquire  # type: ignore[attr-defined]
-
-
-@asynccontextmanager
-async def _acquire_lock(queue: Any, path: Path) -> AsyncIterator[None]:
-    if hasattr(queue, "acquire"):
-        async with queue.acquire(path):
-            yield
-    elif hasattr(queue, "get_lock"):
-        lock = await queue.get_lock(path)
-        async with lock:
-            yield
-    else:
-        yield
+from my_coding_agent.tools.base import (
+    StringCompatibleToolResult,
+    is_binary_file,
+    resolve_path,
+)
 
 
 class EditBlock(BaseModel):
@@ -48,25 +27,8 @@ class EditBlock(BaseModel):
     new_text: str = Field(..., alias="newText", description="New code block to insert")
 
 
-@dataclass
-class EditResult(ToolResult):
-    """Edit 工具执行结果：继承 ToolResult，兼容字符串直接比较与包含操作。"""
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, str):
-            val = self.data if self.data is not None else self.error
-            return str(val) == other
-        return super().__eq__(other)
-
-    def __contains__(self, item: Any) -> bool:
-        content = self.data if self.data is not None else (self.error or "")
-        return str(item) in str(content)
-
-    def __str__(self) -> str:
-        return str(self.data if self.data is not None else self.error)
-
-    def __repr__(self) -> str:
-        return repr(self.data if self.data is not None else self.error)
+class EditResult(StringCompatibleToolResult):
+    """Edit 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_edit_tool(
@@ -137,7 +99,7 @@ def make_edit_tool(
             if not edit_blocks:
                 return "Error: No edits provided."
 
-            async with _acquire_lock(queue, target):
+            async with queue.acquire(target):
                 raw_bytes = target.read_bytes()
 
                 # 2. 探测 BOM

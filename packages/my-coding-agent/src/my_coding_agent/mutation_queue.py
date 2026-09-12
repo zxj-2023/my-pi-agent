@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 
@@ -16,13 +18,19 @@ class FileMutationQueue:
         self._locks: dict[Path, asyncio.Lock] = {}
         self._guard = asyncio.Lock()
 
-    async def get_lock(self, path: Path) -> asyncio.Lock:
+    async def get_lock(self, path: Path | str) -> asyncio.Lock:
         """获取指定文件路径对应的 asyncio.Lock（规范化绝对路径）。"""
-        canonical = path.resolve()
+        canonical = Path(path).resolve()
         async with self._guard:
             if canonical not in self._locks:
                 self._locks[canonical] = asyncio.Lock()
             return self._locks[canonical]
+
+    @asynccontextmanager
+    async def acquire(self, path: Path | str) -> AsyncIterator[None]:
+        """原生异步上下文管理器：自动获取并持有指定文件的互斥锁。"""
+        async with await self.get_lock(path):
+            yield
 
     def clear(self) -> None:
         """清空锁字典。"""

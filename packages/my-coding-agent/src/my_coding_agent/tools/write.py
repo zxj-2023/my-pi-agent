@@ -1,59 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from my_agent_core.tools import Tool, ToolResult, tool
+from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.mutation_queue import FileMutationQueue
-from my_coding_agent.tools.base import resolve_path
-
-if not hasattr(FileMutationQueue, "acquire"):
-
-    @asynccontextmanager
-    async def _fmq_acquire(self: FileMutationQueue, path: Path) -> AsyncIterator[None]:
-        lock = await self.get_lock(path)
-        async with lock:
-            yield
-
-    FileMutationQueue.acquire = _fmq_acquire  # type: ignore[attr-defined]
+from my_coding_agent.tools.base import StringCompatibleToolResult, resolve_path
 
 
-@asynccontextmanager
-async def _acquire_lock(queue: Any, path: Path) -> AsyncIterator[None]:
-    if hasattr(queue, "acquire"):
-        async with queue.acquire(path):
-            yield
-    elif hasattr(queue, "get_lock"):
-        lock = await queue.get_lock(path)
-        async with lock:
-            yield
-    else:
-        yield
-
-
-@dataclass
-class WriteResult(ToolResult):
-    """Write 工具执行结果：继承 ToolResult，兼容字符串直接比较与包含操作。"""
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, str):
-            val = self.data if self.data is not None else self.error
-            return str(val) == other
-        return super().__eq__(other)
-
-    def __contains__(self, item: Any) -> bool:
-        content = self.data if self.data is not None else (self.error or "")
-        return str(item) in str(content)
-
-    def __str__(self) -> str:
-        return str(self.data if self.data is not None else self.error)
-
-    def __repr__(self) -> str:
-        return repr(self.data if self.data is not None else self.error)
+class WriteResult(StringCompatibleToolResult):
+    """Write 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_write_tool(
@@ -78,7 +36,7 @@ def make_write_tool(
             if target.is_dir():
                 return f"Error: Path is a directory: {path}"
 
-            async with _acquire_lock(queue, target):
+            async with queue.acquire(target):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content, encoding="utf-8")
                 bytes_count = len(content.encode("utf-8"))

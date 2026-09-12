@@ -4,38 +4,21 @@ import fnmatch
 import os
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from my_agent_core.tools import Tool, ToolResult, tool
+from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.tools.base import (
     DEFAULT_IGNORE_DIRS,
+    StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
 )
 
 
-@dataclass
-class GrepResult(ToolResult):
-    """Grep 工具执行结果：继承 ToolResult，兼容字符串直接比较与包含操作。"""
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, str):
-            val = self.data if self.data is not None else self.error
-            return str(val) == other
-        return super().__eq__(other)
-
-    def __contains__(self, item: Any) -> bool:
-        content = self.data if self.data is not None else (self.error or "")
-        return str(item) in str(content)
-
-    def __str__(self) -> str:
-        return str(self.data if self.data is not None else self.error)
-
-    def __repr__(self) -> str:
-        return repr(self.data if self.data is not None else self.error)
+class GrepResult(StringCompatibleToolResult):
+    """Grep 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_grep_tool(workspace: Path | str) -> Tool:
