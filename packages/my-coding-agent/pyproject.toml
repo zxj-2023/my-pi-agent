@@ -7,12 +7,7 @@ dependencies = [
     "my-agent-core",
     "my-agent-llm",
     "mcp>=2.0.0,<2.1",
-    "prompt-toolkit>=3.0.43",
-    "rich>=13.7.0",
 ]
-
-[project.scripts]
-my-coding-agent = "my_coding_agent.cli:main"
 
 [tool.uv.sources]
 my-agent-core = { path = "../my-agent-core", editable = true }
