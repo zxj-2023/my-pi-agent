@@ -36,6 +36,29 @@
 
 ---
 
+## 📚 博客专栏文章目录与学习路线
+
+全套框架实现笔记与技术思考已系统沉淀至个人博客专栏：[**my-pi-agent 学习笔记与架构剖析**](https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/)。涵盖从零手搓现代 Agent 运行时的全链路设计取舍与工程落地：
+
+| 序号 | 模块主题 | 博客文章精读链接 | 核心技术要点 |
+| :---: | :--- | :--- | :--- |
+| 01 | **全局架构** | [架构设计](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/) | 三层分层架构、为什么不用 LangChain、自研设计哲学与演进路线 |
+| 02 | **模型边界** | [模型层](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/) | Provider 抽象、StreamAccumulator 流式聚合、ToolCall 结构化防穿帮 |
+| 03 | **工具原语** | [工具系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/) | `@tool` Pydantic 提取、Never-Throw、因果并发安全、七阶段流水线 |
+| 04 | **状态机外壳** | [Agent 类与 Hook 系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/) | `prompt_stream` 事件流、`_notify` 订阅广播、五大决策拦截门禁 |
+| 05 | **调度微内核** | [Loop 微内核](https://zxj-2023.github.io/2026/08/30/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--loop%E5%BE%AE%E5%86%85%E6%A0%B8/) | 纯函数无状态 ReAct 循环、9 步时序、单向传送带队列管道 |
+| 06 | **会话持久化** | [Session 管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) | 树状分支 DAG、原子 JSONL 追加存储、跨进程文件锁与分支回溯 |
+| 07 | **上下文优化** | [Context 管理](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/) | Cheap-first 四层压缩 (L3➔L1➔L2➔L4)、retainedTail 缓存 |
+| 08 | **技能扩展** | [Skill 与 Plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) | 声明式元数据发现、Prompt 注入、Claude Code 插件规约解构 |
+| 09 | **任务委派** | [Subagent 与 Task 委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) | 子会话物理隔离、防递归保护、单任务生命周期管理与 `task` 桥接 |
+| 10 | **生态接入** | [Extension 机制与 MCP](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) | 动态扩展加载、斜杠命令路由、AsyncExitStack MCP 客户端 |
+| 11 | **跨会话记忆** | [Memory 系统](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/) | 冻结快照保护 Prefix Cache、原子字串修改、分段记忆维护 |
+| 12 | **任务规划** | [Todolist 与 Background](https://zxj-2023.github.io/2026/08/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--todolist%E4%B8%8Ebackground/) | DAG 依赖任务图、随路看板回显、BackgroundRunner 进程树强杀 |
+| 13 | **人机协作** | [动态干预机制](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%8A%A8%E6%80%81%E5%B9%B2%E9%A2%84%E6%9C%BA%E5%88%B6/) | Steer 即时转向、Follow-up 宏观任务排队、双层循环拓扑 |
+| 14 | **核心并发** | [异步支持](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%BC%82%E6%AD%A5%E6%94%AF%E6%8C%81/) | 原生协程调度、解除 Python GIL 约束、跨线程任务与取消机制 |
+
+---
+
 ## 已实现功能
 
 ### 1. 模型边界层 `my-agent-llm`（[学习笔记](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/)）
@@ -47,7 +70,7 @@
 
 ### 2. 框架核心层 `my-agent-core`
 
-- **[纯函数 ReAct 微内核与七阶段工具流水线（loop & 7-stage pipeline）](docs/core/03-agent-loop.md)**：
+- **[纯函数 ReAct 微内核与七阶段工具流水线（loop & 7-stage pipeline）](docs/core/03-agent-loop.md)**（[学习笔记](https://zxj-2023.github.io/2026/08/30/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--loop%E5%BE%AE%E5%86%85%E6%A0%B8/)）：
   - `run_agent_loop` 纯函数无状态异步微内核（约 110 行状态机，与类状态彻底解耦）
   - **工业级七阶段工具执行流水线**：
     1. 阶段 1 截断防御（`stop_reason="length"` 安全挂起未完成工具，注入自纠正指引）；
@@ -116,12 +139,12 @@
   - **100% 对齐 Claude Code 官方插件规范**：自包含 `.claude-plugin/plugin.json`（或 `.plugin/plugin.json`）、`skills/`、`agents/`、`.mcp.json`，以及根级单 `SKILL.md` 简写支持
   - `PluginManager` 统一管理：负责插件发现、Manifest 容错解析与目录名智能推断兜底（无清单时自动以目录名生成默认元数据）
   - **无缝解构与分发**：在 `Agent.__init__` 装配时自动提取插件内的 `skills/` 注入 `SkillManager`、`agents/` 注入 `SubagentManager`，子代理派发时自动进行递归探测隔离保护
-- **[动态干预机制与两层循环（message_queue & steering）](docs/core/11-dynamic-steering.md)**：
+- **[动态干预机制与两层循环（message_queue & steering）](docs/core/11-dynamic-steering.md)**（[学习笔记](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%8A%A8%E6%80%81%E5%B9%B2%E9%A2%84%E6%9C%BA%E5%88%B6/)）：
   - `MessageQueue` 动态干预队列：支持 `STEERING`（内层安全点转向）与 `FOLLOWUP`（外层排队追问）双类型消息
   - **经典两层循环架构（Two-Level Loop）**：外层处理 Follow-up 宏观任务流转，内层处理 ReAct 微观步骤与 Steer 转向
   - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退
   - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问
-- **[统一任务系统与后台异步（task_store & background）](docs/core/12-task-system-and-background.md)**：
+- **[统一任务系统与后台异步（task_store & background）](docs/core/12-task-system-and-background.md)**（[学习笔记](https://zxj-2023.github.io/2026/08/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--todolist%E4%B8%8Ebackground/)）：
   - **DAG 依赖状态机（`TaskItem` + `TaskStore`）**：支持单一标准入口 `todo` 工具（对标 Pi 与 Hermes-Agent，涵盖 create/update/list/get/clear/write 6 大动作）、深度传递性成环检测、单 `in_progress` 聚焦约束、自动解锁下游任务与崩溃安全原子持久化
   - **随路看板回显投影（In-Band Echo via `ToolResult`）**：写操作工具执行后直接在返回值中回显最新紧凑 `<TASK_BOARD>`，100% 保护大模型 Prompt Prefix Cache，零额外查询往返，Session 磁盘历史绝对零污染
   - **任务早退守卫（`TaskGuardHook`）**：对标 Pi 扩展事件哲学，解耦监听 `TurnEnd` 与 `AgentStart` 生命周期，在模型未结清在跑工单时自动调用 `steer()` 拦截并纠偏
