@@ -40,17 +40,11 @@ def test_renderer_tool_execution_with_diff():
     console = Console(file=buf, force_terminal=True, color_system="truecolor")
     renderer = EventRenderer(console=console)
 
-    renderer.on_event(
-        ToolExecutionStart(tool_call_id="c1", tool_name="edit", args={"path": "app.py"})
-    )
+    renderer.on_event(ToolExecutionStart(tool_call_id="c1", tool_name="edit", args={"path": "app.py"}))
 
     diff_text = "--- a/app.py\n+++ b/app.py\n-old\n+new\n"
     res_text = f"Successfully applied 1 edit(s).\nDiff:\n```diff\n{diff_text}```"
-    renderer.on_event(
-        ToolExecutionEnd(
-            tool_call_id="c1", tool_name="edit", result=res_text, is_error=False
-        )
-    )
+    renderer.on_event(ToolExecutionEnd(tool_call_id="c1", tool_name="edit", result=res_text, is_error=False))
 
     output = buf.getvalue()
     assert "[edit]" in output
@@ -63,11 +57,7 @@ def test_renderer_tool_execution_failure():
     console = Console(file=buf, force_terminal=True, color_system="truecolor")
     renderer = EventRenderer(console=console)
 
-    renderer.on_event(
-        ToolExecutionStart(
-            tool_call_id="c2", tool_name="bash", args={"command": "exit 1"}
-        )
-    )
+    renderer.on_event(ToolExecutionStart(tool_call_id="c2", tool_name="bash", args={"command": "exit 1"}))
     renderer.on_event(
         ToolExecutionEnd(
             tool_call_id="c2",
@@ -131,9 +121,7 @@ def test_renderer_stream_chunk_compatibility():
     renderer.on_event(
         MessageUpdate(
             message=msg,
-            chunk=StreamChunk(
-                content="", metadata={"reasoning_content": "DeepSeek thinking"}
-            ),
+            chunk=StreamChunk(content="", metadata={"reasoning_content": "DeepSeek thinking"}),
         )
     )
     renderer.on_event(
