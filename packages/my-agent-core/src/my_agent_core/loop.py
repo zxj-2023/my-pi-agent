@@ -158,8 +158,7 @@ async def _assistant_turn(
 def _as_messages(items: Sequence[Message | str]) -> list[Message]:
     """安全归一化字符串或消息序列为标准 Message 列表。"""
     return [
-        m if isinstance(m, Message) else Message(role="user", content=m)
-        for m in items
+        m if isinstance(m, Message) else Message(role="user", content=m) for m in items
     ]
 
 
