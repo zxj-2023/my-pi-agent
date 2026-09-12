@@ -40,7 +40,9 @@ def test_build_prompt_session(tmp_path: Path):
     doc = Document("/he", 3)
     completions = [c.text for c in session.completer.get_completions(doc, None)]
     assert "/help" in completions
-    assert set(SLASH_COMMANDS).issuperset({"/help", "/clear", "/undo", "/compact", "/session", "/tasks", "/mcp", "/exit", "/quit"})
+    assert set(SLASH_COMMANDS).issuperset(
+        {"/help", "/clear", "/undo", "/compact", "/session", "/tasks", "/mcp", "/exit", "/quit"}
+    )
 
 
 @pytest.mark.anyio
@@ -128,7 +130,9 @@ async def test_run_cli_loop_runs_stream(tmp_path: Path):
     agent = CodingAgent(workspace=tmp_path, llm=FakeLLM(), session=tmp_path / "s.jsonl")
 
     async def fake_stream(prompt: str):
-        yield MessageUpdate(message=Message(role="assistant", content=""), chunk=StreamChunk(content="Hello from agent!"))
+        yield MessageUpdate(
+            message=Message(role="assistant", content=""), chunk=StreamChunk(content="Hello from agent!")
+        )
         yield AgentEnd(stop_reason="end_turn", iterations=1)
 
     agent.run_stream = fake_stream  # type: ignore
