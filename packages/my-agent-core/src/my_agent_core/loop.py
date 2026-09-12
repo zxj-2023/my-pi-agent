@@ -155,6 +155,14 @@ async def _assistant_turn(
             yield MessageEnd(ev.error)
 
 
+def _as_messages(items: Sequence[Message | str]) -> list[Message]:
+    """安全归一化字符串或消息序列为标准 Message 列表。"""
+    return [
+        m if isinstance(m, Message) else Message(role="user", content=m)
+        for m in items
+    ]
+
+
 def _synthesize_interrupted_tool_calls(
     tool_calls: Sequence[Any],
 ) -> list[Message]:
@@ -249,10 +257,8 @@ async def _execute_tools_turn(
     5. Message 阶段：按 source order 发射 role="tool" 的 MessageStart / MessageEnd。
     """
     # ── 阶段 A1: Preflight 广播（按 source order 先行发射 ToolExecutionStart）
-    parsed_calls: list[tuple[int, ToolCall]] = [
-        (idx, _coerce_tool_call(tc)) for idx, tc in enumerate(tool_calls)
-    ]
-    for _idx, call in parsed_calls:
+    parsed_calls: list[ToolCall] = [_coerce_tool_call(tc) for tc in tool_calls]
+    for call in parsed_calls:
         yield ToolExecutionStart(
             tool_call_id=call.id, tool_name=call.name, args=call.args
         )
@@ -261,7 +267,7 @@ async def _execute_tools_turn(
     prepared_calls: list[tuple[int, ToolCall, dict[str, Any]]] = []
     direct_results: dict[int, ToolResult] = {}
 
-    for idx, call in parsed_calls:
+    for idx, call in enumerate(parsed_calls):
         if call.error is not None:
             direct_results[idx] = ToolResult(ok=False, error=call.error)
             continue
@@ -310,18 +316,18 @@ async def _execute_tools_turn(
         loop = asyncio.get_running_loop()
         loop_thread_id = threading.get_ident()
 
-        def safe_put_update(ev: Event) -> None:
+        def safe_put(item: Event | object) -> None:
             if threading.get_ident() == loop_thread_id:
-                queue.put_nowait(ev)
+                queue.put_nowait(item)
             else:
                 with contextlib.suppress(RuntimeError):
-                    loop.call_soon_threadsafe(queue.put_nowait, ev)
+                    loop.call_soon_threadsafe(queue.put_nowait, item)
 
         def make_on_update(
             call_id: str, tool_name: str, args: dict[str, Any]
         ) -> Callable[[Any], None]:
             def on_update(partial: Any) -> None:
-                safe_put_update(
+                safe_put(
                     ToolExecutionUpdate(
                         tool_call_id=call_id,
                         tool_name=tool_name,
@@ -346,11 +352,7 @@ async def _execute_tools_turn(
             try:
                 return await registry.execute_batch(calls_to_run, signal=signal)
             finally:
-                if threading.get_ident() == loop_thread_id:
-                    queue.put_nowait(_SENTINEL)
-                else:
-                    with contextlib.suppress(RuntimeError):
-                        loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
+                safe_put(_SENTINEL)
 
         runner = asyncio.create_task(_run_batch())
         try:
@@ -376,7 +378,7 @@ async def _execute_tools_turn(
                     await runner
 
     # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
-    for idx, call in parsed_calls:
+    for idx, call in enumerate(parsed_calls):
         res = direct_results.get(
             idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
         )
@@ -472,12 +474,11 @@ async def run_agent_loop(
     """对标 Tau 的极简纯函数异步微内核，主状态机约 110 行。"""
     if isinstance(tools, ToolRegistry):
         registry = tools
-    elif isinstance(tools, (list, tuple, Sequence)):
-        registry = ToolRegistry()
-        for t in tools:
-            registry.register(t)
     else:
         registry = ToolRegistry()
+        if isinstance(tools, Sequence):
+            for t in tools:
+                registry.register(t)
 
     effective_max = max_turns if max_turns is not None else max_iterations
 
@@ -498,10 +499,7 @@ async def run_agent_loop(
         system = messages[0].content
 
     # prompts 规范化
-    converted_prompts: list[Message] = [
-        p if isinstance(p, Message) else Message(role="user", content=p)
-        for p in prompts
-    ]
+    converted_prompts = _as_messages(prompts)
 
     user_input = converted_prompts[0].content if converted_prompts else ""
 
@@ -518,12 +516,7 @@ async def run_agent_loop(
     if get_steering_messages is not None:
         init_steer = get_steering_messages()
         if init_steer:
-            pending_messages.extend(
-                [
-                    m if isinstance(m, Message) else Message(role="user", content=m)
-                    for m in init_steer
-                ]
-            )
+            pending_messages.extend(_as_messages(init_steer))
 
     # ══════════════════════════════════════════════════════════
     # 【外层循环】：Follow-up 宏观任务接力
@@ -649,49 +642,37 @@ async def run_agent_loop(
 
             # 委托工具车间
             tool_results: list[Message] = []
-            calls = assistant.metadata.get("tool_calls") if assistant.metadata else None
+            calls = (assistant.metadata or {}).get("tool_calls")
             is_truncated = (assistant.metadata or {}).get("stop_reason") == "length"
             if calls:
-                if is_truncated:
-                    # 阶段 1: 输出截断防御，拒绝执行任何残缺参数的工具
-                    async for ev in _fail_tool_calls_from_truncated_message(calls):
-                        yield ev
-                        if isinstance(ev, MessageEnd) and ev.message.role == "tool":
-                            tool_results.append(ev.message)
-                            messages.append(ev.message)
-                    has_more_tools = True
-                else:
-                    async for ev in _execute_tools_turn(
+                tool_stream = (
+                    _fail_tool_calls_from_truncated_message(calls)
+                    if is_truncated
+                    else _execute_tools_turn(
                         tool_calls=calls,
                         registry=registry,
                         before_tool_call=before_tool_call,
                         after_tool_call=after_tool_call,
                         signal=signal,
-                    ):
-                        yield ev
-                        if isinstance(ev, MessageEnd) and ev.message.role == "tool":
-                            tool_results.append(ev.message)
-                            messages.append(ev.message)
-
-                    # 阶段 7: 批量优雅熔断判定（any 语义）
-                    should_terminate = bool(tool_results) and any(
-                        bool(m.metadata and m.metadata.get("terminate"))
-                        for m in tool_results
                     )
-                    if should_terminate:
-                        has_more_tools = False
-                        terminating_obs = [
-                            m.content
-                            for m in tool_results
-                            if m.metadata and m.metadata.get("terminate")
-                        ]
-                        final_text = (
-                            assistant.content
-                            if assistant.content
-                            else (terminating_obs[-1] if terminating_obs else None)
-                        )
-                    else:
-                        has_more_tools = True
+                )
+                async for ev in tool_stream:
+                    yield ev
+                    if isinstance(ev, MessageEnd) and ev.message.role == "tool":
+                        tool_results.append(ev.message)
+                        messages.append(ev.message)
+
+                # 阶段 7: 批量优雅熔断判定（any 语义）
+                terminating_obs = [
+                    m.content
+                    for m in tool_results
+                    if (m.metadata or {}).get("terminate")
+                ]
+                if terminating_obs:
+                    has_more_tools = False
+                    final_text = assistant.content or terminating_obs[-1]
+                else:
+                    has_more_tools = True
             else:
                 has_more_tools = False
                 final_text = assistant.content
@@ -712,19 +693,13 @@ async def run_agent_loop(
             if get_steering_messages is not None:
                 steer_msgs = get_steering_messages()
                 if steer_msgs:
-                    pending_messages = [
-                        m if isinstance(m, Message) else Message(role="user", content=m)
-                        for m in steer_msgs
-                    ]
+                    pending_messages = _as_messages(steer_msgs)
 
         # 收割宏观追问任务
         if get_follow_up_messages is not None:
             followups = get_follow_up_messages()
             if followups:
-                pending_messages = [
-                    m if isinstance(m, Message) else Message(role="user", content=m)
-                    for m in followups
-                ]
+                pending_messages = _as_messages(followups)
                 continue
         break
 
