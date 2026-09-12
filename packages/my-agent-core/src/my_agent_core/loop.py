@@ -159,19 +159,14 @@ def _synthesize_interrupted_tool_calls(
     tool_calls: Sequence[Any],
 ) -> list[Message]:
     """统一生成标准的中断工具结果，彻底消除多处代码重复。"""
-    out = []
-    for tc in tool_calls:
-        tc_id = getattr(tc, "id", None) or (
-            tc.get("id", "") if isinstance(tc, dict) else ""
+    return [
+        Message(
+            role="tool",
+            content=_INTERRUPTED_TOOL_RESULT,
+            metadata={"tool_call_id": _coerce_tool_call(tc).id, "is_error": True},
         )
-        out.append(
-            Message(
-                role="tool",
-                content=_INTERRUPTED_TOOL_RESULT,
-                metadata={"tool_call_id": str(tc_id), "is_error": True},
-            )
-        )
-    return out
+        for tc in tool_calls
+    ]
 
 
 def _coerce_tool_call(tc: Any) -> ToolCall:
@@ -497,21 +492,16 @@ async def run_agent_loop(
         return
 
     # system prompt 初始化
-    if system:
-        if not messages or messages[0].role != "system":
-            messages.insert(0, Message(role="system", content=system))
-        else:
-            system = messages[0].content
-    elif messages and messages[0].role == "system":
+    if system and (not messages or messages[0].role != "system"):
+        messages.insert(0, Message(role="system", content=system))
+    elif not system and messages and messages[0].role == "system":
         system = messages[0].content
 
     # prompts 规范化
-    converted_prompts: list[Message] = []
-    for p in prompts:
-        if isinstance(p, Message):
-            converted_prompts.append(p)
-        elif isinstance(p, str):
-            converted_prompts.append(Message(role="user", content=p))
+    converted_prompts: list[Message] = [
+        p if isinstance(p, Message) else Message(role="user", content=p)
+        for p in prompts
+    ]
 
     user_input = converted_prompts[0].content if converted_prompts else ""
 
