@@ -213,7 +213,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 
 ## 七、模块六：模型特性目录与实时计费监控 (P2)
 
-学习自 **Tau** 的 `catalog.toml` 与 **Pig-Mono** 的 `billing.py`。
+学习自 **Tau** 的 `data/catalog.toml` 与 **Pig-Mono** 的 `billing.py`。
 
 ### 7.1 模型元数据目录 (`catalog.toml`)
 
@@ -227,26 +227,58 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 
 ---
 
-## 八、建议的分期推进路线图 (Roadmap)
+## 八、模块七：可插拔底层 I/O 操作协议 (`operations.py`) (P2)
+
+学习自 **Pig-Mono** 的 `packages/pig-coding-agent/src/pig_coding_agent/operations.py`。
+
+### 8.1 架构与解耦机制
+- 目前 `my-coding-agent` 的工具（`read`, `write`, `edit`, `bash`）直接硬编码调用本地文件 API 与 `asyncio.create_subprocess_shell`；
+- 引入 Python `Protocol` 将文件与子进程 I/O 抽象化：
+  - `FileOperations`: 抽象 `read_text`, `write_text`, `exists`, `mkdir`, `iterdir`, `glob` 等方法；
+  - `ShellOperations`: 抽象 `run_command(cmd, cwd, env, timeout)` 等命令执行方法；
+- **收益**：
+  - 本地默认使用 `LocalFileOperations`；
+  - 单元测试时可无缝注入 `FakeFileOperations` 进行高并发高密度的纯内存离线测试；
+  - 未来如果要支持将 Agent 隔离运行在远程 Docker 容器、云端 Sandbox（如 E2B / Firecracker）中，只需提供 `DockerFileOperations`，上层工具链和 Agent 逻辑 100% 保持不变！
+
+---
+
+## 九、模块八：流式生成期间按键监听与动态转向 (`LiveInputListener`) (P1)
+
+学习自 **Pig-Mono** 的 `packages/pig-tui/src/pig_tui/keylistener.py` 与 **Pi** 的 Steering 机制。
+
+### 9.1 痛点与解决方案
+- **痛点**：在大模型流式输出几十秒或正在调用工具时，底层的 `prompt_toolkit` 是处于未激活状态的，此时终端完全无法响应用户的键盘输入。用户如果发现模型理解错了，只能被动干等，或者强行 Ctrl+C 粗暴杀死会话；
+- **解决方案 (`LiveInputListener`)**：
+  - 在大模型流式生成与工具执行期间，以非阻塞方式在后台监听键盘输入：
+    - Windows: 基于 `msvcrt.kbhit()` 与 `msvcrt.getwch()`；
+    - POSIX: 基于 `termios` 与 `tty.setcbreak()`；
+  - **按键响应**：
+    - 按 **`Esc` 键**：立即触发当前 Turn 的 `CancellationToken`，温和中止当前轮次生成；
+    - **直接敲字并按回车**：不中断会话，直接将用户输入的纠偏文字作为 `Steering` 消息推入 `my-agent-core` 的 `MessageQueue.push_steering()`；
+    - **无缝衔接**：在当前工具执行完或下一次大模型推理前，智能体自动提取此 Steering 消息即时修正方向，实现真正的人机实时协同！
+
+---
+
+## 十、建议的分期推进路线图 (Roadmap)
 
 ```text
-Phase 3A: Antigravity OAuth 鉴权与模型无缝接入 ⭐ 【核心高价值 / 立即推进】
-  ├── 1. 实现 ~/.pi/agent/auth.json 本地凭据自动继承与静默刷新 (AntigravityAuthResolver)
-  ├── 2. my-agent-llm 新增 AntigravityProvider (对接 cloudcode-pa.googleapis.com)
+Phase 3A: Antigravity OAuth 专项直连与本地凭据无缝继承 ⭐ 【立即推进 / 免费顶尖大模型接入】
+  ├── 1. 实现 AntigravityAuthResolver（自动探测 ~/.pi/agent/auth.json，支持 Google OAuth 静默刷新）
+  ├── 2. my-agent-llm 新增 AntigravityProvider（对接 cloudcode-pa.googleapis.com 网关）
   └── 3. my-agent-tui 增加 /login antigravity 与 /quota 配额查询命令
 
 Phase 3B: Accept-on-Diff 权限审查门禁与确认对话框 ⭐ 【安全核心】
   ├── 1. my-agent-tui 构建 ConfirmView 终端确认与彩色 Diff 审查组件
-  └── 2. my-coding-agent 实现 PermissionGate (基于 ToolCallHook 拦截高危操作)
+  └── 2. my-coding-agent 实现 PermissionGate（基于 ToolCallHook 拦截高危写操作与命令）
 
 Phase 3C: 提示词 @ 文件引用快速补全与工作区 Turnkey MCP
-  ├── 1. my-agent-tui 输入框支持 @ 文件名 Tab 自动补全
-  ├── 2. 提交前自动解析 @file 并将文件快照注入 Prompt 提示词
-  └── 3. CodingAgent 自动扫描当前工作区 .mcp.json 并管理子进程
+  ├── 1. my-agent-tui 输入框支持 @ 文件名 Tab 自动补全并在提交前自动注入文件快照
+  └── 2. CodingAgent 启动时自动探测并挂载工作区 .mcp.json
 
-Phase 3D: 会话树交互式漫游与自动分支记忆 (Branch Summary)
-  ├── 1. my-agent-tui 实现 /tree 终端交互式会话树浏览器
-  └── 2. 回滚分支时自动触发轻量模型生成 BranchSummaryEntry 挂载公共祖先
+Phase 3D: 流式动态转向 (LiveInputListener) 与分支失败记忆 (branch_summary.py)
+  ├── 1. my-agent-tui 增加 LiveInputListener (流式输出期间按 Esc 取消 / 输入回车触发 Steer)
+  └── 2. 回退分支时自动触发轻量模型生成 BranchSummaryEntry 挂载公共祖先
 
-Phase 3E: 模型知识库 (catalog.toml) 与实时计费账单 (/cost)
+Phase 3E: 模型知识库 (catalog.toml)、计费账单 (/cost) 与 I/O 协议抽象 (operations.py)
 ```
