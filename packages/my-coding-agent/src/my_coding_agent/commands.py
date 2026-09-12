@@ -33,7 +33,7 @@ class CommandDispatcher:
         handler: Callable[[CommandContext], Any],
         description: str = "",
     ) -> None:
-        self._handlers[name.lstrip("/")] = (handler, description)
+        self._handlers[name.lstrip("/").lower()] = (handler, description)
 
     async def dispatch(self, text: str, console: Console) -> bool:
         stripped = text.strip()
@@ -50,9 +50,12 @@ class CommandDispatcher:
         if cmd_name in self._handlers:
             handler, _ = self._handlers[cmd_name]
             ctx = CommandContext(agent=self.agent, raw_args=raw_args, console=console)
-            res = handler(ctx)
-            if inspect.isawaitable(res):
-                await res
+            try:
+                res = handler(ctx)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as exc:
+                console.print(f"[red]执行命令 /{cmd_name} 失败: {exc}[/red]")
             return True
 
         console.print(f"[red]未知命令: /{cmd_name}。输入 /help 查看可用命令。[/red]")
@@ -152,7 +155,12 @@ class CommandDispatcher:
 
     async def _cmd_mcp(self, ctx: CommandContext) -> None:
         registry = getattr(self.agent.agent, "registry", None)
-        tools = registry._tools.values() if registry and hasattr(registry, "_tools") else []
+        tools: list[Any] = []
+        if registry is not None:
+            if hasattr(registry, "list") and callable(registry.list):
+                tools = list(registry.list())
+            elif hasattr(registry, "_tools"):
+                tools = list(registry._tools.values())
         mcp_tools = [t for t in tools if getattr(t, "is_mcp", False)]
         ctx.console.print(f"[bold]已挂载 MCP 工具数:[/bold] {len(mcp_tools)}")
         for t in mcp_tools:

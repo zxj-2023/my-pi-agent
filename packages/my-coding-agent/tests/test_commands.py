@@ -238,3 +238,32 @@ async def test_commands_undo_multiple_turns(tmp_path: Path):
     handled = await dispatcher.dispatch("/undo", console)
     assert handled is True
     assert "已成功回退至节点" in buf.getvalue()
+
+
+@pytest.mark.anyio
+async def test_commands_faulty_handler_does_not_crash(tmp_path: Path):
+    buf = io.StringIO()
+    console = Console(file=buf)
+    agent = CodingAgent(workspace=tmp_path, llm=FakeLLM(), session=tmp_path / "s.jsonl")
+    dispatcher = CommandDispatcher(agent)
+
+    def faulty_cmd(ctx: CommandContext):
+        raise RuntimeError("Something exploded!")
+
+    dispatcher.register("fail", faulty_cmd, "Fails intentionally")
+    handled = await dispatcher.dispatch("/fail", console)
+    assert handled is True
+    assert "执行命令 /fail 失败: Something exploded!" in buf.getvalue()
+
+
+@pytest.mark.anyio
+async def test_commands_register_case_insensitive(tmp_path: Path):
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=True)
+    agent = CodingAgent(workspace=tmp_path, llm=FakeLLM(), session=tmp_path / "s.jsonl")
+    dispatcher = CommandDispatcher(agent)
+
+    dispatcher.register("/TESTCMD", lambda ctx: ctx.console.print("CALLED"), "Uppercase cmd")
+    handled = await dispatcher.dispatch("/testcmd", console)
+    assert handled is True
+    assert "CALLED" in buf.getvalue()
