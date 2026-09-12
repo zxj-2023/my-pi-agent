@@ -31,6 +31,8 @@ def test_renderer_thinking_and_content_deltas():
     renderer.on_event(MessageUpdate(message=msg, chunk=TextChunk(text="Hello world")))
 
     output = buf.getvalue()
+    assert "\U0001F4AD" in output
+    assert "思考过程:" in output
     assert "Thinking step 1" in output
     assert "Hello world" in output
 
