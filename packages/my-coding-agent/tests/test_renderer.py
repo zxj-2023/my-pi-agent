@@ -146,3 +146,34 @@ def test_renderer_ignores_other_events():
     renderer.on_event(TurnEnd(message=None, tool_results=[]))
     # 确认没有未捕获异常抛出
     assert True
+
+
+def test_renderer_streamed_code_with_square_brackets():
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=True, color_system="truecolor")
+    renderer = EventRenderer(console=console)
+
+    msg = Message(role="assistant", content="")
+    code_chunk = "def get_items() -> list[str]:\n    return ['hello', 'world']\n"
+    renderer.on_event(MessageUpdate(message=msg, chunk=TextChunk(text=code_chunk)))
+
+    output = buf.getvalue()
+    assert "list[str]" in output
+    assert "['hello', 'world']" in output
+
+
+def test_renderer_tool_execution_end_tool_name_badge():
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=True, color_system="truecolor")
+    renderer = EventRenderer(console=console)
+
+    renderer.on_event(
+        ToolExecutionEnd(
+            tool_call_id="c99", tool_name="read", result="file content", is_error=False
+        )
+    )
+
+    output = buf.getvalue()
+    assert "✓ OK" in output
+    assert "[read]" in output
+

@@ -72,7 +72,7 @@ class EventRenderer:
                     if self._in_thinking:
                         self.console.print("\n")
                         self._in_thinking = False
-                    self.console.print(str(text), end="")
+                    self.console.print(str(text), end="", markup=False, highlight=False)
 
         elif isinstance(event, ToolExecutionStart):
             if self._in_thinking:
@@ -88,7 +88,9 @@ class EventRenderer:
 
         elif isinstance(event, ToolExecutionEnd):
             status = "[red]✗ Failed[/red]" if event.is_error else "[green]✓ OK[/green]"
-            self.console.print(f"   {status}", highlight=False)
+            self.console.print(
+                f"   {status} \\[{escape(event.tool_name)}]", highlight=False
+            )
 
             res_str = str(event.result) if event.result is not None else ""
             # 提取并高亮 Diff
