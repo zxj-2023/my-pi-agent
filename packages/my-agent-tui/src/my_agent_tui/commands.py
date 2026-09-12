@@ -281,7 +281,9 @@ class CommandDispatcher:
                     ctx.console.print(f"[red]刷新 Antigravity 凭据失败: {e}[/red]", highlight=False)
                     return
             else:
-                ctx.console.print("[yellow]! Antigravity 凭据已过期且无可用的 refresh_token。[/yellow]", highlight=False)
+                ctx.console.print(
+                    "[yellow]! Antigravity 凭据已过期且无可用的 refresh_token。[/yellow]", highlight=False
+                )
                 return
 
         source = creds.auth_file_path.name if creds.auth_file_path else "环境变量"

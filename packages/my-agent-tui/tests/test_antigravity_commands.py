@@ -304,4 +304,3 @@ def test_slash_commands_list():
     assert "/quota" in SLASH_COMMANDS
     assert "/model" in SLASH_COMMANDS
     assert "/login" in SLASH_COMMANDS
-
