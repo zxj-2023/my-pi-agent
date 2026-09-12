@@ -228,6 +228,12 @@ class OpenAIProvider(Provider):
                 final_finish_reason = choice.finish_reason
             delta = choice.delta
             accumulator.add(delta)
+            if reasoning_delta := getattr(delta, "reasoning_content", None):
+                yield StreamChunk(
+                    content="",
+                    metadata={"reasoning_content": reasoning_delta},
+                    finish_reason=choice.finish_reason,
+                )
             if getattr(delta, "content", None):
                 text_acc += delta.content
                 yield StreamChunk(
@@ -308,6 +314,12 @@ class OpenAIProvider(Provider):
                 final_finish_reason = choice.finish_reason
             delta = choice.delta
             accumulator.add(delta)
+            if reasoning_delta := getattr(delta, "reasoning_content", None):
+                yield StreamChunk(
+                    content="",
+                    metadata={"reasoning_content": reasoning_delta},
+                    finish_reason=choice.finish_reason,
+                )
             if getattr(delta, "content", None):
                 text_acc += delta.content
                 yield StreamChunk(

@@ -1,6 +1,7 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 """DeepSeek provider：OpenAI 兼容端点 + reasoning_content 提取。"""
 
+import os
 from collections.abc import AsyncIterator, Iterator
 
 from ..config import Config
@@ -13,8 +14,15 @@ class DeepSeekProvider(OpenAIProvider):
 
     def __init__(self, config: Config, client=None, async_client=None):
         """初始化。默认 base_url 指向 deepseek。"""
+        updates = {}
         if client is None and config.base_url is None:
-            config = config.model_copy(update={"base_url": "https://api.deepseek.com"})
+            updates["base_url"] = "https://api.deepseek.com"
+        if client is None and config.api_key is None:
+            key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            if key:
+                updates["api_key"] = key
+        if updates:
+            config = config.model_copy(update=updates)
         super().__init__(config, client=client, async_client=async_client)
 
     @staticmethod
