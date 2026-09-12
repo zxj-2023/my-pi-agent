@@ -110,11 +110,14 @@ class CommandDispatcher:
         if target_rewind_id is None:
             # 找到首轮 user entry，其 parent_id 为 None，说明回退将重置至会话最初空白状态
             try:
-                session.reset()
-                if hasattr(self.agent, "agent") and hasattr(self.agent.agent, "_init_messages"):
-                    self.agent.agent.messages = self.agent.agent._init_messages(
-                        session, getattr(self.agent.agent, "_system_prompt", None)
-                    )
+                if hasattr(self.agent, "agent") and hasattr(self.agent.agent, "reset"):
+                    self.agent.agent.reset()
+                else:
+                    session.reset()
+                    if hasattr(self.agent, "agent") and hasattr(self.agent.agent, "_init_messages"):
+                        self.agent.agent.messages = self.agent.agent._init_messages(
+                            session, getattr(self.agent.agent, "_system_prompt", None)
+                        )
                 ctx.console.print("[green]↺ 已成功回退至会话最初状态，上一轮对话已安全撤销。[/green]")
                 return
             except Exception as e:
