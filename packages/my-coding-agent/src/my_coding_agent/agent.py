@@ -35,11 +35,7 @@ class CodingAgent:
             session = Session(path=Path(session))
 
         # 1. 自动生成或应用系统提示词
-        effective_prompt = (
-            system_prompt
-            if system_prompt is not None
-            else build_default_coding_prompt(self.workspace)
-        )
+        effective_prompt = system_prompt if system_prompt is not None else build_default_coding_prompt(self.workspace)
 
         # 2. 构造框架通用 Agent
         self.agent = Agent(

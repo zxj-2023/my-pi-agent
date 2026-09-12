@@ -63,11 +63,7 @@ def _setup_calc_repository(ws: Path) -> tuple[Path, Path]:
     tests_dir.mkdir(parents=True, exist_ok=True)
     test_calc_py = tests_dir / "test_calc.py"
     test_calc_py.write_text(
-        "import sys\n"
-        "sys.path.insert(0, '.')\n"
-        "from src.calc import add\n\n"
-        "def test_add():\n"
-        "    assert add(1, 2) == 3\n",
+        "import sys\nsys.path.insert(0, '.')\nfrom src.calc import add\n\ndef test_add():\n    assert add(1, 2) == 3\n",
         encoding="utf-8",
     )
     return calc_py, test_calc_py

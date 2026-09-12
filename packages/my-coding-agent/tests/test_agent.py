@@ -71,9 +71,7 @@ async def test_coding_agent_merges_extra_tools(tmp_path: Path):
     )
 
     tool_names = set(agent.agent.registry._tools.keys())
-    assert {"read", "write", "edit", "bash", "grep", "find", "custom_calc"}.issubset(
-        tool_names
-    )
+    assert {"read", "write", "edit", "bash", "grep", "find", "custom_calc"}.issubset(tool_names)
 
 
 async def test_coding_agent_prompt_and_mutation_queue(tmp_path: Path):
