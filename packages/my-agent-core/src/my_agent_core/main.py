@@ -117,7 +117,10 @@ async def amain() -> None:
 
 def _force_utf8_streams() -> None:
     for stream in (sys.stdout, sys.stderr):
-        if stream and getattr(stream, "encoding", "").lower().replace("-", "") != "utf8":
+        if (
+            stream
+            and getattr(stream, "encoding", "").lower().replace("-", "") != "utf8"
+        ):
             with contextlib.suppress(Exception):
                 stream.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
 

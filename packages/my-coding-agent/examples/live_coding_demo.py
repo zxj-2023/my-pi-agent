@@ -36,7 +36,7 @@ def setup_playground(workspace: Path) -> None:
     calc_file = src_dir / "calculator.py"
     calc_file.write_text(
         "def add(a: int, b: int) -> int:\n"
-        "    \"\"\"Return the sum of two integers.\"\"\"\n"
+        '    """Return the sum of two integers."""\n'
         "    return a - b  # BUG: should be a + b\n",
         encoding="utf-8",
     )
@@ -44,9 +44,7 @@ def setup_playground(workspace: Path) -> None:
     # 验证测试
     test_file = test_dir / "test_calculator.py"
     test_file.write_text(
-        "from src.calculator import add\n\n"
-        "def test_add():\n"
-        "    assert add(10, 25) == 35\n",
+        "from src.calculator import add\n\ndef test_add():\n    assert add(10, 25) == 35\n",
         encoding="utf-8",
     )
 
@@ -73,13 +71,15 @@ async def run_demo() -> int:
     console.print(f"[dim]Model:[/dim]    [green]{model}[/green]")
     console.print(f"[dim]Base URL:[/dim] [green]{base_url}[/green]\n")
 
-    llm = LLM(Config(
-        provider=provider,
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=0.2,
-    ))
+    llm = LLM(
+        Config(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=0.2,
+        )
+    )
 
     with tempfile.TemporaryDirectory(prefix="my-agent-live-demo-") as tmpdir:
         workspace = Path(tmpdir).resolve()
