@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Sequence
 
+from dotenv import find_dotenv, load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
@@ -74,6 +75,7 @@ async def run_cli_loop(
 def main(argv: Sequence[str] | None = None, llm: LLM | None = None) -> None:
     """CLI 主入口函数，支持 -w/--workspace 与 -m/--model 参数。"""
     _force_utf8_streams()
+    load_dotenv(find_dotenv(usecwd=True))
     parser = argparse.ArgumentParser(description="my-coding-agent 交互式编码助手")
     parser.add_argument("-w", "--workspace", default=".", help="工作区路径")
     parser.add_argument("-m", "--model", default=None, help="LLM 模型标识符")
@@ -85,7 +87,13 @@ def main(argv: Sequence[str] | None = None, llm: LLM | None = None) -> None:
     # 初始化默认 LLM（若未外部注入）
     if llm is None:
         provider_name = os.environ.get("PI_DEFAULT_PROVIDER", "openai")
-        model_name = args.model or os.environ.get("PI_DEFAULT_MODEL", "gpt-4o")
+        model_name = (
+            args.model
+            or os.environ.get(f"{provider_name.upper()}_MODEL")
+            or os.environ.get("PI_DEFAULT_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or "gpt-4o"
+        )
         api_key = (
             os.environ.get(f"{provider_name.upper()}_API_KEY")
             or os.environ.get("OPENAI_API_KEY")

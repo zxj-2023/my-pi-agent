@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 from my_agent_llm import LLM, Config  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
@@ -81,6 +81,7 @@ def print_events(event: Event) -> None:
 
 
 def build_llm() -> LLM:
+    load_dotenv(find_dotenv(usecwd=True))
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is missing. Add it to .env.")
@@ -93,7 +94,7 @@ def build_llm() -> LLM:
 
 
 async def amain() -> None:
-    load_dotenv()
+    load_dotenv(find_dotenv(usecwd=True))
     llm = build_llm()
     store = SessionStore()  # 默认 workspace=cwd
     for question in QUESTIONS:
