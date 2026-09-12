@@ -267,6 +267,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 深入审视 **Pig-Mono** 的 `interaction_routes.py`、`interaction_dispatcher.py`、`interaction_views.py`、`interaction_flows.py`、`interaction_runtime.py`、`interaction_catalog.py`。
 
 ### 10.1 Pig-Mono 为什么要拆出 6 个 interaction 文件？
+
 - Pig-Mono 在终端设计了一套类似 Web 前端框架（如 React-Router / Vue-Router）的路由跳转机制：
   - `interaction_routes.py` 是路由映射表（区分无参路由 `simple_routes` 与带参前缀路由 `prefix_routes`）；
   - `interaction_dispatcher.py` 是分发匹配引擎；
@@ -275,31 +276,85 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
   - `interaction_runtime.py` 负责覆盖层状态机。
 
 ### 10.2 我们需要照搬吗？（决策：坚决不照搬，保持极简 CommandDispatcher）
+
 - **判定：不需要照搬拆分，严防过度设计**！
   - 理由：将 ~10 个命令的交互拆成 6 个文件会导致阅读与追踪代码极其碎片化，违反了“50 行能清晰解决绝不写 200 行”的原则；
   - **我们的演进方案**：保留目前在 `my_agent_tui/commands.py` 中实现的单一高内聚 `CommandDispatcher`（约 180 行），仅吸收其**“前缀带参路由支持（如 `/skill:<name>`）”**与**“多步选择向导（Picker Flows）”**的逻辑，使代码保持紧凑、直观且零过度抽象。
 
 ---
 
-## 十一、建议的分期推进路线图 (Roadmap)
+## 十一、模块十：终端状态底栏仪表盘 (`FooterComponent`) (P1)
+
+学习自 **Pi** 的 `packages/coding-agent/src/modes/interactive/components/footer.ts` 与 `footer-data-provider.ts`。
+
+### 11.1 痛点与解决方案
+- **痛点**：目前终端提示符只有一孤零零的 `>>> `，开发者完全无法直观感知当前所在工作区深度、在哪个 Git 分支、当前生效的大模型是谁、思考等级（Thinking Level）是多少，以及当前上下文已经占用了窗口上限的百分之几；
+- **实现方案 (`FooterComponent`)**：
+  - 在每次用户输入提示符上方或每轮交互结束时，打印一行专业紧凑的终端状态底栏：
+    ```text
+    [📁 ~/.../my-project] [🌿 main] [🤖 gemini-3.8-flash (thinking)] [📊 14.2k/1M (1.4%)] [$0.02]
+    ```
+  - **Git 分支动态探测**：调用轻量级 `git symbolic-ref --quiet --short HEAD` 自动获取当前分支名（无 git 环境或游离 HEAD 优雅兜底）；
+  - **上下文健康度实时看板**：从当前 `session` 计算累计 Token，除以当前模型的最大上下文窗口（从 `catalog` 获取），显示 `已用Token/上限 (百分比)`，让开发者时刻掌握是否需要手动 `/compact`！
+
+---
+
+## 十二、模块十一：词级差异行内反色高亮 (`diffWords`) (P1)
+
+学习自 **Pi** 的 `packages/coding-agent/src/modes/interactive/components/diff.ts` 与 `Diff.diffWords`。
+
+### 12.1 痛点与解决方案
+- **痛点**：目前我们在终端打印的 Unified Diff 是行级粗粒度高亮（整行变红 `-`、整行变绿 `+`）。但真实开发修改时，一行代码通常有 60–100 个字符，模型往往只改了其中的 1 个变量名或 1 个运算符。如果整行变绿，开发者肉眼寻找具体变动点极其费力；
+- **实现方案 (`diffWords` 增强)**：
+  - 在 `my-agent-tui/src/my_agent_tui/renderer.py` 中，当解析到相邻配对的 `-` 删行与 `+` 增行时；
+  - 引入 Python 标准库 `difflib.ndiff` 或按单词正则分词（`\w+|\s+|[^\w\s]+`）进行局部序列匹配；
+  - 在渲染被修改的行时，将实际被替换的变动单词使用 Rich 的 `reverse`（反色）加亮突出显示；
+  - **效果**：不仅整行有红绿标记，具体的几个变动字符更是一眼可见，大幅降低开发者审查 Diff 时的视觉疲劳！
+
+---
+
+## 十三、模块十二：终端模型即时热切换 (`/model`) (P0)
+
+学习自 **Pi** 的 `packages/coding-agent/src/core/slash-commands.ts:model` 与 `model-selector.ts`。
+
+### 13.1 核心价值
+配合我们即将接入的 **Antigravity** 与已有的 `deepseek-flash`，开发者手头同时拥有了：
+- **极速轻量模型**：`gemini-3.8-flash`（适合小改动、单行修复、日常问答，响应 1 秒级）；
+- **深度推理模型**：`gemini-3.1-pro` / `claude-sonnet-4-6` / `deepseek-reasoner`（适合复杂重构、架构方案规划）；
+无需退出当前终端，直接在当前会话中无缝热切换模型！
+
+### 13.2 实现方案
+- 在 `my-agent-tui/commands.py` 中扩充 `/model` 命令：
+  - 输入 `/model`：列出当前可用的候选模型列表、提供商及简短特性；
+  - 输入 `/model 3.8` 或 `/model sonnet`：直接热更新当前 `CodingAgent` 的 `llm` 实例与底层 `agent.llm` 属性，并输出：
+    `[green]✓ 模型已即时切换为: gemini-3.8-flash (上下文窗口: 1M)[/green]`；
+  - 历史 Session 节点中记录 `ModelChangeEntry`，保证会话分支可复现。
+
+---
+
+## 十四、建议的分期推进路线图 (Roadmap)
 
 ```text
 Phase 3A: Antigravity OAuth 专项直连与本地凭据无缝继承 ⭐ 【立即推进 / 免费顶尖大模型接入】
   ├── 1. 实现 AntigravityAuthResolver（自动探测 ~/.pi/agent/auth.json，支持 Google OAuth 静默刷新）
   ├── 2. my-agent-llm 新增 AntigravityProvider（对接 cloudcode-pa.googleapis.com 网关）
-  └── 3. my-agent-tui 增加 /login antigravity 与 /quota 配额查询命令
+  ├── 3. my-agent-tui 增加 /login antigravity 与 /quota 配额查询命令
+  └── 4. my-agent-tui 增加 /model 命令支持在当前会话热切换模型
 
-Phase 3B: Accept-on-Diff 权限审查门禁与确认对话框 ⭐ 【安全核心】
+Phase 3B: Accept-on-Diff 权限审查门禁与词级 Diff 增强 ⭐ 【安全与阅读体验核心】
   ├── 1. my-agent-tui 构建 ConfirmView 终端确认与彩色 Diff 审查组件
-  └── 2. my-coding-agent 实现 PermissionGate（基于 ToolCallHook 拦截高危写操作与命令）
+  ├── 2. renderer.py 实现 diffWords 单词级反色加亮 (一眼看出细微改动)
+  └── 3. my-coding-agent 实现 PermissionGate（基于 ToolCallHook 拦截高危写操作与命令）
 
 Phase 3C: 提示词 @ 文件引用快速补全与工作区 Turnkey MCP
   ├── 1. my-agent-tui 输入框支持 @ 文件名 Tab 自动补全并在提交前自动注入文件快照
   └── 2. CodingAgent 启动时自动探测并挂载工作区 .mcp.json
 
-Phase 3D: 流式动态转向 (LiveInputListener) 与分支失败记忆 (branch_summary.py)
-  ├── 1. my-agent-tui 增加 LiveInputListener (流式输出期间按 Esc 取消 / 输入回车触发 Steer)
-  └── 2. 回退分支时自动触发轻量模型生成 BranchSummaryEntry 挂载公共祖先
+Phase 3D: 终端状态底栏 (Footer) 与流式动态转向 (LiveInputListener)
+  ├── 1. my-agent-tui 增加 FooterComponent (实时展示 Git 分支、模型状态、Token 上下文占比)
+  └── 2. my-agent-tui 增加 LiveInputListener (流式输出期间按 Esc 取消 / 敲字回车触发 Steer 即时转向)
 
-Phase 3E: 模型知识库 (catalog.toml)、计费账单 (/cost) 与 I/O 协议抽象 (operations.py)
+Phase 3E: 分支失败记忆 (branch_summary.py) 与模型知识库 (catalog.toml)
+  ├── 1. 回退分支时自动触发轻量模型生成 BranchSummaryEntry 挂载公共祖先
+  └── 2. 引入 catalog.toml 统一模型上下文窗口与计费单价，支持 /cost 账单
 ```
