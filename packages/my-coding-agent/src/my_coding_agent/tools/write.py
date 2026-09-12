@@ -14,9 +14,7 @@ class WriteResult(StringCompatibleToolResult):
     """Write 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
-def make_write_tool(
-    workspace: Path, mutation_queue: FileMutationQueue | None = None
-) -> Tool:
+def make_write_tool(workspace: Path, mutation_queue: FileMutationQueue | None = None) -> Tool:
     """创建工作区绑定的 write 工具。
 
     - workspace: 工作区根目录路径

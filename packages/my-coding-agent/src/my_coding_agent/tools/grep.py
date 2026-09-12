@@ -45,9 +45,7 @@ def make_grep_tool(workspace: Path | str) -> Tool:
 
             flags = 0 if case_sensitive else re.IGNORECASE
             try:
-                compiled_regex = re.compile(
-                    pattern if regex else re.escape(pattern), flags
-                )
+                compiled_regex = re.compile(pattern if regex else re.escape(pattern), flags)
             except re.error as e:
                 return f"Error: Invalid regular expression: {e}"
 
@@ -81,18 +79,12 @@ def make_grep_tool(workspace: Path | str) -> Tool:
                                 clean_line = line.rstrip("\r\n")
                                 matches.append(f"{rel_str}:{lineno}: {clean_line}")
                                 if len(matches) >= max_matches:
-                                    matches.append(
-                                        f"[Reached maximum limit of {max_matches} matches]"
-                                    )
+                                    matches.append(f"[Reached maximum limit of {max_matches} matches]")
                                     return "\n".join(matches)
                 except (OSError, UnicodeDecodeError):
                     continue
 
-            return (
-                "\n".join(matches)
-                if matches
-                else f"No matches found for pattern '{pattern}'."
-            )
+            return "\n".join(matches) if matches else f"No matches found for pattern '{pattern}'."
         except Exception as e:
             return f"Error: {e}"
 
