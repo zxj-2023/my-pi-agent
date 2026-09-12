@@ -117,9 +117,7 @@ def make_bash_tool(
                     proc.communicate(), timeout=timeout
                 )
                 output = (
-                    stdout_data.decode("utf-8", errors="replace")
-                    if stdout_data
-                    else ""
+                    stdout_data.decode("utf-8", errors="replace") if stdout_data else ""
                 )
             except asyncio.TimeoutError:
                 if proc.pid:
@@ -156,7 +154,7 @@ def make_bash_tool(
                     tail_bytes = trunc_bytes[-DEFAULT_MAX_BYTES:]
                     nl_pos = tail_bytes.find(b"\n")
                     if nl_pos != -1 and nl_pos + 1 < len(tail_bytes):
-                        tail_bytes = tail_bytes[nl_pos + 1:]
+                        tail_bytes = tail_bytes[nl_pos + 1 :]
                     truncated_text = tail_bytes.decode("utf-8", errors="ignore")
                     truncated_lines = truncated_text.splitlines()
 

@@ -11,7 +11,7 @@ pytestmark = pytest.mark.anyio
 
 async def test_bash_echo(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
-    res = await tool.execute(command='python -c "print(\'hello from bash\')"')
+    res = await tool.execute(command="python -c \"print('hello from bash')\"")
     assert "hello from bash" in res
     assert res.ok is True
 
@@ -39,7 +39,7 @@ async def test_bash_blocked_commands(tmp_path: Path):
 async def test_bash_output_truncation_spills_log(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     # 生成超过 3000 行
-    cmd = 'python -c "for i in range(1, 3000): print(f\'line {i}\')"'
+    cmd = "python -c \"for i in range(1, 3000): print(f'line {i}')\""
     res = await tool.execute(command=cmd)
     assert "[Output truncated: showing last" in res
     assert "Full output saved to:" in res
@@ -60,7 +60,7 @@ async def test_bash_output_truncation_spills_log(tmp_path: Path):
 async def test_bash_byte_truncation_spills_log(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     # 生成小于 2000 行但超过 50KB 字节的单行/多行数据
-    cmd = 'python -c "for i in range(100): print(\'X\' * 1000)"'
+    cmd = "python -c \"for i in range(100): print('X' * 1000)\""
     res = await tool.execute(command=cmd)
     assert "[Output truncated: showing last" in res
     assert "Full output saved to:" in res
@@ -75,7 +75,7 @@ async def test_bash_byte_truncation_spills_log(tmp_path: Path):
 async def test_bash_command_failure_exit_code(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     res = await tool.execute(
-        command='python -c "import sys; print(\'error details\'); sys.exit(42)"'
+        command="python -c \"import sys; print('error details'); sys.exit(42)\""
     )
     assert "Command failed with exit code 42:" in res
     assert "error details" in res
@@ -89,17 +89,13 @@ async def test_bash_no_output(tmp_path: Path):
 
 async def test_bash_workspace_cwd(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
-    res = await tool.execute(
-        command='python -c "import os; print(os.getcwd())"'
-    )
+    res = await tool.execute(command='python -c "import os; print(os.getcwd())"')
     assert str(tmp_path.resolve()).lower() in str(res).lower()
 
 
 async def test_bash_workspace_coerced_from_str(tmp_path: Path):
     tool = make_bash_tool(str(tmp_path))
-    res = await tool.execute(
-        command='python -c "import os; print(os.getcwd())"'
-    )
+    res = await tool.execute(command='python -c "import os; print(os.getcwd())"')
     assert str(tmp_path.resolve()).lower() in str(res).lower()
 
 
@@ -122,7 +118,7 @@ async def test_bash_run_in_background_success(tmp_path: Path):
 async def test_bash_result_ergonomics(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     # dict execute
-    res = await tool.execute({"command": 'python -c "print(\'hello\')"', "timeout": 60})
+    res = await tool.execute({"command": "python -c \"print('hello')\"", "timeout": 60})
     assert isinstance(res, BashResult)
     assert res.ok is True
     assert "hello" in res
