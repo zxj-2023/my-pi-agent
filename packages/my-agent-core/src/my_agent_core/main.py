@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import sys
 from datetime import datetime
@@ -114,7 +115,15 @@ async def amain() -> None:
             print(f"\n[Answer] {answer}")
 
 
+def _force_utf8_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if stream and getattr(stream, "encoding", "").lower().replace("-", "") != "utf8":
+            with contextlib.suppress(Exception):
+                stream.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
+
+
 def main() -> None:
+    _force_utf8_streams()
     asyncio.run(amain())
 
 
