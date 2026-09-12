@@ -36,16 +36,17 @@ async def run_cli_loop(
     agent: CodingAgent,
     console: Console,
     prompt_session: PromptSession | None = None,
+    dispatcher: CommandDispatcher | None = None,
 ) -> None:
     """交互式 REPL 循环：接收输入、分发斜杠命令、驱动流式事件渲染。"""
     session = prompt_session if prompt_session is not None else build_prompt_session(agent.workspace)
-    dispatcher = CommandDispatcher(agent)
+    cmd_dispatcher = dispatcher if dispatcher is not None else CommandDispatcher(agent)
     renderer = EventRenderer(console)
 
     console.print(f"[bold green]my-coding-agent 终端编程助手[/bold green] [dim](工作区: {agent.workspace})[/dim]")
     console.print("[dim]输入提问，输入 [bold]/help[/bold] 查看命令，按 [bold]Ctrl+D[/bold] 退出。[/dim]\n")
 
-    while not dispatcher.exit_requested:
+    while not cmd_dispatcher.exit_requested:
         try:
             user_input = await session.prompt_async(">>> ")
         except (EOFError, KeyboardInterrupt):
@@ -56,8 +57,8 @@ async def run_cli_loop(
         if not cleaned:
             continue
 
-        if await dispatcher.dispatch(cleaned, console):
-            if dispatcher.exit_requested:
+        if await cmd_dispatcher.dispatch(cleaned, console):
+            if cmd_dispatcher.exit_requested:
                 break
             continue
 

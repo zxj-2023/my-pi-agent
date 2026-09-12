@@ -94,16 +94,32 @@ class CommandDispatcher:
             ctx.console.print("[yellow]已经是会话最初状态，无法撤销。[/yellow]")
             return
 
+        user_found = False
         target_rewind_id = None
         for entry in reversed(path):
             role = getattr(entry, "role", None) or getattr(getattr(entry, "message", None), "role", None)
             if role == "user":
+                user_found = True
                 target_rewind_id = entry.parent_id
                 break
 
-        if target_rewind_id is None:
+        if not user_found:
             ctx.console.print("[yellow]未找到可回退的用户交互节点。[/yellow]")
             return
+
+        if target_rewind_id is None:
+            # 找到首轮 user entry，其 parent_id 为 None，说明回退将重置至会话最初空白状态
+            try:
+                session.reset()
+                if hasattr(self.agent, "agent") and hasattr(self.agent.agent, "_init_messages"):
+                    self.agent.agent.messages = self.agent.agent._init_messages(
+                        session, getattr(self.agent.agent, "_system_prompt", None)
+                    )
+                ctx.console.print("[green]↺ 已成功回退至会话最初状态，上一轮对话已安全撤销。[/green]")
+                return
+            except Exception as e:
+                ctx.console.print(f"[red]撤销失败: {e}[/red]")
+                return
 
         try:
             session.rewind(target_rewind_id)
