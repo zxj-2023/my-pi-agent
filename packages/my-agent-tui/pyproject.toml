@@ -5,6 +5,7 @@ description = "my_agent_tui: terminal UI, REPL, and interactive presentation lay
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "httpx>=0.28.1",
     "my-coding-agent",
     "prompt-toolkit>=3.0.43",
     "rich>=13.7.0",

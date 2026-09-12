@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Any, Callable
 from rich.console import Console
 from rich.table import Table
 
+from my_agent_llm.auth import antigravity as antigravity_auth
+from my_agent_llm.auth import quota as quota_auth
+from my_agent_llm.auth.antigravity import AntigravityCredentials
+from my_agent_llm.config import Config
+
 if TYPE_CHECKING:
     from my_coding_agent.agent import CodingAgent
 
@@ -69,6 +74,9 @@ class CommandDispatcher:
         self.register("session", self._cmd_session, "查看当前会话状态与 Token 统计")
         self.register("tasks", self._cmd_tasks, "查看项目 TaskStore 待办看板")
         self.register("mcp", self._cmd_mcp, "查看已挂载的 MCP 服务器与工具")
+        self.register("quota", self._cmd_quota, "查询 Google Antigravity 模型剩余配额与重置时间")
+        self.register("login", self._cmd_login, "自省并连接 Antigravity 等本地 OAuth 鉴权凭据")
+        self.register("model", self._cmd_model, "查看或即时热切换当前 Agent 底层模型")
         self.register("exit", self._cmd_exit, "退出当前交互式会话")
         self.register("quit", self._cmd_exit, "退出当前交互式会话")
 
@@ -189,6 +197,130 @@ class CommandDispatcher:
         ctx.console.print(f"[bold]已挂载 MCP 工具数:[/bold] {len(mcp_tools)}")
         for t in mcp_tools:
             ctx.console.print(f"  • [cyan]{t.name}[/cyan]: {t.description}")
+
+    async def _cmd_quota(self, ctx: CommandContext) -> None:
+        ctx.console.print("[cyan]📊 正在查询 Antigravity 模型配额余量...[/cyan]", highlight=False)
+        resolver = antigravity_auth.AntigravityAuthResolver()
+        creds = resolver.resolve_credentials_raw()
+        if creds is None:
+            creds = AntigravityCredentials(access_token="")
+
+        try:
+            buckets = quota_auth.retrieve_user_quota_summary(creds)
+        except Exception as e:
+            ctx.console.print(f"[red]查询配额失败: {e}[/red]", highlight=False)
+            return
+
+        if not buckets:
+            ctx.console.print(
+                "[yellow]未能获取到配额信息，请确认已通过 /login antigravity 登录或配置有效凭据。[/yellow]",
+                highlight=False,
+            )
+            return
+
+        table = Table(
+            title="Google Antigravity 模型配额余量",
+            show_header=True,
+            header_style="bold cyan",
+            highlight=False,
+        )
+        table.add_column("模型 / 配额项", style="bold")
+        table.add_column("剩余配额", justify="right")
+        table.add_column("重置时间", style="dim")
+
+        for b in buckets:
+            pct = b.remaining_percent
+            if pct >= 50:
+                pct_style = "green"
+            elif pct >= 20:
+                pct_style = "yellow"
+            else:
+                pct_style = "red"
+
+            filled_bars = int(round(pct / 10))
+            empty_bars = 10 - filled_bars
+            bar_visual = f"[{pct_style}]{'█' * filled_bars}{'░' * empty_bars}[/{pct_style}]"
+
+            remaining_str = f"{bar_visual} [{pct_style}]{pct}%[/{pct_style}]"
+            reset_time_str = b.reset_time if b.reset_time else "-"
+            table.add_row(b.display_name or b.bucket_id, remaining_str, reset_time_str)
+
+        ctx.console.print(table)
+
+    async def _cmd_login(self, ctx: CommandContext) -> None:
+        provider = ctx.raw_args.strip().lower()
+        if not provider:
+            ctx.console.print("[dim]用法: /login antigravity[/dim]", highlight=False)
+            return
+
+        if provider not in ("antigravity", "google-antigravity"):
+            ctx.console.print(
+                f"[yellow]暂不支持为提供商 '{provider}' 进行交互登录。目前支持: antigravity[/yellow]",
+                highlight=False,
+            )
+            return
+
+        resolver = antigravity_auth.AntigravityAuthResolver()
+        creds = resolver.resolve_credentials_raw()
+        if creds is None:
+            ctx.console.print(
+                f"[yellow]未在本地检测到 Antigravity 鉴权凭据。[/yellow]\n"
+                f"[dim]请确保本地存在 {resolver.pi_auth_path} 或 {resolver.credentials_path}，"
+                f"或设置 ANTIGRAVITY_ACCESS_TOKEN 环境变量。[/dim]",
+                highlight=False,
+            )
+            return
+
+        if resolver.is_expired(creds):
+            if creds.refresh_token:
+                ctx.console.print("[cyan]🔄 检测到凭据已过期，正在尝试静默刷新...[/cyan]", highlight=False)
+                try:
+                    creds = resolver.refresh(creds)
+                    ctx.console.print("[green]✓ Antigravity 凭据已成功刷新！[/green]", highlight=False)
+                except Exception as e:
+                    ctx.console.print(f"[red]刷新 Antigravity 凭据失败: {e}[/red]", highlight=False)
+                    return
+            else:
+                ctx.console.print("[yellow]! Antigravity 凭据已过期且无可用的 refresh_token。[/yellow]", highlight=False)
+                return
+
+        source = creds.auth_file_path.name if creds.auth_file_path else "环境变量"
+        ctx.console.print("[green]✓ 成功连接本地 Antigravity 凭据！[/green]", highlight=False)
+        ctx.console.print(f"  • [bold]凭据来源:[/bold] {source}", highlight=False)
+        ctx.console.print(f"  • [bold]项目 ID:[/bold] {creds.project_id}", highlight=False)
+        if creds.email:
+            ctx.console.print(f"  • [bold]登录账号:[/bold] {creds.email}", highlight=False)
+
+    async def _cmd_model(self, ctx: CommandContext) -> None:
+        target_model = ctx.raw_args.strip()
+        llm = getattr(getattr(self.agent, "agent", None), "llm", None)
+        if not target_model:
+            curr_model = "unknown"
+            if llm is not None and hasattr(llm, "config") and llm.config is not None:
+                curr_model = getattr(llm.config, "model", "unknown")
+            ctx.console.print(f"[bold]当前模型:[/bold] [cyan]{curr_model}[/cyan]", highlight=False)
+            ctx.console.print("[dim]使用方式: /model <model_name> 切换模型[/dim]", highlight=False)
+            ctx.console.print(
+                "[dim]常用模型: gemini-3.8-flash, gemini-3.8-pro, gemini-3.7-flash, gpt-4o, claude-3-7-sonnet[/dim]",
+                highlight=False,
+            )
+            return
+
+        if llm is not None:
+            if hasattr(llm, "config") and llm.config is not None and hasattr(llm.config, "model_copy"):
+                llm.config = llm.config.model_copy(update={"model": target_model})
+                if (
+                    hasattr(llm, "_provider")
+                    and hasattr(llm._provider, "config")
+                    and hasattr(llm._provider.config, "model_copy")
+                ):
+                    llm._provider.config = llm._provider.config.model_copy(update={"model": target_model})
+            elif hasattr(llm, "config") and llm.config is not None:
+                setattr(llm.config, "model", target_model)
+            else:
+                llm.config = Config(provider="openai", model=target_model, api_key="placeholder")
+
+        ctx.console.print(f"[green]✓ 模型已成功切换为:[/green] [bold cyan]{target_model}[/bold cyan]", highlight=False)
 
     async def _cmd_exit(self, ctx: CommandContext) -> None:
         self.exit_requested = True
