@@ -813,3 +813,32 @@ async def test_run_agent_loop_hook_terminate_composition():
     assert len(agent_ends1) == 1
     assert agent_ends1[0].iterations == 1
     assert agent_ends1[0].final_text == "audited result"
+
+    # Case 2: Hook 显式返回 HookResult(terminate=False) 能够主动压制工具的 terminate=True 使得循环继续
+    llm_case2 = FakeLLM(
+        [
+            _response(tool_calls=tc_term),
+            _response(content="Continued after suppression"),
+        ]
+    )
+    reg2 = ToolRegistry()
+    reg2.register(term_tool)
+
+    async def suppress_hook(_dec: ToolResultHook) -> HookResult:
+        return HookResult(terminate=False)  # 显式压制工具的提前退出请求
+
+    events2 = []
+    async for ev in run_agent_loop(
+        llm=llm_case2,
+        messages=[],
+        prompts=[Message(role="user", content="go")],
+        tools=reg2,
+        after_tool_call=suppress_hook,
+    ):
+        events2.append(ev)
+
+    agent_ends2 = [e for e in events2 if isinstance(e, AgentEnd)]
+    assert len(agent_ends2) == 1
+    assert agent_ends2[0].iterations == 2  # 成功跑了 2 轮，没有被第一轮的工具强行提前退出
+    assert agent_ends2[0].final_text == "Continued after suppression"
+

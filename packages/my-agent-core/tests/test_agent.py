@@ -645,3 +645,31 @@ async def test_agent_subscribe_listener():
     pre_len = len(observed)
     await agent.run("say hello again")
     assert len(observed) == pre_len
+
+
+@pytest.mark.anyio
+async def test_agent_notify_async_and_never_throw(tmp_path: Path):
+    """_notify 统一广播器：异步订阅者安全 await，异常订阅者完全吞默隔离（Never-Throw）。"""
+    session = Session(path=tmp_path / "notify_session.jsonl")
+    llm = FakeLLM([_response(content="Notify test")])
+    agent = _agent(llm, session=session)
+
+    async_events: list[Event] = []
+
+    async def async_subscriber(ev: Event) -> None:
+        async_events.append(ev)
+
+    def crashing_subscriber(_ev: Event) -> None:
+        raise RuntimeError("Subscriber explosion!")
+
+    agent.subscribe(crashing_subscriber)
+    agent.subscribe(async_subscriber)
+
+    # crashing_subscriber 抛出异常不影响 agent.run() 正常收官
+    res = await agent.run("trigger notify")
+    assert res == "Notify test"
+    # async_subscriber 成功异步接收到所有事件
+    assert len(async_events) >= 3
+    assert any(isinstance(e, AgentStart) for e in async_events)
+    assert any(isinstance(e, AgentEnd) for e in async_events)
+

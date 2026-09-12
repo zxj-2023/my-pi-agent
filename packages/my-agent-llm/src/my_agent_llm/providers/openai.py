@@ -106,13 +106,16 @@ class OpenAIProvider(Provider):
                             wire_calls.append(
                                 ToolCall.model_validate(tc).to_wire_dict()
                             )
-                result.append(
-                    {
-                        "role": "assistant",
-                        "content": msg.content or None,
-                        "tool_calls": wire_calls,
-                    }
-                )
+                if wire_calls:
+                    result.append(
+                        {
+                            "role": "assistant",
+                            "content": msg.content or None,
+                            "tool_calls": wire_calls,
+                        }
+                    )
+                else:
+                    result.append({"role": "assistant", "content": msg.content or ""})
             elif msg.role == "tool" and msg.metadata:
                 result.append(
                     {

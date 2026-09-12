@@ -199,13 +199,24 @@ async for event in agent.prompt_stream("帮我重构这个模块"):
         print(f"\n[Finished] Total iterations: {event.iterations}")
 ```
 
-### 2. 观察者模式：`subscribe`
+### 2. 观察者模式：`subscribe` 与 `_notify` 广播管道
 
-支持向 Agent 注册只读监听函数：
+对标 Pi 的 `AgentSession.subscribe` 与 Tau 的 `AgentHarness.subscribe`，`Agent` 实现了轻量只读观察者管道：
 
 ```python
-agent.subscribe(lambda event: print(f"Audit log: {type(event).__name__}"))
+# 注册监听器（返回注销句柄）
+unsubscribe = agent.subscribe(lambda event: print(f"Audit log: {type(event).__name__}"))
+
+# 业务注销（零内存泄露隐患）
+unsubscribe()
 ```
+
+#### 核心实现不变式（`Agent._notify`）：
+1. **快照遍历（Snapshot Iteration）**：使用 `for sub in list(self._subscribers)` 遍历快照，防止回调函数在执行中反注册导致的遍历变异竞态；
+2. **异常隔离（Never-Throw Guarantee）**：使用 `with contextlib.suppress(Exception):` 隔离监听器异常，旁路订阅者的任何错误绝对不会中断主循环；
+3. **同异步自适应（Adaptive Dispatch）**：`if inspect.isawaitable(res): await res`，无论监听器写成同步 `def` 还是异步 `async def` 均能无缝等待；
+4. **注销令牌（Teardown Token）**：`subscribe` 返回闭包句柄，通过对象引用精确定位移除，消除索引耦合；
+5. **全触点覆盖**：在 `UserInputHook` 阻断退出、`AgentStartHook` 阻断退出、`prompt_stream` 主事件循环、以及上下文压缩写回 4 大触点统一触发广播。
 
 ### 3. 便利门面：`run`
 

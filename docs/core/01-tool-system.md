@@ -57,6 +57,7 @@ def calculate(expr: str, precision: int = 2) -> float:
 ```
 
 - 底层使用 `pydantic.create_model` 从函数形参、类型注解与默认值动态合成参数验证模型；
+- **保留参数过滤（`_FRAMEWORK_RESERVED_PARAMS`）**：自动从生成的 JSON Schema 中过滤掉框架注入保留参数（`on_update`, `signal`），防止大模型幻觉生成这些内部控制参数；
 - 自动生成符合 OpenAI / Anthropic 规范的 Function Calling JSON Schema 字典；
 - 运行时在调用真实函数前通过 `params_model.model_validate` 进行强类型校验与宽松类型转换（如 `"37"` 自动转换为 `37`）。
 
@@ -71,10 +72,11 @@ def calculate(expr: str, precision: int = 2) -> float:
 ```python
 @dataclass
 class ToolResult:
-    """工具执行结果：成功/失败 + 数据或错误消息 + 结构化元数据。"""
+    """工具执行结果：成功/失败 + 数据或错误消息 + 熔断提前退出标记 + 结构化元数据。"""
     ok: bool
     data: Any = None
     error: str | None = None
+    terminate: bool = False
     meta: dict[str, Any] = field(default_factory=dict)
 
     def serialize(self) -> str:

@@ -47,6 +47,18 @@
 
 ### 2. 框架核心层 `my-agent-core`
 
+- **[纯函数 ReAct 微内核与七阶段工具流水线（loop & 7-stage pipeline）](docs/core/03-agent-loop.md)**：
+  - `run_agent_loop` 纯函数无状态异步微内核（约 110 行状态机，与类状态彻底解耦）
+  - **工业级七阶段工具执行流水线**：
+    1. 阶段 1 截断防御（`stop_reason="length"` 安全挂起未完成工具，注入自纠正指引）；
+    2. 阶段 2 畸形调用防崩（`_coerce_tool_call` 统一参数防穿帮，产生合成错误结果）；
+    3. 阶段 3 预检（`ToolExecutionStart` 严谨成对发射）；
+    4. 阶段 4 门禁拦截（`before_tool_call` 提前裁决阻断或改写）；
+    5. 阶段 5 实时进度流（`ToolExecutionUpdate` 跨线程安全队列 + 锁存器防迟到更新）；
+    6. 阶段 6 结果后处理（`after_tool_call` 改写与 `ToolExecutionEnd` 广播）；
+    7. 阶段 7 批次提前退出（`ToolResult.terminate` + Hook 三态熔断 + `any()` 退出保护 `final_text`）。
+  - **对话转录本拓扑自愈引擎（`tool_history.py`）**：三阶段状态机消除断头调用，彻底消灭 API 400 校验死锁
+  - **只读轻量事件订阅管道（`agent.subscribe`）**：支持同步/异步监听器，`_notify` 异常隔离广播（Never-Throw 保证），返回 `unsubscribe()` 闭包注销句柄
 - **[工具系统（tools & registry）](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/)**：
   - `@tool` 装饰器：基于 Pydantic 动态提取函数签名生成 OpenAI/Anthropic 兼容的 JSON Schema
   - `Tool` 实体：支持 `raw_schema`（外部/远程 Schema 透传）与 `is_parallel_safe`（声明式并发标记）
@@ -179,7 +191,7 @@ my-pi-agent/
 │   └── coding/                     # 产品与编码层规范 (01-file-tools.md, 02-mcp-client.md)
 │
 ├── packages/
-│   ├── my-agent-llm/               # 模型边界层独立 uv 项目 (36 tests)
+│   ├── my-agent-llm/               # 模型边界层独立 uv 项目 (51 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_llm/       # Python 包
 │   │   │   ├── client.py           # LLM 门面（chat/stream/achat/achat_stream）
@@ -188,7 +200,7 @@ my-pi-agent/
 │   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
 │   │   └── tests/                  # 离线测试（假 SDK 注入）
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (320 tests)
+│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (337 tests)
 │   │   ├── pyproject.toml          # src 布局 + hatchling 构建
 │   │   ├── src/my_agent_core/      # Python 包
 │   │   │   ├── agent.py            # Agent 轻量 Harness 外壳（prompt_stream 与事件订阅）

@@ -446,7 +446,7 @@ my-pi-agent/
 - 提交：`314bec1` `931cf24` `59fa538`
 - **改了什么**：
   - `message_queue.py`（新增）：定义 `MessageType` (`STEERING`, `FOLLOWUP`)、`QueuedMessage`、`MessageQueue`，支持 `one-at-a-time`（单步推进）与 `all`（批注入）消费模式。
-  - `agent.py`：重构 `run()` 为两层循环；外层 `while True:` 驱动 Follow-up 队列与宏观任务流转，内层 `while has_more_tool_calls or len(pending_messages) > 0:` 驱动 ReAct 微观步骤与 Steer 转向；实现三大安全点（Turn 起点原子落盘、工具批执行后 Steer 检查、无工具输出期 Steer 拦截防止早退）；暴露 `steer()` / `follow_up()` / `clear_queue()` / `get_queue_status()`，`abort()` 清空队列。
+  - `agent.py`：重构 `run()` 为两层循环；外层 `while True:` 驱动 Follow-up 队列与宏观任务流转，内层 `while has_more_tool_calls or len(pending_messages) > 0:` 驱动 ReAct 微观步骤与 Steer 转向；实现三大安全点（Turn 起点原子落盘、工具批执行后 Steer 检查、无工具输出期 Steer 拦截防止早退）；暴露 `steer()` / `follow_up()`（内部队列操作由 `self.message_queue` 统一管理），`abort()` 清空队列。
   - `tasks.py`：`TaskManager` 内部维护 `_active_agents: dict[str, Agent]`，提供 `steer_task(task_id, msg)` 与 `follow_up_task(task_id, msg)`。
   - `__init__.py`：导出 `MessageQueue`、`MessageType`、`QueuedMessage`。
   - 测试：新增 `tests/test_message_queue.py`（5 项单测）与 `tests/test_agent_steering.py`（5 项单测），`tests/test_tasks.py` 扩充 1 项。
@@ -612,6 +612,34 @@ my-pi-agent/
 
 ---
 
+### 阶段 20：工业级七阶段工具执行流水线与订阅管道收敛（2026-09-12）
+
+**目标**：对标 Pi 工业级七阶段工具执行流水线，在 `loop.py` 微内核中引入阶段 1 截断防御（`stop_reason="length"`）、阶段 5 跨线程队列 `ToolExecutionUpdate` 实时进度流、阶段 7 `any()` 批次提前退出与 `final_text` 传递；清理 `agent.py` 遗留兼容垫片与死代码，统一收敛 `_notify` 只读事件订阅管道（完成阶段 16），并修复模型层空 `tool_calls: []` 触发 HTTP 400 隐患。
+
+- **改了什么**：
+  - `loop.py`（七阶段工具流水线落地）：
+    1. **阶段 1 截断防御（Truncation Defense）**：在 `stop_reason == "length"` 时切入 `_fail_tool_calls_from_truncated_message`，成对发射 `ToolExecutionStart`/`End(is_error=True)` 并注入错误指引，阻止残缺截断工具调用越界执行；
+    2. **阶段 2 畸形调用防崩（Error Containment）**：`_coerce_tool_call` 统一捕获工具参数序列化异常并包装为合成错误，杜绝未处理异常中断异步生成器；
+    3. **阶段 5 实时进度流（Real-time Streaming Updates）**：在 `Tool.execute` 中引入 `on_update` 回调，过滤保留参数（`_FRAMEWORK_RESERVED_PARAMS`），建立 `asyncio.Queue` 跨线程安全桥（`loop.call_soon_threadsafe` 处理 `to_thread` 同步工具），并通过 `accepting_updates` 锁存器杜绝工具结束后的迟到更新；队列生产者无条件在 `finally:` 发射 `_SENTINEL` 杜绝死锁；
+    4. **阶段 7 批次提前退出（Batch Early-Exit）**：`ToolResult` 增加 `terminate: bool = False`，`HookResult` 增加三态 `terminate: bool | None = None`；整批工具执行完毕后以 `any()` 语义评估是否熔断退出，并保证保留最后的有效终态文本 `final_text`。
+  - `agent.py`（Harness 瘦身与管道 A 闭环）：
+    1. 彻底删除零引用的死代码 `_emit`，移除死方法 `clear_queue` 与 `get_queue_status`（收敛于公开属性 `self.message_queue`）；
+    2. 清理 `compact(self)` 的死参数 `_custom_instructions`；
+    3. 将静态兼容赋值 `self.skills = self.skill_manager.list()` 重构成只读动态属性 `@property def skills`，彻底消除动态注册 skill 时的脱节隐患；
+    4. 修正构造函数 `hooks` 参数类型注解为 `list[tuple[type, Callable[..., Any]]] | None`；
+    5. 收敛 4 处重复手写的广播循环为统一的 `_notify(event)` 助手，支持同步/异步监听器，并由 `contextlib.suppress(Exception)` 彻底保障 Never-Throw 契约；
+    6. 将 `prompt_stream` 中的历史恢复统一为 `self.session.get_full_history_messages()`，避免压缩缓存节点混入空白系统消息。
+  - `my-agent-llm/providers/openai.py`：
+    - 在消息转 wire 协议时，仅在 `wire_calls` 非空时才附加 `"tool_calls"` 键，杜绝上游接口空列表 HTTP 400 校验死锁。
+  - 测试：
+    - `test_agent_loop_pure.py` 扩充截断防御、批次 `any()` 提前退出、三态 Hook 熔断与反向压制测试；
+    - `test_loop_subgenerators.py` 扩充跨线程进度流及 `Tool.execute` 锁存器 Spy 校验；
+    - `test_agent.py` 扩充 `_notify` 异步订阅者与异常隔离单测；
+    - `test_openai_provider.py` 补充空 `tool_calls` 消息转换单测。
+- **验证**：三包全量 **410 个离线测试**（core 337 + llm 51 + coding 22）100% 绿灯全通，零回归，Primary LSP 类型检查 100% clean。
+
+---
+
 ## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
@@ -630,6 +658,9 @@ my-pi-agent/
 - 阶段 8：统一 Task / Todo 系统与后台异步执行（已完成，246 + 36 + 22 = 304 测试全绿）
 - 阶段 17：对话转录本自愈与断头保护引擎（已完成，对标 Tau tool_history.py，312 测试全绿）
 - 阶段 18：Tau 对齐核心框架深度重塑（已完成，session/ 拆包、纯函数 loop.py 微内核与 prompt_stream 事件流，320 + 36 + 22 = 378 测试全绿）
+- 阶段 19：事件与拦截解耦正交重塑（已完成，纯函数微内核、强类型路由与 TurnEnd 闭合，389 测试全绿）
+- 阶段 16：事件管道 A——只读轻量事件订阅管道（`agent.subscribe` + `_notify` 异常隔离广播与 `unsubscribe()` 注销句柄，已完成）
+- 阶段 20：工业级七阶段工具流水线（截断防御、流式进度、批次熔断提前退出，410 测试全绿，已完成）
 - 阶段 6：动态工具（未做）
-- 阶段 16：事件管道 A——只读轻量事件订阅管道（`session.subscribe` / `agent.subscribe`，fire-and-forget 同步非阻塞广播 + `unsubscribe()` 注销句柄）
+- coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
 - coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层

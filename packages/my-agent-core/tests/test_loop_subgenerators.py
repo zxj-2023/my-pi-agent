@@ -556,6 +556,15 @@ async def test_execute_tools_turn_accepting_updates_latch():
     assert len(updates) == 1
     assert updates[0].partial_result == "early update: hi"
 
+    # 直接针对 Tool.execute 进行 spy 断言，确证锁存器阻断了后续回调传递
+    called = []
+    target_tool = reg.get("leaky_tool")
+    assert target_tool is not None
+    await target_tool.execute({"msg": "hi2"}, on_update=called.append)
+    assert saved_cb is not None
+    saved_cb("late update 2")
+    assert called == ["early update: hi2"]
+
 
 def test_reserved_params_excluded_from_schema():
     """验证阶段 5 参数反射保护：on_update, signal, tool_call_id 不会被暴露进 LLM Schema。"""

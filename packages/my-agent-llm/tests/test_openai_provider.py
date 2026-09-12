@@ -239,3 +239,22 @@ def test_stream_aggregates_tool_calls():
         "total_tokens": 15,
     }
     assert chunks[0].finish_reason == "tool_calls"  # 末块透传循环内捕获的 finish_reason
+
+
+def test_convert_messages_skips_empty_tool_calls():
+    """assistant 消息包含空的 tool_calls: [] 时，不产生 tool_calls 键（防 400）。"""
+    p = _provider([make_openai_response()])
+    p.chat(
+        [
+            Message(
+                role="assistant",
+                content="done",
+                metadata={"tool_calls": []},
+            ),
+        ],
+        model="gpt-4.1-mini",
+    )
+    call = p.client.calls[0]
+    assert call["messages"] == [{"role": "assistant", "content": "done"}]
+    assert "tool_calls" not in call["messages"][0]
+

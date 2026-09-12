@@ -91,7 +91,7 @@ class Agent:
         context 默认启用（每次 llm.chat 前 prepare 压缩视图）。
         skill_dirs 为 skill 机制来源：None → 探测 <cwd>/.agents/skills（不存在则空）；
         [] → 显式禁用；非空 list → 只扫这些目录。构造 skill_manager 追加清单块进
-        system；self.skill_manager 公开可读，self.skills = manager.list()（兼容代理）。
+        system；self.skill_manager 公开可读，self.skills 为动态计算属性（@property 代理 manager.list()）。
         正文由宿主 invoke_skill 显式注入（模型侧无 read 工具）。
         subagent_dirs 三态同 skill_dirs：None → 探测 <cwd>/.agents/agents；[] → 禁用；
         非空 → 只扫这些目录。有 agent 时清单追加进 system，且自动装配 task 工具。
