@@ -153,7 +153,11 @@ async def test_bash_dangerous(tmp_path):
     bash = make_bash_tool(tmp_path)
     result = await bash.execute({"command": "sudo rm -rf /"})
     # 新工具: "Error: Blocked dangerous command pattern 'rm -rf /'"
-    assert "rm -rf /" in result.data or "Blocked" in result.data or "blocked" in result.data
+    assert (
+        "rm -rf /" in result.data
+        or "Blocked" in result.data
+        or "blocked" in result.data
+    )
 
 
 @pytest.mark.anyio

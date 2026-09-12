@@ -98,7 +98,14 @@ def test_shared_string_compatible_tool_result(tmp_path: Path):
     from my_coding_agent.tools.read import ReadResult
     from my_coding_agent.tools.write import WriteResult
 
-    for cls in (ReadResult, WriteResult, EditResult, BashResult, GrepResult, FindResult):
+    for cls in (
+        ReadResult,
+        WriteResult,
+        EditResult,
+        BashResult,
+        GrepResult,
+        FindResult,
+    ):
         assert issubclass(cls, StringCompatibleToolResult), (
             f"{cls.__name__} should inherit StringCompatibleToolResult"
         )

@@ -20,7 +20,6 @@ from my_coding_agent.tools.base import (
     StringCompatibleToolResult,
 )
 
-
 BLOCKED_COMMANDS = {
     "rm -rf /",
     "rm -rf /*",
