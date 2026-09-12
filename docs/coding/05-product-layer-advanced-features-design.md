@@ -344,6 +344,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/coding-agent/src/core/output-guard.ts`。
 
 ### 14.1 痛点与解决方案
+
 - **痛点**：在 Python 交互式终端运行时，底层第三方网络库（如 `httpx`、`urllib3`、未静默的 `logging`）或某些调用了 `print()` 的库函数可能随时向 `sys.stdout` 写入乱入文本，这会直接击穿终端的流式输出缓冲区，导致光标错位、文字重叠折叠与花屏；
 - **实现方案 (`OutputGuard`)**：
   - 启动终端交互时，调用 `take_over_stdout()` 接管标准输出：
@@ -359,6 +360,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/tui/src/alt-screen-search.ts`。
 
 ### 15.1 痛点与解决方案
+
 - **痛点**：随着多轮开发深入，会话历史可能累积数千行代码与思考记录，终端自带的滚轮向上翻找极其低效，而在某些终端模式下系统 Ctrl+F 搜索无法定位动态滚动的字符流；
 - **实现方案 (`/search` 与快捷检索)**：
   - 构建轻量级纯文本分词索引库（去除 ANSI 转义序列），维护行号与字符坐标投影；
@@ -372,17 +374,21 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/coding-agent/src/core/compaction/compaction.ts`。
 
 ### 16.1 动态 Token 水线自动压缩 (`shouldCompact`)
+
 - **机制**：摆脱依赖用户每次在脑海中估算 Token 并手动敲 `/compact` 的笨拙体验；
 - **判定公式**：
+
   ```python
   def should_compact(context_tokens: int, context_window: int, reserve_tokens: int = 16384) -> bool:
       return context_tokens > (context_window - reserve_tokens)
   ```
+
 - **最近轮次安全护栏 (`keepRecentTokens = 20000`)**：
   - 触发压缩时，从最新一条消息向前倒推累加，保留至少 20,000 Token 的最近完整对话**绝对不予裁剪压缩**；
   - 仅对更早的历史会话发起 LLM 结构化摘要总结，确保开发者当前正在讨论的代码和思路 100% 保持精准原貌！
 
 ### 16.2 跨多轮压缩的文件足迹持久继承 (`extractFileOperations`)
+
 - **痛点**：在长达几小时的长任务中，往往会发生 2 次甚至 3 次连续上下文压缩。如果每次压缩只从当前被裁剪的消息中抓取文件，那么更早之前修改或读取过的核心文件列表就会在第二次压缩时被彻底抹去！
 - **解法**：
   - `CompactionEntry` 中持久化记录 `details = {"readFiles": [...], "modifiedFiles": [...]}`；
@@ -396,6 +402,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
 学习自 **Pi** 的 `packages/coding-agent/src/core/agent-session.ts`。
 
 ### 17.1 上下文超限自动纠正自愈 (`isContextOverflow`)
+
 - **痛点**：当大模型因单轮提问过长或工具返回极其庞大导致抛出 API 400（"maximum context length exceeded"）或 `stop_reason="length"` 截断异常时，普通框架会直接向用户抛异常崩溃；
 - **自愈机制**：
   1. `AgentSession` 自动拦截探测 `is_context_overflow(err_msg, context_window)`；
@@ -404,6 +411,7 @@ ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取
   4. 压缩完成后自动调用 `agent.continue()` 无缝重试该轮请求！长任务在遇到上下文天花板时**自动脱困自愈，绝不崩溃**！
 
 ### 17.2 网络抖动与临时故障指数退避重试 (`RetryPolicy`)
+
 - 针对可恢复的瞬态故障（HTTP 429 速率限制、500/502/503/504 服务器过载、网络连接重置）：
 - 采用严格的指数退避重试算法：
   `delay = min(max_delay, base_delay * (backoff_factor ** attempt))`
