@@ -46,7 +46,9 @@ def build_default_coding_prompt(workspace: Path | str) -> str:
 
     if injected_contexts:
         sections.append(
-            "<project_context>\n" + "\n\n".join(injected_contexts) + "\n</project_context>"
+            "<project_context>\n"
+            + "\n\n".join(injected_contexts)
+            + "\n</project_context>"
         )
 
     return "\n\n".join(sections)

@@ -53,4 +53,3 @@ def test_build_prompt_handles_unreadable_file(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(Path, "read_text", mock_read_text)
     prompt = build_default_coding_prompt(tmp_path)
     assert "<project_context>" not in prompt
-
