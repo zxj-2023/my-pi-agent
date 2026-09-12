@@ -124,11 +124,13 @@ class ToolResult:
 | **维度 2：单工具执行 (主线程 vs 子线程)** | 这个工具自身会阻塞事件循环吗？ | `Tool.execute` (基于 `inspect.iscoroutinefunction`) | 异步（`async def`）：主线程协程直接跑；同步（普通 `def`）：扔进系统线程池 `asyncio.to_thread` |
 
 ### 1. 异步队列里流动的到底是什么？
+>
 > **关键认知**：  
 > 异步队列 `queue` 里面装的**不是工具执行的最终返回值（`ToolResult`）**！最终结果是在批处理 Task 结束时由 `batch_out = await runner` 一次性拉取的列表。  
 > **队列里流动的，纯粹是工具执行中途发射出来的“实时过程流式事件”（`ToolExecutionUpdate`）**。
 
-### 2. 并行与串行在流水线中的具体运行行为：
+### 2. 并行与串行在流水线中的具体运行行为
+
 - **并行模式（全只读安全工具）**：
   - 宏观上 `execute_batch` 使用 `asyncio.gather` 同时打出所有工具；
   - 异步协程工具在主事件循环运行，同步阻塞工具被 `asyncio.to_thread` 发配到各个工作子线程运行；
@@ -156,4 +158,3 @@ class ToolResult:
    - **封装阻塞式系统库的工具（`bash`）**：调用原生的 `subprocess.run(...)`。
 3. **框架的自适应无感桥接（Zero Mental Overhead）**：
    `Tool.execute` 内部根据 `self.is_async` 自动路由：`async def` 直接协程 `await`，普通 `def` 自动包裹 `asyncio.to_thread`。开发者想怎么写就怎么写，既不卡死 Agent 主事件循环，又拥有极致执行性能。
-
