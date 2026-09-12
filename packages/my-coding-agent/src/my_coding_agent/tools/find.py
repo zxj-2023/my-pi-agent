@@ -63,9 +63,7 @@ def make_find_tool(workspace: Path | str) -> Tool:
                 ):
                     matched_paths.append(rel)
                     if len(matched_paths) >= limit:
-                        matched_paths.append(
-                            f"[Truncated at limit of {limit} results]"
-                        )
+                        matched_paths.append(f"[Truncated at limit of {limit} results]")
                         return "\n".join(matched_paths)
             else:
                 for root, dirs, files in os.walk(target_root):
