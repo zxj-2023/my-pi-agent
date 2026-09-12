@@ -38,7 +38,7 @@ def make_write_tool(
 
             async with queue.acquire(target):
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
+                target.write_text(content, encoding="utf-8", newline="")
                 bytes_count = len(content.encode("utf-8"))
                 lines_count = len(content.splitlines())
                 return f"Successfully wrote {bytes_count} bytes ({lines_count} lines) to {path}"

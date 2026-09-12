@@ -70,16 +70,16 @@ def make_grep_tool(workspace: Path | str) -> Tool:
                 if is_binary_file(file_path):
                     continue
                 try:
-                    rel = file_path.relative_to(workspace)
+                    rel_str = str(file_path.relative_to(workspace)).replace("\\", "/")
                 except ValueError:
-                    rel = file_path
+                    rel_str = str(file_path).replace("\\", "/")
 
                 try:
                     with open(file_path, encoding="utf-8", errors="replace") as f:
                         for lineno, line in enumerate(f, start=1):
                             if compiled_regex.search(line):
                                 clean_line = line.rstrip("\r\n")
-                                matches.append(f"{rel}:{lineno}: {clean_line}")
+                                matches.append(f"{rel_str}:{lineno}: {clean_line}")
                                 if len(matches) >= max_matches:
                                     matches.append(
                                         f"[Reached maximum limit of {max_matches} matches]"
