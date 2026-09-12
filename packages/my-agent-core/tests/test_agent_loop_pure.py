@@ -785,7 +785,9 @@ async def test_run_agent_loop_hook_terminate_composition():
             "function": {"name": "term_tool", "arguments": "{}"},
         }
     ]
-    llm_case1 = FakeLLM([_response(tool_calls=tc_term), _response(content="Unreachable")])
+    llm_case1 = FakeLLM(
+        [_response(tool_calls=tc_term), _response(content="Unreachable")]
+    )
 
     @tool
     def term_tool() -> ToolResult:
