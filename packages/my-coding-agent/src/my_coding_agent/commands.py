@@ -93,9 +93,7 @@ class CommandDispatcher:
 
         target_rewind_id = None
         for entry in reversed(path):
-            role = getattr(entry, "role", None) or getattr(
-                getattr(entry, "message", None), "role", None
-            )
+            role = getattr(entry, "role", None) or getattr(getattr(entry, "message", None), "role", None)
             if role == "user":
                 target_rewind_id = entry.parent_id
                 break
@@ -110,9 +108,7 @@ class CommandDispatcher:
                 self.agent.agent.messages = self.agent.agent._init_messages(
                     session, getattr(self.agent.agent, "_system_prompt", None)
                 )
-            ctx.console.print(
-                f"[green]↺ 已成功回退至节点 [{target_rewind_id[:8]}]，上一轮对话已安全撤销。[/green]"
-            )
+            ctx.console.print(f"[green]↺ 已成功回退至节点 [{target_rewind_id[:8]}]，上一轮对话已安全撤销。[/green]")
         except Exception as e:
             ctx.console.print(f"[red]撤销失败: {e}[/red]")
 
@@ -121,9 +117,7 @@ class CommandDispatcher:
         try:
             res = await self.agent.compact()
             saved = getattr(res, "tokens_before", "OK") if res is not None else "OK"
-            ctx.console.print(
-                f"[green]✓ 上下文压缩完成！摘要节约 Token: {saved}[/green]"
-            )
+            ctx.console.print(f"[green]✓ 上下文压缩完成！摘要节约 Token: {saved}[/green]")
         except Exception as e:
             ctx.console.print(f"[red]压缩失败: {e}[/red]")
 
@@ -152,23 +146,13 @@ class CommandDispatcher:
         table.add_column("状态", width=12)
         table.add_column("主题", style="bold")
         for t in tasks:
-            st_style = (
-                "green"
-                if t.status == "completed"
-                else "yellow"
-                if t.status == "in_progress"
-                else "dim"
-            )
+            st_style = "green" if t.status == "completed" else "yellow" if t.status == "in_progress" else "dim"
             table.add_row(str(t.id), f"[{st_style}]{t.status}[/{st_style}]", t.subject)
         ctx.console.print(table)
 
     async def _cmd_mcp(self, ctx: CommandContext) -> None:
         registry = getattr(self.agent.agent, "registry", None)
-        tools = (
-            registry._tools.values()
-            if registry and hasattr(registry, "_tools")
-            else []
-        )
+        tools = registry._tools.values() if registry and hasattr(registry, "_tools") else []
         mcp_tools = [t for t in tools if getattr(t, "is_mcp", False)]
         ctx.console.print(f"[bold]已挂载 MCP 工具数:[/bold] {len(mcp_tools)}")
         for t in mcp_tools:
