@@ -65,7 +65,7 @@ async def run_cli_loop(
         try:
             async for event in agent.run_stream(cleaned):
                 renderer.on_event(event)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, KeyboardInterrupt):
             console.print("\n[yellow]已取消当前生成轮次。[/yellow]")
         except Exception as e:
             console.print(f"\n[red]运行出错: {e}[/red]")

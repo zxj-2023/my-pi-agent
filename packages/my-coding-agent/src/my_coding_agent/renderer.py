@@ -91,8 +91,10 @@ class EventRenderer:
             self.console.print(f"   {status} \\[{escape(event.tool_name)}]", highlight=False)
 
             res_str = str(event.result) if event.result is not None else ""
-            # 提取并高亮 Diff
-            if "```diff" in res_str:
+            if event.is_error and res_str:
+                err_preview = res_str[:300] + ("..." if len(res_str) > 300 else "")
+                self.console.print(f"      [dim red]{escape(err_preview)}[/dim red]", highlight=False)
+            elif "```diff" in res_str:
                 m = re.search(r"```diff\r?\n(.*?)(?:\r?\n)?```", res_str, re.DOTALL)
                 if m:
                     diff_block = m.group(1)

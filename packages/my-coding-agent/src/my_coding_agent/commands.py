@@ -138,7 +138,12 @@ class CommandDispatcher:
         ctx.console.print("[cyan]⚙️ 正在执行 L4 智能上下文压缩...[/cyan]")
         try:
             res = await self.agent.compact()
-            saved = getattr(res, "tokens_before", "OK") if res is not None else "OK"
+            pending = getattr(getattr(self.agent, "agent", None), "_ctx", None)
+            info = getattr(pending, "pending_compaction", None)
+            if info and hasattr(info, "tokens_before") and hasattr(info, "tokens_after"):
+                saved = f"{info.tokens_before - info.tokens_after} Tokens ({info.tokens_before} -> {info.tokens_after})"
+            else:
+                saved = getattr(res, "tokens_before", "OK") if res is not None else "OK"
             ctx.console.print(f"[green]✓ 上下文压缩完成！摘要节约 Token: {saved}[/green]")
         except Exception as e:
             ctx.console.print(f"[red]压缩失败: {e}[/red]")
