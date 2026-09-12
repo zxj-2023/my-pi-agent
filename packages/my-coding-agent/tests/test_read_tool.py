@@ -91,7 +91,10 @@ async def test_read_byte_truncation(tmp_path: Path):
 async def test_read_byte_truncation_continuation(tmp_path: Path):
     # 60 lines, each 1000 chars -> total > 50KB
     f = tmp_path / "long_lines.txt"
-    f.write_text("\n".join(f"line {i:03d}: " + ("x" * 990) for i in range(1, 61)), encoding="utf-8")
+    f.write_text(
+        "\n".join(f"line {i:03d}: " + ("x" * 990) for i in range(1, 61)),
+        encoding="utf-8",
+    )
     tool = make_read_tool(tmp_path)
     res = await tool.execute(path="long_lines.txt")
 
