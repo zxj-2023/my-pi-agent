@@ -65,7 +65,7 @@ class EventRenderer:
 
                 if reasoning:
                     if not self._in_thinking:
-                        self.console.print("\n[dim]\U0001F4AD 思考过程:[/dim] ", end="")
+                        self.console.print("\n[dim]\U0001f4ad 思考过程:[/dim] ", end="")
                         self._in_thinking = True
                     self.console.print(Text(str(reasoning), style="dim italic"), end="")
                 elif text:
