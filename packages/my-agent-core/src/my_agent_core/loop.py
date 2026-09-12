@@ -426,7 +426,7 @@ async def _execute_tools_turn(
             terminate=effective_terminate,
         )
 
-        # 产出配对的 Tool 消息并广播 Start/End (阶段 7: 保序写入元数据)
+        # 阶段 7: 产出配对的 Tool 消息实体并携带关键元数据
         tool_msg = Message(
             role="tool",
             content=obs,
@@ -436,6 +436,11 @@ async def _execute_tools_turn(
                 "terminate": effective_terminate,
             },
         )
+
+        # 发射成对的 MessageStart / MessageEnd 事件驱动多层持久化：
+        # 1. 内存层：外层 run_agent_loop 监听到 MessageEnd 会将 tool_msg 追加到 messages 列表，供给下一轮大模型推理；
+        # 2. 磁盘层：外壳层 Agent.prompt_stream 监听到 MessageEnd 会触发 session.add_message 原子落盘到 JSONL 文件；
+        # 3. 熔断层：通过 metadata["terminate"] 向外透传阶段 7 熔断标记，驱动 ReAct 循环终止。
         yield MessageStart(tool_msg)
         yield MessageEnd(tool_msg)
 
