@@ -39,7 +39,7 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.loop import CancellationToken, run_agent_loop
 from my_agent_core.memory import MemoryStore, make_memory_tool
-from my_agent_core.message_queue import MessageQueue, QueuedMessage
+from my_agent_core.message_queue import MessageQueue
 from my_agent_core.plugins import PluginManager
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
@@ -81,7 +81,7 @@ class Agent:
         task_store: TaskStore | Path | str | None | Literal[False] = None,
         steering_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         followup_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
-        hooks: list[tuple[type[Event], Callable[..., Any]]] | None = None,
+        hooks: list[tuple[type, Callable[..., Any]]] | None = None,
     ):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
@@ -119,7 +119,6 @@ class Agent:
         self.skill_manager = SkillManager(
             skill_dirs, extra_dirs=self.plugin_manager.get_skill_dirs()
         )  # None→探测默认 / []→禁用 / 显式→目录
-        self.skills: list[Skill] = self.skill_manager.list()  # 兼容代理
         self.subagent_manager = SubagentManager(
             subagent_dirs, extra_dirs=self.plugin_manager.get_subagent_dirs()
         )  # 三态同 skill_dirs
@@ -271,6 +270,11 @@ class Agent:
     # ── 公共 API ────────────────────────────────────────────
 
     @property
+    def skills(self) -> list[Skill]:
+        """动态获取当前注册的全部技能列表。"""
+        return self.skill_manager.list()
+
+    @property
     def system_prompt(self) -> str | None:
         """Agent 配置的初始系统提示词。"""
         return self._system_prompt
@@ -300,14 +304,6 @@ class Agent:
     def follow_up(self, message: str) -> None:
         """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
         self.message_queue.add_followup(message)
-
-    def clear_queue(self) -> list[QueuedMessage]:
-        """清空未消费的消息队列。"""
-        return self.message_queue.clear()
-
-    def get_queue_status(self) -> str:
-        """返回当前消息队列排队状态。"""
-        return self.message_queue.get_status()
 
     def _get_steering_messages(self) -> Sequence[str]:
         """为底层循环提取当前排队的 steer 消息。"""
@@ -347,11 +343,7 @@ class Agent:
                     iterations=0,
                     stop_reason="blocked",
                 )
-                for sub in list(self._subscribers):
-                    with contextlib.suppress(Exception):
-                        res = sub(end_ev)
-                        if inspect.isawaitable(res):
-                            await res
+                await self._notify(end_ev)
                 yield end_ev
                 return
             if user_input_decision.updated_input is not None:
@@ -359,7 +351,7 @@ class Agent:
 
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
-        restored = system + self.session.get_current_path_messages()
+        restored = system + self.session.get_full_history_messages()
         # 对齐 Tau: 执行对话历史自愈，保证送入模型的会话转录本没有悬空断头 ToolCall
         self.messages = list(repair_tool_history(restored).messages)
 
@@ -382,11 +374,7 @@ class Agent:
                     iterations=0,
                     stop_reason="blocked",
                 )
-                for sub in list(self._subscribers):
-                    with contextlib.suppress(Exception):
-                        res = sub(end_ev)
-                        if inspect.isawaitable(res):
-                            await res
+                await self._notify(end_ev)
                 yield end_ev
                 return
             if start_decision.updated_system_prompt is not None:
@@ -439,11 +427,7 @@ class Agent:
                 self._ctx_bridge.write_compaction(self._ctx)
 
             # 分发到订阅者
-            for sub in list(self._subscribers):
-                with contextlib.suppress(Exception):
-                    res = sub(event)
-                    if inspect.isawaitable(res):
-                        await res
+            await self._notify(event)
 
             yield event
 
@@ -475,12 +459,20 @@ class Agent:
         self.messages = self._init_messages(self.session, self._system_prompt)
         self._ctx.reset()
 
-    async def compact(self, _custom_instructions: str = "") -> None:
+    async def compact(self) -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
         await self._ctx.force_compact(self.messages)
         await self._handle_compaction()
 
     # ── 内部实现 ─────────────────────────────────────────────
+
+    async def _notify(self, event: Event) -> None:
+        """将生命周期事件安全广播给所有旁路订阅者（对标 Tau AgentHarness._notify）。"""
+        for sub in list(self._subscribers):
+            with contextlib.suppress(Exception):
+                res = sub(event)
+                if inspect.isawaitable(res):
+                    await res
 
     async def _handle_compaction(self) -> None:
         """prepare/force_compact 触发压缩后：写回 session（桥）+ 事件。"""
@@ -492,12 +484,4 @@ class Agent:
                 tokens_after=info.tokens_after,
                 summarized_count=info.summarized_count,
             )
-            for sub in list(self._subscribers):
-                with contextlib.suppress(Exception):
-                    res = sub(ev)
-                    if inspect.isawaitable(res):
-                        await res
-
-    async def _emit(self, event: Any) -> HookResult | None:
-        """触发 hook 回调（委托 hooks.emit）。"""
-        return await self.hooks.emit(event)
+            await self._notify(ev)
