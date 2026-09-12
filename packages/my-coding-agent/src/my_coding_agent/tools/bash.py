@@ -37,11 +37,12 @@ def _kill_process_tree(pid: int) -> None:
     if sys.platform == "win32":
         import subprocess
 
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            capture_output=True,
-            check=False,
-        )
+        with contextlib.suppress(Exception):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+            )
     else:
         try:
             pgid = os.getpgid(pid)
@@ -125,6 +126,12 @@ def make_bash_tool(
                     with contextlib.suppress(Exception):
                         await asyncio.wait_for(proc.wait(), timeout=2.0)
                 return f"Error: Command timed out after {timeout} seconds: {command}"
+            except (asyncio.CancelledError, GeneratorExit):
+                if proc.pid:
+                    _kill_process_tree(proc.pid)
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(proc.wait(), timeout=2.0)
+                raise
 
             exit_code = proc.returncode
 

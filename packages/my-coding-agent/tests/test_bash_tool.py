@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-import re
+import asyncio
+import os
 from pathlib import Path
+import re
+import subprocess
+import sys
 
 import pytest
+
 from my_coding_agent.tools.bash import BashResult, make_bash_tool
 
 pytestmark = pytest.mark.anyio
@@ -125,3 +130,41 @@ async def test_bash_result_ergonomics(tmp_path: Path):
     assert "hello" in str(res)
     assert "hello" in repr(res)
     assert tool.is_parallel_safe is False
+
+
+async def test_bash_cancelled_kills_process(tmp_path: Path):
+    tool = make_bash_tool(tmp_path)
+    pid_file = tmp_path / "child.pid"
+    cmd = (
+        'python -c "import os, time; '
+        f"open(r'{pid_file}', 'w').write(str(os.getpid())); "
+        'time.sleep(30)"'
+    )
+    task = asyncio.create_task(tool.execute(command=cmd))
+
+    # 等待子进程启动并写入 PID
+    for _ in range(50):
+        if pid_file.exists() and pid_file.read_text(encoding="utf-8").strip():
+            break
+        await asyncio.sleep(0.1)
+
+    assert pid_file.exists()
+    child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+
+    # 取消协程任务
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # 验证子进程树已终止
+    await asyncio.sleep(0.5)
+    if sys.platform == "win32":
+        res = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {child_pid}"],
+            capture_output=True,
+            text=True,
+        )
+        assert str(child_pid) not in res.stdout
+    else:
+        with pytest.raises(OSError):
+            os.kill(child_pid, 0)
