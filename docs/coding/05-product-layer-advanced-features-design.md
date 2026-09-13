@@ -70,15 +70,17 @@
 
 ### 2.2 凭据解析与发现拓扑 (`AntigravityAuthResolver`)
 
+**零源码硬编码安全铁律**：Python 代码中绝不硬编码任何 Client ID、Client Secret 或 Access Token。完全对齐 `pi-antigravity` 模式，在运行时动态读取并自省 `C:\Users\ASUS\.pi\agent\auth.json`（或 `~/.pi/agent/auth.json`），直接提取已就绪的有效凭据 `access` 与 `projectId`。
+
 在 `my-agent-llm` 中建立分层凭据解析器：
 
 ```text
            获取 Antigravity 访问凭据 (Access Token & Project ID)
                                    │
       ┌────────────────────────────┼────────────────────────────┐
-      ▼ 1. 显式环境变量           ▼ 2. 项目/用户全局凭据库     ▼ 3. 无缝继承 Pi 本地凭据
-ANTIGRAVITY_API_KEY /      ~/.my_agent/credentials.json     ~/.pi/agent/auth.json
-ANTIGRAVITY_ACCESS_TOKEN     (优先读取当前项目的凭据)         (读取 antigravity / google-antigravity)
+      ▼ 1. 显式环境变量           ▼ 2. 用户全局凭据中心        ▼ 3. 动态读取本地 Pi 凭据
+ANTIGRAVITY_ACCESS_TOKEN /   ~/.my_agent/credentials.json   C:\Users\ASUS\.pi\agent\auth.json
+ANTIGRAVITY_API_KEY          (动态加载用户配置凭据)           (对标 pi-antigravity 动态提取 access/projectId)
 ```
 
 - **自动静默刷新机制**：
