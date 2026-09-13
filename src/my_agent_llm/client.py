@@ -33,7 +33,7 @@ class LLM:
                 f"Unknown provider '{config.provider}'. "
                 f"Available: {', '.join(sorted(PROVIDER_REGISTRY))}"
             )
-        if not config.api_key:
+        if not config.api_key and config.provider != "antigravity":
             raise ValueError(f"No API key for provider: {config.provider}")
         provider_cls = PROVIDER_REGISTRY[config.provider]
         self._provider: Provider = provider_cls(config)

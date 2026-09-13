@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import inspect
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -198,9 +199,34 @@ class RpcServer:
                 mode = params.get("mode", "review")
 
                 llm = self.llm
-                if llm is None and model_name:
+                if llm is None:
+                    provider = None
+                    if model_name and "/" in model_name:
+                        provider, model_name = model_name.split("/", 1)
+                    elif model_name and (model_name.startswith("gemini-") or "flash" in model_name or "pro" in model_name):
+                        provider = "antigravity"
+                    elif model_name and "deepseek" in model_name:
+                        provider = "deepseek"
+                    elif model_name and ("gpt-" in model_name or "o1" in model_name or "o3" in model_name):
+                        provider = "openai"
+
+                    if not provider:
+                        from my_agent_llm.auth.antigravity import AntigravityAuthResolver
+
+                        if AntigravityAuthResolver().resolve_credentials() is not None:
+                            provider = "antigravity"
+                            model_name = model_name or "gemini-3.8-flash"
+                        elif os.environ.get("DEEPSEEK_API_KEY"):
+                            provider = "deepseek"
+                            model_name = model_name or "deepseek-chat"
+                        else:
+                            provider = "openai"
+                            model_name = model_name or "gpt-4o"
+
+                    api_key = os.environ.get(f"{provider.upper()}_API_KEY") or os.environ.get("OPENAI_API_KEY")
+                    base_url = os.environ.get(f"{provider.upper()}_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
                     try:
-                        llm = LLM(config=Config(model=model_name))
+                        llm = LLM(config=Config(provider=provider, model=model_name, api_key=api_key, base_url=base_url))
                     except Exception:
                         llm = None
 
