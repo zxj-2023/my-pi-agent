@@ -3,6 +3,7 @@
 from my_agent_tui.cli import build_prompt_session, main, run_cli_loop
 from my_agent_tui.cli_base import _force_utf8_streams, _is_utf8_encoding
 from my_agent_tui.commands import CommandContext, CommandDispatcher
+from my_agent_tui.components.confirm import ConfirmView
 from my_agent_tui.renderer import EventRenderer, TextChunk
 
 __version__ = "0.1.0"
@@ -10,6 +11,7 @@ __version__ = "0.1.0"
 __all__ = [
     "CommandContext",
     "CommandDispatcher",
+    "ConfirmView",
     "EventRenderer",
     "TextChunk",
     "main",
