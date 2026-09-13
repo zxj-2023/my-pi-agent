@@ -31,7 +31,7 @@ class LiveInputListener:
             self._buffer.clear()
             if line and self.on_line:
                 self.on_line(line)
-        elif char == "\x08" or ord(char) == 127:  # Backspace
+        elif char in ("\x08", "\x7f"):  # Backspace / Delete
             if self._buffer:
                 self._buffer.pop()
         else:
@@ -64,11 +64,14 @@ class LiveInputListener:
         try:
             tty.setcbreak(fd)  # type: ignore
             while not self._stop_event.is_set():
-                rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
-                if rlist:
-                    ch = sys.stdin.read(1)
-                    if ch:
-                        self._handle_key(ch)
+                try:
+                    rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if rlist:
+                        ch = sys.stdin.read(1)
+                        if ch:
+                            self._handle_key(ch)
+                except Exception:
+                    pass
         except Exception:
             pass
         finally:
@@ -78,6 +81,8 @@ class LiveInputListener:
                 pass
 
     def start(self) -> None:
+        if self.active:
+            return
         try:
             if not sys.stdin or not hasattr(sys.stdin, "isatty") or not sys.stdin.isatty():
                 return
