@@ -16,25 +16,10 @@ from my_coding_agent import FileReferenceParser
 from my_coding_agent.agent import CodingAgent
 from my_coding_agent.permissions import PermissionGate, PermissionRequest
 from my_agent_tui.cli_base import _force_utf8_streams
-from my_agent_tui.commands import CommandDispatcher
+from my_agent_tui.commands import CommandDispatcher, SLASH_COMMANDS
 from my_agent_tui.components import ConfirmView, FileReferenceCompleter
 from my_agent_tui.renderer import EventRenderer
 
-SLASH_COMMANDS = [
-    "/help",
-    "/clear",
-    "/undo",
-    "/compact",
-    "/session",
-    "/tasks",
-    "/mcp",
-    "/quota",
-    "/model",
-    "/mode",
-    "/login",
-    "/exit",
-    "/quit",
-]
 
 
 def build_prompt_session(workspace: Path) -> PromptSession:

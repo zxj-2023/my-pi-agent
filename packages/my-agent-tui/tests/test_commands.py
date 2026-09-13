@@ -267,3 +267,38 @@ async def test_commands_register_case_insensitive(tmp_path: Path):
     handled = await dispatcher.dispatch("/testcmd", console)
     assert handled is True
     assert "CALLED" in buf.getvalue()
+
+
+@pytest.mark.anyio
+async def test_commands_steer_and_followup(tmp_path: Path):
+    buf = io.StringIO()
+    console = Console(file=buf, width=500)
+    agent = CodingAgent(workspace=tmp_path, llm=FakeLLM(), session=tmp_path / "s.jsonl")
+    dispatcher = CommandDispatcher(agent)
+
+    # Empty args
+    await dispatcher.dispatch("/steer", console)
+    assert "用法: /steer" in buf.getvalue()
+
+    # Valid steer
+    buf.seek(0)
+    buf.truncate(0)
+    await dispatcher.dispatch("/steer 立即停止重构", console)
+    assert "已排队即时转向指令" in buf.getvalue()
+    assert agent.agent.message_queue.has_steering()
+    assert agent.agent.message_queue.get_steering_messages()[0].content == "立即停止重构"
+
+    # Empty followup
+    buf.seek(0)
+    buf.truncate(0)
+    await dispatcher.dispatch("/followup", console)
+    assert "用法: /followup" in buf.getvalue()
+
+    # Valid followup
+    buf.seek(0)
+    buf.truncate(0)
+    await dispatcher.dispatch("/followup 执行单元测试", console)
+    assert "已排队追问指令" in buf.getvalue()
+    assert agent.agent.message_queue.has_followup()
+    assert agent.agent.message_queue.get_followup_messages()[0].content == "执行单元测试"
+
