@@ -65,10 +65,7 @@ class FooterComponent:
 
         # 提取模型与思考级别
         llm = getattr(getattr(agent, "agent", None), "llm", None) or getattr(agent, "llm", None)
-        model_name = (
-            getattr(getattr(llm, "config", None), "model", None)
-            or getattr(llm, "model", None)
-        )
+        model_name = getattr(getattr(llm, "config", None), "model", None) or getattr(llm, "model", None)
         if callable(model_name):
             model_name = model_name()
         if not model_name and llm is not None:
