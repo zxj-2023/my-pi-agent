@@ -91,8 +91,9 @@ class MCPConnection:
         # 拼接文本输出
         texts = []
         for content in call_res.content:
-            if hasattr(content, "text"):
-                texts.append(content.text)
+            text_val = getattr(content, "text", None)
+            if text_val is not None:
+                texts.append(str(text_val))
             else:
                 texts.append(str(content))
         out_text = "\n".join(texts) or "(no output)"
@@ -117,6 +118,15 @@ class MCPClientManager:
 
     def __init__(self):
         self.connections: dict[str, MCPConnection] = {}
+        self._tools: list[Tool] = []
+        self._configs: list[MCPServerConfig] = []
+
+    @classmethod
+    def from_config_file(cls, path: Path | str) -> MCPClientManager:
+        """从配置文件构造 MCPClientManager 实例。"""
+        mgr = cls()
+        mgr._configs = mgr.load_config(path)
+        return mgr
 
     def load_config(self, path: Path | str) -> list[MCPServerConfig]:
         """读取 .mcp.json。"""
@@ -139,6 +149,7 @@ class MCPClientManager:
                     env=srv.get("env"),
                 )
             )
+        self._configs = configs
         return configs
 
     async def connect_server(self, config: MCPServerConfig) -> list[Tool]:
@@ -167,8 +178,23 @@ class MCPClientManager:
                 timeout=120.0,
                 is_parallel_safe=True,
             )
+            setattr(wrapped, "is_mcp", True)
             wrapped_tools.append(wrapped)
+        self._tools.extend(wrapped_tools)
         return wrapped_tools
+
+    async def connect_all(self, configs: list[MCPServerConfig] | None = None) -> list[Tool]:
+        """连接所有配置的服务并返回收集的所有工具。"""
+        target_configs = configs if configs is not None else self._configs
+        tools: list[Tool] = []
+        for cfg in target_configs:
+            server_tools = await self.connect_server(cfg)
+            tools.extend(server_tools)
+        return tools
+
+    def get_all_tools(self) -> list[Tool]:
+        """获取当前所有已连接的工具列表。"""
+        return list(self._tools)
 
     async def close_all(self) -> None:
         """异步关闭所有连接。"""
@@ -176,6 +202,7 @@ class MCPClientManager:
             with contextlib.suppress(Exception):
                 await conn.close()
         self.connections.clear()
+        self._tools.clear()
 
 
 # ── 标准 Extension 入口协议 ──────────────────────────────────────────
