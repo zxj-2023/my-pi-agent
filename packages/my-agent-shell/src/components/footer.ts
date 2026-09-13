@@ -56,11 +56,14 @@ export class FooterComponent extends Container {
     this.clear();
 
     const cwdStr = this.formatCwd(this.data.workspace);
-    const branchStr = this.data.gitBranch ? `\u{1f33f} ${this.data.gitBranch}` : "\u{1f33f} (no git)";
+    const branchStr = this.data.gitBranch
+      ? `\u{1f33f} ${this.data.gitBranch}`
+      : "\u{1f33f} (no git)";
     const modelStr = `\u{1f916} ${this.data.modelName || "default"}`;
     const tokenStr = `\u{1f4ca} Tokens: ${this.formatTokens(this.data.tokensUsed || 0)}`;
 
-    let line = `${theme.bold(theme.fg("accent", `\u{1f4c1} ${cwdStr}`))} ` +
+    let line =
+      `${theme.bold(theme.fg("accent", `\u{1f4c1} ${cwdStr}`))} ` +
       `[${theme.fg("success", branchStr)}] ` +
       `[${theme.fg("borderAccent", modelStr)}] ` +
       `[${theme.fg("warning", tokenStr)}]`;

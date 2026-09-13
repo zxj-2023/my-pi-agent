@@ -160,7 +160,11 @@ export class AgentApp {
         }
       }
     } else if (event.type === "tool_execution_start") {
-      const toolComp = new ToolExecutionComponent(event.toolName, event.toolCallId, event.args);
+      const toolComp = new ToolExecutionComponent(
+        event.toolName,
+        event.toolCallId,
+        event.args,
+      );
       this.activeTools.set(event.toolCallId, toolComp);
       this.chatContainer.addChild(toolComp);
     } else if (event.type === "tool_execution_update") {

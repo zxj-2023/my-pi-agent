@@ -14,7 +14,7 @@ export class ToolExecutionComponent extends Container {
   constructor(
     public readonly toolName: string,
     public readonly toolCallId: string,
-    public args: Record<string, unknown> = {}
+    public args: Record<string, unknown> = {},
   ) {
     super();
 
@@ -29,7 +29,11 @@ export class ToolExecutionComponent extends Container {
     this.updateDisplay();
   }
 
-  public updateResult(result: unknown, isError: boolean, elapsedSeconds = 0): void {
+  public updateResult(
+    result: unknown,
+    isError: boolean,
+    elapsedSeconds = 0,
+  ): void {
     this.isFinished = true;
     this.isError = isError;
     this.elapsedSeconds = elapsedSeconds;
@@ -45,7 +49,7 @@ export class ToolExecutionComponent extends Container {
     }
 
     this.box.setBgFn((t: string) =>
-      theme.bg(this.isError ? "toolErrorBg" : "toolSuccessBg", t)
+      theme.bg(this.isError ? "toolErrorBg" : "toolSuccessBg", t),
     );
     this.updateDisplay();
   }
@@ -83,9 +87,10 @@ export class ToolExecutionComponent extends Container {
         statusSuffix = theme.fg("error", " (失败)");
       } else {
         icon = theme.fg("success", "\u2713");
-        statusSuffix = this.elapsedSeconds > 0
-          ? theme.fg("dim", ` (${this.elapsedSeconds.toFixed(1)}s)`)
-          : "";
+        statusSuffix =
+          this.elapsedSeconds > 0
+            ? theme.fg("dim", ` (${this.elapsedSeconds.toFixed(1)}s)`)
+            : "";
       }
     }
 

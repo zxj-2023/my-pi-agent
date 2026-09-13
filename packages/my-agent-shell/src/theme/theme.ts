@@ -9,7 +9,10 @@ export class ThemeManager {
     this.load(darkJson);
   }
 
-  public load(json: { vars: Record<string, string>; colors: Record<string, string> }): void {
+  public load(json: {
+    vars: Record<string, string>;
+    colors: Record<string, string>;
+  }): void {
     const vars = json.vars || {};
     const colors = json.colors || {};
 

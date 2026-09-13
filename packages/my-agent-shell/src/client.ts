@@ -1,7 +1,14 @@
 import { ChildProcess, spawn } from "node:child_process";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as readline from "node:readline";
 import { EventEmitter } from "node:events";
-import { AgentEvent, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse } from "./protocol.js";
+import {
+  AgentEvent,
+  JsonRpcNotification,
+  JsonRpcRequest,
+  JsonRpcResponse,
+} from "./protocol.js";
 
 export interface PythonKernelClientOptions {
   workspace?: string;
@@ -30,21 +37,51 @@ export class PythonKernelClient extends EventEmitter {
     }
 
     const workspace = this.options.workspace || process.cwd();
-    const args = ["run", "python", "-m", "my_coding_agent.rpc_server", "-w", workspace];
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const repoRoot = path.resolve(__dirname, "../../..");
+    const codingAgentPackage = path.resolve(
+      repoRoot,
+      "packages/my-coding-agent",
+    );
+
+    const args = [
+      "--project",
+      codingAgentPackage,
+      "run",
+      "python",
+      "-m",
+      "my_coding_agent.rpc_server",
+      "-w",
+      workspace,
+    ];
     if (this.options.model) {
       args.push("-m", this.options.model);
     }
 
     const cmd = this.options.pythonExecutable || "uv";
+    const pythonPaths = [
+      path.resolve(repoRoot, "packages/my-coding-agent/src"),
+      path.resolve(repoRoot, "packages/my-agent-core/src"),
+      path.resolve(repoRoot, "packages/my-agent-llm/src"),
+      process.env.PYTHONPATH,
+    ]
+      .filter(Boolean)
+      .join(process.platform === "win32" ? ";" : ":");
 
     this.child = spawn(cmd, args, {
       stdio: ["pipe", "pipe", "inherit"],
       cwd: workspace,
+      env: {
+        ...process.env,
+        PYTHONPATH: pythonPaths,
+      },
       windowsHide: true,
     });
 
     if (!this.child.stdout || !this.child.stdin) {
-      throw new Error("Failed to initialize stdin/stdout pipes for Python kernel.");
+      throw new Error(
+        "Failed to initialize stdin/stdout pipes for Python kernel.",
+      );
     }
 
     this.rl = readline.createInterface({
@@ -60,7 +97,11 @@ export class PythonKernelClient extends EventEmitter {
       this.child = null;
       this.emit("exit", { code, signal });
       for (const { reject } of this.pendingRequests.values()) {
-        reject(new Error(`Python kernel terminated prematurely with code ${code}, signal ${signal}`));
+        reject(
+          new Error(
+            `Python kernel terminated prematurely with code ${code}, signal ${signal}`,
+          ),
+        );
       }
       this.pendingRequests.clear();
     });
@@ -85,7 +126,10 @@ export class PythonKernelClient extends EventEmitter {
 
     try {
       const msg = JSON.parse(trimmed);
-      if ("id" in msg && (msg.result !== undefined || msg.error !== undefined)) {
+      if (
+        "id" in msg &&
+        (msg.result !== undefined || msg.error !== undefined)
+      ) {
         // RPC Response
         const res = msg as JsonRpcResponse;
         const pending = this.pendingRequests.get(res.id);
@@ -112,7 +156,10 @@ export class PythonKernelClient extends EventEmitter {
     }
   }
 
-  public async sendRequest<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+  public async sendRequest<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<T> {
     if (!this.child || !this.child.stdin) {
       throw new Error("Python kernel is not running.");
     }
@@ -135,7 +182,10 @@ export class PythonKernelClient extends EventEmitter {
     });
   }
 
-  public async prompt(text: string, onEvent?: (event: AgentEvent) => void): Promise<void> {
+  public async prompt(
+    text: string,
+    onEvent?: (event: AgentEvent) => void,
+  ): Promise<void> {
     this.activeEventCallback = onEvent || null;
     try {
       await this.sendRequest("prompt", { text });

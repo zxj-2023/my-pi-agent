@@ -27,11 +27,13 @@ test("PythonKernelClient initializes and receives event notifications", async ()
   assert.equal(parsed.id, 1);
 
   // 2. Simulate response
-  client.handleLine(JSON.stringify({
-    jsonrpc: "2.0",
-    id: 1,
-    result: { status: "ok" }
-  }));
+  client.handleLine(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { status: "ok" },
+    }),
+  );
 
   const res = await promise;
   assert.deepEqual(res, { status: "ok" });
@@ -42,15 +44,17 @@ test("PythonKernelClient initializes and receives event notifications", async ()
     receivedEvents.push(ev);
   });
 
-  client.handleLine(JSON.stringify({
-    jsonrpc: "2.0",
-    method: "event",
-    params: {
-      type: "message_update",
-      delta: "chunk text",
-      message: { role: "assistant", content: "chunk text" }
-    }
-  }));
+  client.handleLine(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      method: "event",
+      params: {
+        type: "message_update",
+        delta: "chunk text",
+        message: { role: "assistant", content: "chunk text" },
+      },
+    }),
+  );
 
   assert.equal(receivedEvents.length, 1);
   assert.equal(receivedEvents[0].type, "message_update");

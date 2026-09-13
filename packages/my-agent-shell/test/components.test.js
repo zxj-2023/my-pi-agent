@@ -25,7 +25,9 @@ test("AssistantMessageComponent handles thinking deltas and text deltas", () => 
 });
 
 test("ToolExecutionComponent renders running state and updates to success", () => {
-  const tool = new ToolExecutionComponent("read", "call_1", { path: "src/main.ts" });
+  const tool = new ToolExecutionComponent("read", "call_1", {
+    path: "src/main.ts",
+  });
   let lines = tool.render(80);
   assert.ok(lines.some((l) => l.includes("read")));
   assert.ok(lines.some((l) => l.includes("path=src/main.ts")));

@@ -158,11 +158,13 @@ class RpcServer:
 
     def send_notification(self, method: str, params: dict[str, Any]) -> None:
         """向客户端发送单向通知 (如 event)。"""
-        self.emit_json({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-        })
+        self.emit_json(
+            {
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params,
+            }
+        )
 
     def send_response(
         self,
@@ -284,23 +286,22 @@ class RpcServer:
 
     async def run_forever(self) -> None:
         """主服务循环，以异步方式按行消费 stdin 并处理请求。"""
-        loop = asyncio.get_running_loop()
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
-        await loop.connect_read_pipe(lambda: protocol, self.stdin)
-
         while not self.is_shutting_down:
-            line_bytes = await reader.readline()
-            if not line_bytes:
+            try:
+                line = await asyncio.to_thread(self.stdin.readline)
+            except Exception:
+                break
+
+            if not line:
                 # 管道关闭 (EOF)
                 break
 
-            line = line_bytes.decode("utf-8").strip()
-            if not line:
+            line_str = line.strip()
+            if not line_str:
                 continue
 
             try:
-                req = json.loads(line)
+                req = json.loads(line_str)
             except json.JSONDecodeError:
                 self.send_response(
                     0,
@@ -321,12 +322,14 @@ async def main() -> None:
     server = RpcServer()
     # 如果指定了启动工作区或模型，先行执行预初始化
     if args.workspace != "." or args.model is not None:
-        await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {"workspace": args.workspace, "model": args.model},
-        })
+        await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {"workspace": args.workspace, "model": args.model},
+            }
+        )
 
     await server.run_forever()
 

@@ -55,7 +55,13 @@ export class AssistantMessageComponent extends Container {
     }
 
     if (this.isThinkingExpanded) {
-      const label = new Text(theme.bold(theme.fg("thinkingText", "\u25c8 思考过程 (按 Ctrl+O 折叠):")), 1, 0);
+      const label = new Text(
+        theme.bold(
+          theme.fg("thinkingText", "\u25c8 思考过程 (按 Ctrl+O 折叠):"),
+        ),
+        1,
+        0,
+      );
       const md = new Markdown(
         this.thinkingText.trim(),
         1,
@@ -64,16 +70,21 @@ export class AssistantMessageComponent extends Container {
         {
           color: (t: string) => theme.fg("thinkingText", t),
           italic: true,
-        }
+        },
       );
       this.thinkingContainer.addChild(label);
       this.thinkingContainer.addChild(md);
       this.thinkingContainer.addChild(new Spacer(1));
     } else {
       const summary = new Text(
-        theme.italic(theme.fg("thinkingText", `\u25c8 思考过程 (${this.thinkingText.trim().length} 字符，按 Ctrl+O 展开)`)),
+        theme.italic(
+          theme.fg(
+            "thinkingText",
+            `\u25c8 思考过程 (${this.thinkingText.trim().length} 字符，按 Ctrl+O 展开)`,
+          ),
+        ),
         1,
-        0
+        0,
       );
       this.thinkingContainer.addChild(summary);
       this.thinkingContainer.addChild(new Spacer(1));
@@ -86,12 +97,7 @@ export class AssistantMessageComponent extends Container {
       return;
     }
 
-    const md = new Markdown(
-      this.contentText.trim(),
-      1,
-      0,
-      getMarkdownTheme()
-    );
+    const md = new Markdown(this.contentText.trim(), 1, 0, getMarkdownTheme());
     this.contentContainer.addChild(md);
   }
 }

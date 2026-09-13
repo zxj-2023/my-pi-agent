@@ -170,3 +170,23 @@ async def test_rpc_server_errors_and_edge_cases(tmp_path: Path):
     assert resp["error"]["code"] == -32601
     assert "Method 'nonexistent' not found" in resp["error"]["message"]
 
+
+@pytest.mark.anyio
+async def test_rpc_server_run_forever(tmp_path: Path):
+    lines = [
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(tmp_path)}}),
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "abort", "params": {}}),
+        json.dumps({"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": {}}),
+    ]
+    in_buf = io.StringIO("\n".join(lines) + "\n")
+    out_buf = io.StringIO()
+    server = RpcServer(stdin=in_buf, stdout=out_buf, llm=FakeLLM())
+
+    await server.run_forever()
+
+    output = out_buf.getvalue()
+    assert '"id": 1' in output
+    assert '"id": 2' in output
+    assert '"id": 3' in output
+    assert server.is_shutting_down is True
+
