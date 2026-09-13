@@ -77,6 +77,7 @@ export interface ToolExecutionUpdateEvent {
   type: "tool_execution_update";
   toolCallId: string;
   toolName: string;
+  args?: Record<string, unknown>;
   partialResult: unknown;
 }
 
