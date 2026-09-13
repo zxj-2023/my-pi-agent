@@ -125,6 +125,13 @@ class CodingAgent:
         if self._mcp_manager is not None:
             await self._mcp_manager.close_all()
             self._mcp_manager = None
+        # 反注册已挂载的 MCP 工具，防止向大模型下发失效的外部工具 Schema
+        registry = getattr(self.agent, "registry", None)
+        if registry and hasattr(registry, "_tools"):
+            mcp_tool_names = [name for name, t in registry._tools.items() if getattr(t, "is_mcp", False)]
+            for name in mcp_tool_names:
+                if hasattr(registry, "unregister") and callable(registry.unregister):
+                    registry.unregister(name)
         self._mcp_loaded = False
 
     async def __aenter__(self) -> CodingAgent:
