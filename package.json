@@ -9,5 +9,9 @@
     "start": "npm start --prefix packages/my-agent-tui",
     "build": "npm run build --prefix packages/my-agent-tui",
     "test": "npm test --prefix packages/my-agent-tui"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-tui": "^0.85.1",
+    "chalk": "^6.0.0"
   }
 }

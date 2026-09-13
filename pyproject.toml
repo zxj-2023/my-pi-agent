@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "my-pi-agent"
+version = "0.1.0"
+description = "Minimalist Pi-style coding-agent framework and CLI with Pi-TUI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=2.50.0",
+    "anthropic>=0.40.0",
+    "pydantic>=2.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0,<2.0",
+    "pyyaml>=6.0",
+    "mcp>=2.0.0,<2.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<10.0",
+    "anyio>=4.0",
+    "ruff>=0.16.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/my_agent_llm",
+    "src/my_agent_core",
+    "src/my_coding_agent",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]

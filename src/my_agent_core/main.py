@@ -14,7 +14,6 @@ from datetime import datetime
 from typing import Any
 
 from dotenv import find_dotenv, load_dotenv
-from my_agent_llm import LLM, Config  # pyright: ignore[reportMissingImports]
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
@@ -27,6 +26,7 @@ from my_agent_core.events import (
 )
 from my_agent_core.session import SessionStore
 from my_agent_core.tools import tool
+from my_agent_llm import LLM, Config  # pyright: ignore[reportMissingImports]
 
 QUESTIONS = [
     "Use the multiply tool to calculate 37 times 19.",

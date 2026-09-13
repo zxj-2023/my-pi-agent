@@ -10,9 +10,10 @@ import time
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from my_agent_llm.models import Message
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
+
+from my_agent_llm.models import Message
 
 
 class BaseSessionEntry(BaseModel):

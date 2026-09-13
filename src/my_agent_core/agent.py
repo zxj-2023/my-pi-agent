@@ -16,8 +16,6 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-from my_agent_llm import LLM, Message  # pyright: ignore[reportMissingImports]
-
 from my_agent_core.background import (  # pyright: ignore[reportMissingImports]
     BackgroundRunner,
 )
@@ -55,6 +53,7 @@ from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMi
     TaskGuardHook,
     make_task_tools,
 )
+from my_agent_llm import LLM, Message  # pyright: ignore[reportMissingImports]
 
 
 class Agent:
