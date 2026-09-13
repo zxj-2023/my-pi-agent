@@ -87,9 +87,7 @@ def test_get_schemas_shape():
 @pytest.mark.anyio
 async def test_execute_success():
     """正常执行返回 ToolResult(ok=True)。"""
-    result = await _registry(multiply).execute_tool(
-        make_tool_call("multiply", '{"a": 6, "b": 7}')
-    )
+    result = await _registry(multiply).execute_tool(make_tool_call("multiply", '{"a": 6, "b": 7}'))
     assert result.ok is True
     assert result.data == 42
 
@@ -97,9 +95,7 @@ async def test_execute_success():
 @pytest.mark.anyio
 async def test_execute_coerces_string_to_int():
     """类型强转："37" → 37。"""
-    result = await _registry(multiply).execute_tool(
-        make_tool_call("multiply", '{"a": "6", "b": 7}')
-    )
+    result = await _registry(multiply).execute_tool(make_tool_call("multiply", '{"a": "6", "b": 7}'))
     assert result.ok is True
     assert result.data == 42
 
@@ -107,9 +103,7 @@ async def test_execute_coerces_string_to_int():
 @pytest.mark.anyio
 async def test_execute_validation_error():
     """缺必填 → ToolResult(ok=False)，含 pydantic 错误消息。"""
-    result = await _registry(multiply).execute_tool(
-        make_tool_call("multiply", '{"a": 6}')
-    )
+    result = await _registry(multiply).execute_tool(make_tool_call("multiply", '{"a": 6}'))
     assert result.ok is False
     assert result.error is not None
     assert "Field required" in result.error
@@ -126,13 +120,9 @@ async def test_execute_unknown_tool():
 @pytest.mark.anyio
 async def test_execute_invalid_json():
     """坏 JSON → ToolResult(ok=False)。"""
-    result = await _registry(multiply).execute_tool(
-        make_tool_call("multiply", "{not json")
-    )
+    result = await _registry(multiply).execute_tool(make_tool_call("multiply", "{not json"))
     assert result.ok is False
-    assert result.error is not None and result.error.startswith(
-        "Invalid JSON arguments for tool 'multiply':"
-    )
+    assert result.error is not None and result.error.startswith("Invalid JSON arguments for tool 'multiply':")
 
 
 @pytest.mark.anyio
@@ -153,9 +143,7 @@ async def test_execute_tool_exception():
 @pytest.mark.anyio
 async def test_execute_nondict_json_never_raises():
     """arguments 解析出非 dict 也不抛。"""
-    result = await _registry(multiply).execute_tool(
-        make_tool_call("multiply", "[1, 2]")
-    )
+    result = await _registry(multiply).execute_tool(make_tool_call("multiply", "[1, 2]"))
     assert result.ok is False
     assert result.error is not None
 
@@ -163,9 +151,7 @@ async def test_execute_nondict_json_never_raises():
 @pytest.mark.anyio
 async def test_execute_applies_defaults():
     """默认值参数不传 → 函数收到默认值。"""
-    result = await _registry(greet).execute_tool(
-        make_tool_call("greet", '{"name": "pi"}')
-    )
+    result = await _registry(greet).execute_tool(make_tool_call("greet", '{"name": "pi"}'))
     assert result.ok is True
     assert result.data == "Hello, pi!"
 

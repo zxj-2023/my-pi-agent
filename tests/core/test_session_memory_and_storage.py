@@ -206,33 +206,23 @@ def test_fold_compaction_replaces_early_messages() -> None:
 def test_fold_cascading_compactions() -> None:
     """多次连续上下文压缩：第二次 CompactionEntry 可进一步替换前一次的 Compaction 与后续消息。"""
     e0 = SessionInfoEntry(id="info")
-    m1 = MessageEntry(
-        id="m1", parent_id="info", message=Message(role="user", content="q1")
-    )
-    m2 = MessageEntry(
-        id="m2", parent_id="m1", message=Message(role="assistant", content="a1")
-    )
+    m1 = MessageEntry(id="m1", parent_id="info", message=Message(role="user", content="q1"))
+    m2 = MessageEntry(id="m2", parent_id="m1", message=Message(role="assistant", content="a1"))
     c1 = CompactionEntry(
         id="c1",
         parent_id="m2",
         summary="Summary 1",
         replaces_entry_ids=["m1", "m2"],
     )
-    m3 = MessageEntry(
-        id="m3", parent_id="c1", message=Message(role="user", content="q2")
-    )
-    m4 = MessageEntry(
-        id="m4", parent_id="m3", message=Message(role="assistant", content="a2")
-    )
+    m3 = MessageEntry(id="m3", parent_id="c1", message=Message(role="user", content="q2"))
+    m4 = MessageEntry(id="m4", parent_id="m3", message=Message(role="assistant", content="a2"))
     c2 = CompactionEntry(
         id="c2",
         parent_id="m4",
         summary="Summary 2 including q2",
         replaces_entry_ids=["c1", "m3"],
     )
-    m5 = MessageEntry(
-        id="m5", parent_id="c2", message=Message(role="user", content="q3")
-    )
+    m5 = MessageEntry(id="m5", parent_id="c2", message=Message(role="user", content="q3"))
 
     state = SessionState.from_entries([e0, m1, m2, c1, m3, m4, c2, m5])
 
@@ -247,9 +237,7 @@ def test_fold_cascading_compactions() -> None:
 def test_fold_compaction_no_duplicate_prefix() -> None:
     """若 CompactionEntry.summary 自身已经包含摘要前缀，折叠时不再重复拼接。"""
     e0 = SessionInfoEntry(id="info")
-    m1 = MessageEntry(
-        id="m1", parent_id="info", message=Message(role="user", content="q1")
-    )
+    m1 = MessageEntry(id="m1", parent_id="info", message=Message(role="user", content="q1"))
     c1 = CompactionEntry(
         id="c1",
         parent_id="m1",
@@ -259,32 +247,22 @@ def test_fold_compaction_no_duplicate_prefix() -> None:
 
     state = SessionState.from_entries([e0, m1, c1])
     assert len(state.messages) == 1
-    assert (
-        state.messages[0].content == "Previous conversation summary:\nAlready prefixed"
-    )
+    assert state.messages[0].content == "Previous conversation summary:\nAlready prefixed"
 
 
 def test_fold_compaction_replaces_middle_messages() -> None:
     """压缩位于中间位置的消息时，保留前缀消息与后续消息。"""
     e0 = SessionInfoEntry(id="info")
-    m1 = MessageEntry(
-        id="m1", parent_id="info", message=Message(role="user", content="msg 1")
-    )
-    m2 = MessageEntry(
-        id="m2", parent_id="m1", message=Message(role="assistant", content="msg 2")
-    )
-    m3 = MessageEntry(
-        id="m3", parent_id="m2", message=Message(role="user", content="msg 3")
-    )
+    m1 = MessageEntry(id="m1", parent_id="info", message=Message(role="user", content="msg 1"))
+    m2 = MessageEntry(id="m2", parent_id="m1", message=Message(role="assistant", content="msg 2"))
+    m3 = MessageEntry(id="m3", parent_id="m2", message=Message(role="user", content="msg 3"))
     c1 = CompactionEntry(
         id="c1",
         parent_id="m3",
         summary="summary of msg 2",
         replaces_entry_ids=["m2"],
     )
-    m4 = MessageEntry(
-        id="m4", parent_id="c1", message=Message(role="assistant", content="msg 4")
-    )
+    m4 = MessageEntry(id="m4", parent_id="c1", message=Message(role="assistant", content="msg 4"))
 
     state = SessionState.from_entries([e0, m1, m2, m3, c1, m4])
     assert len(state.messages) == 4
@@ -297,9 +275,7 @@ def test_fold_compaction_replaces_middle_messages() -> None:
 def test_fold_compaction_with_no_matching_ids_appends() -> None:
     """若 replaces_entry_ids 未命中任何现有消息，折叠时安全追加摘要。"""
     e0 = SessionInfoEntry(id="info")
-    m1 = MessageEntry(
-        id="m1", parent_id="info", message=Message(role="user", content="msg 1")
-    )
+    m1 = MessageEntry(id="m1", parent_id="info", message=Message(role="user", content="msg 1"))
     c1 = CompactionEntry(
         id="c1",
         parent_id="m1",
@@ -316,9 +292,7 @@ def test_fold_compaction_with_no_matching_ids_appends() -> None:
 def test_fold_compaction_empty_replaces_appends() -> None:
     """replaces_entry_ids 为空列表时，直接追加摘要消息。"""
     e0 = SessionInfoEntry(id="info")
-    m1 = MessageEntry(
-        id="m1", parent_id="info", message=Message(role="user", content="msg 1")
-    )
+    m1 = MessageEntry(id="m1", parent_id="info", message=Message(role="user", content="msg 1"))
     c1 = CompactionEntry(
         id="c1",
         parent_id="m1",
@@ -354,18 +328,10 @@ def test_fold_with_explicit_leaf_id() -> None:
     #     |    |
     #     m3   m4
     e0 = SessionInfoEntry(id="e0")
-    m1 = MessageEntry(
-        id="m1", parent_id="e0", message=Message(role="user", content="branch 1 q")
-    )
-    m3 = MessageEntry(
-        id="m3", parent_id="m1", message=Message(role="assistant", content="branch 1 a")
-    )
-    m2 = MessageEntry(
-        id="m2", parent_id="e0", message=Message(role="user", content="branch 2 q")
-    )
-    m4 = MessageEntry(
-        id="m4", parent_id="m2", message=Message(role="assistant", content="branch 2 a")
-    )
+    m1 = MessageEntry(id="m1", parent_id="e0", message=Message(role="user", content="branch 1 q"))
+    m3 = MessageEntry(id="m3", parent_id="m1", message=Message(role="assistant", content="branch 1 a"))
+    m2 = MessageEntry(id="m2", parent_id="e0", message=Message(role="user", content="branch 2 q"))
+    m4 = MessageEntry(id="m4", parent_id="m2", message=Message(role="assistant", content="branch 2 a"))
 
     all_entries = [e0, m1, m3, m2, m4]
 
@@ -381,12 +347,8 @@ def test_fold_with_explicit_leaf_id() -> None:
 def test_fold_auto_detects_last_leaf_entry() -> None:
     """当 leaf_id=None 时，自动采用序列中最后一个 LeafEntry 所指向的叶节点。"""
     e0 = SessionInfoEntry(id="e0")
-    m1 = MessageEntry(
-        id="m1", parent_id="e0", message=Message(role="user", content="b1")
-    )
-    m2 = MessageEntry(
-        id="m2", parent_id="e0", message=Message(role="user", content="b2")
-    )
+    m1 = MessageEntry(id="m1", parent_id="e0", message=Message(role="user", content="b1"))
+    m2 = MessageEntry(id="m2", parent_id="e0", message=Message(role="user", content="b2"))
     # 追加 LeafEntry 指回 m1
     leaf1 = LeafEntry(id="l1", parent_id="m2", leaf_id="m1")
 
@@ -428,12 +390,8 @@ async def test_in_memory_storage_append_and_read() -> None:
     """InMemorySessionStorage 单项追加与批量追加契约。"""
     storage = InMemorySessionStorage()
     e0 = SessionInfoEntry(id="e0")
-    m1 = MessageEntry(
-        id="m1", parent_id="e0", message=Message(role="user", content="hi")
-    )
-    m2 = MessageEntry(
-        id="m2", parent_id="m1", message=Message(role="assistant", content="there")
-    )
+    m1 = MessageEntry(id="m1", parent_id="e0", message=Message(role="user", content="hi"))
+    m2 = MessageEntry(id="m2", parent_id="m1", message=Message(role="assistant", content="there"))
 
     await storage.append(e0)
     entries = await storage.read_all()
@@ -473,9 +431,7 @@ async def test_in_memory_storage_concurrent_appends() -> None:
 async def test_in_memory_storage_initial_entries() -> None:
     """InMemorySessionStorage 构造时支持传入初始条目。"""
     e0 = SessionInfoEntry(id="e0")
-    m1 = MessageEntry(
-        id="m1", parent_id="e0", message=Message(role="user", content="seed")
-    )
+    m1 = MessageEntry(id="m1", parent_id="e0", message=Message(role="user", content="seed"))
     storage = InMemorySessionStorage(initial_entries=[e0, m1])
 
     entries = await storage.read_all()

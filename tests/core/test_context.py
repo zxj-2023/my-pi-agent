@@ -162,13 +162,7 @@ async def test_summary_call_shape():
 @pytest.mark.anyio
 async def test_summary_analysis_stripped():
     """先分析再总结：模型输出 <analysis>+<summary> → 视图只留 <summary> 内容（②）。"""
-    llm = FakeLLM(
-        [
-            _response(
-                content="<analysis>理清目标与决策...</analysis>\n<summary>## Goal\n...\n</summary>"
-            )
-        ]
-    )
+    llm = FakeLLM([_response(content="<analysis>理清目标与决策...</analysis>\n<summary>## Goal\n...\n</summary>")])
     ctx = _small_ctx(llm, budget=1000, keep_recent_tokens=100)
     msgs = [_msg("user", "x" * 300) for _ in range(20)]
     view = await ctx.prepare(msgs)
@@ -304,9 +298,7 @@ async def test_agent_trigger_compaction_and_event(tmp_path):
         context_budget=400,
         keep_recent_tokens=100,
     )
-    agent.subscribe(
-        lambda ev: events.append(ev) if isinstance(ev, ContextCompacted) else None
-    )
+    agent.subscribe(lambda ev: events.append(ev) if isinstance(ev, ContextCompacted) else None)
     for _ in range(6):  # 累积 6 条大消息 → 超阈触发摘要
         await agent.run("y" * 300)
     assert len(events) >= 1
@@ -357,11 +349,7 @@ async def test_rewind_guard_blocks_after_compaction(tmp_path):
     agent = _agent(llm, session=session, context_budget=400, keep_recent_tokens=100)
     for _ in range(6):
         await agent.run("y" * 300)
-    first_user = next(
-        e
-        for e in session.tree.entries.values()
-        if e.role == "user" and e.content == "y" * 300
-    )
+    first_user = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "y" * 300)
     try:
         session.rewind(first_user.id)
     except ValueError:
@@ -381,9 +369,7 @@ async def test_manual_compact():
         llm,
         context_budget=100_000,
     )
-    agent.subscribe(
-        lambda ev: events.append(ev) if isinstance(ev, ContextCompacted) else None
-    )
+    agent.subscribe(lambda ev: events.append(ev) if isinstance(ev, ContextCompacted) else None)
     await agent.run("hi")
     assert len(llm.calls) == 1
     await agent.compact()
@@ -504,9 +490,7 @@ async def test_extract_and_accumulate_file_operations():
 
     # 验证累积：传入 previous_summary 包含旧文件
     prev_summary = (
-        "## Goal\nprev\n\n"
-        "<read-files>\nold_read.py\n</read-files>\n\n"
-        "<modified-files>\nold_mod.py\n</modified-files>"
+        "## Goal\nprev\n\n<read-files>\nold_read.py\n</read-files>\n\n<modified-files>\nold_mod.py\n</modified-files>"
     )
     acc_read, acc_mod = extract_file_operations(msgs, previous_summary=prev_summary)
     assert acc_read == ["old_read.py", "src/auth.py"]

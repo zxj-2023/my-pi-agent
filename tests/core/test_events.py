@@ -85,21 +85,15 @@ def test_all_event_subclasses_frozen_with_timestamp():
     msg = Message(role="assistant", content="hello")
     all_event_instances: list[Event] = [
         AgentStart(system_prompt="sys", user_input="in"),
-        AgentEnd(
-            messages=[msg], final_text="bye", iterations=1, stop_reason="end_turn"
-        ),
+        AgentEnd(messages=[msg], final_text="bye", iterations=1, stop_reason="end_turn"),
         TurnStart(iteration=1),
         TurnEnd(message=msg, tool_results=[]),
         MessageStart(message=msg),
         MessageUpdate(message=msg, chunk=StreamChunk(content="hi")),
         MessageEnd(message=msg),
         ToolExecutionStart(tool_call_id="call_1", tool_name="bash", args={"cmd": "ls"}),
-        ToolExecutionUpdate(
-            tool_call_id="call_1", tool_name="bash", args={}, partial_result="out"
-        ),
-        ToolExecutionEnd(
-            tool_call_id="call_1", tool_name="bash", result="done", is_error=False
-        ),
+        ToolExecutionUpdate(tool_call_id="call_1", tool_name="bash", args={}, partial_result="out"),
+        ToolExecutionEnd(tool_call_id="call_1", tool_name="bash", result="done", is_error=False),
         ContextCompacted(tokens_before=100, tokens_after=50, summarized_count=2),
         ToolsChanged(action="register", name="bash"),
     ]

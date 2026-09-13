@@ -1,4 +1,5 @@
 """假 SDK 替身：按脚本返回响应，记录请求。"""
+
 from types import SimpleNamespace
 
 

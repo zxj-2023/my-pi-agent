@@ -37,15 +37,9 @@ def test_routes_to_provider():
     from my_agent_llm.providers.deepseek import DeepSeekProvider
     from my_agent_llm.providers.openai import OpenAIProvider
 
-    assert isinstance(
-        LLM(Config(provider="openai", api_key="k"))._provider, OpenAIProvider
-    )
-    assert isinstance(
-        LLM(Config(provider="deepseek", api_key="k"))._provider, DeepSeekProvider
-    )
-    assert isinstance(
-        LLM(Config(provider="anthropic", api_key="k"))._provider, AnthropicProvider
-    )
+    assert isinstance(LLM(Config(provider="openai", api_key="k"))._provider, OpenAIProvider)
+    assert isinstance(LLM(Config(provider="deepseek", api_key="k"))._provider, DeepSeekProvider)
+    assert isinstance(LLM(Config(provider="anthropic", api_key="k"))._provider, AnthropicProvider)
 
 
 def test_chat_falls_back_to_config_sampling_params():

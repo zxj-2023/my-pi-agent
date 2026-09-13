@@ -15,9 +15,7 @@ from my_agent_llm.auth.antigravity import (  # pyright: ignore[reportMissingImpo
 
 
 def test_retrieve_user_quota_summary_parses_buckets():
-    creds = AntigravityCredentials(
-        access_token="ya29.test", project_id="aicode-consumers"
-    )
+    creds = AntigravityCredentials(access_token="ya29.test", project_id="aicode-consumers")
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -59,9 +57,7 @@ def test_retrieve_user_quota_summary_parses_buckets():
 
 
 def test_retrieve_user_quota_summary_multiple_groups_and_buckets():
-    creds = AntigravityCredentials(
-        access_token="token_123", project_id="custom-project"
-    )
+    creds = AntigravityCredentials(access_token="token_123", project_id="custom-project")
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -103,9 +99,7 @@ def test_retrieve_user_quota_summary_multiple_groups_and_buckets():
 
 
 def test_retrieve_user_quota_summary_http_error():
-    creds = AntigravityCredentials(
-        access_token="ya29.test", project_id="aicode-consumers"
-    )
+    creds = AntigravityCredentials(access_token="ya29.test", project_id="aicode-consumers")
     mock_resp = MagicMock()
     mock_resp.status_code = 401
     mock_resp.text = "Unauthorized"
@@ -116,9 +110,7 @@ def test_retrieve_user_quota_summary_http_error():
 
 
 def test_retrieve_user_quota_summary_network_exception():
-    creds = AntigravityCredentials(
-        access_token="ya29.test", project_id="aicode-consumers"
-    )
+    creds = AntigravityCredentials(access_token="ya29.test", project_id="aicode-consumers")
 
     with patch("httpx.post", side_effect=httpx.ConnectTimeout("Connection timed out")):
         buckets = retrieve_user_quota_summary(creds)

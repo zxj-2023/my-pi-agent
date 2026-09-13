@@ -28,11 +28,7 @@ class FakePluginLLM:
 
     async def achat_stream(self, messages, tools=None, model=None):
         self.calls.append({"messages": messages, "tools": tools})
-        resp = (
-            self.responses.pop(0)
-            if self.responses
-            else Response(content="ok", model="test")
-        )
+        resp = self.responses.pop(0) if self.responses else Response(content="ok", model="test")
         yield StreamChunk(
             content=resp.content,
             tool_calls=resp.tool_calls,
@@ -122,9 +118,7 @@ def test_plugin_manifest_loading_and_fallback():
         # 4. 根目录直接放 SKILL.md 的单技能插件简写（无 manifest，目录名兜底）
         p4 = Path(tmpdir) / "single-skill-plugin"
         p4.mkdir(parents=True)
-        (p4 / "SKILL.md").write_text(
-            "---\ndescription: single skill\n---\n\nBody", encoding="utf-8"
-        )
+        (p4 / "SKILL.md").write_text("---\ndescription: single skill\n---\n\nBody", encoding="utf-8")
         plugin4 = Plugin.from_directory(p4)
         assert plugin4.name == "single-skill-plugin"
         assert plugin4.manifest.version == "1.0.0"
@@ -133,9 +127,7 @@ def test_plugin_manifest_loading_and_fallback():
         # 5. 损坏的 JSON 语法错误，降级为目录名兜底推断
         p5 = Path(tmpdir) / "broken-json-plugin"
         (p5 / ".claude-plugin").mkdir(parents=True)
-        (p5 / ".claude-plugin" / "plugin.json").write_text(
-            "{broken json", encoding="utf-8"
-        )
+        (p5 / ".claude-plugin" / "plugin.json").write_text("{broken json", encoding="utf-8")
         plugin5 = Plugin.from_directory(p5)
         assert plugin5.name == "broken-json-plugin"
 
@@ -306,10 +298,7 @@ async def test_agent_plugin_single_skill_shorthand():
         )
 
         # 根目录单 skill 被正确识别并注入
-        assert (
-            agent.skill_manager.get("linter") is not None
-            or agent.skill_manager.get("quick-linter") is not None
-        )
+        assert agent.skill_manager.get("linter") is not None or agent.skill_manager.get("quick-linter") is not None
         assert "<available_skills>" in agent.messages[0].content
 
 
@@ -394,4 +383,3 @@ async def test_subagent_delegation_with_plugin_agents_isolation():
 
         res = await agent.run("start")
         assert res == "Done"
-

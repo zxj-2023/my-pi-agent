@@ -32,14 +32,10 @@ def test_llm_astream_events_normal():
     llm = LLM(config=Config(provider="openai", api_key="k", model="test-model"))
 
     class FakeProvider:
-        async def astream_events(
-            self, messages, *, model, tools=None, signal=None, **kwargs
-        ):
+        async def astream_events(self, messages, *, model, tools=None, signal=None, **kwargs):
             _ = (messages, model, tools, signal, kwargs)
             yield StreamStartEvent(partial=Message(role="assistant", content=""))
-            yield TextDeltaEvent(
-                delta="Hello", partial=Message(role="assistant", content="Hello")
-            )
+            yield TextDeltaEvent(delta="Hello", partial=Message(role="assistant", content="Hello"))
             yield StreamDoneEvent(
                 message=Message(role="assistant", content="Hello"),
                 usage={"total_tokens": 5},
@@ -84,18 +80,14 @@ def test_provider_default_astream_events_wrapping():
             _ = (messages, tools, kwargs)
             yield StreamChunk(content="chunk1")
             yield StreamChunk(content="chunk2")
-            resp = Response(
-                content="chunk1chunk2", model=model, usage={"total_tokens": 12}
-            )
+            resp = Response(content="chunk1chunk2", model=model, usage={"total_tokens": 12})
             yield StreamChunk(content="", usage={"total_tokens": 12}, response=resp)
 
     tp = TestProvider(Config(provider="openai", api_key="test", model="test-model"))
 
     async def run():
         events = []
-        async for ev in tp.astream_events(
-            [Message(role="user", content="hi")], model="test-model"
-        ):
+        async for ev in tp.astream_events([Message(role="user", content="hi")], model="test-model"):
             events.append(ev)
 
         assert len(events) == 4

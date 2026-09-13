@@ -106,6 +106,4 @@ def test_shared_string_compatible_tool_result(tmp_path: Path):
         GrepResult,
         FindResult,
     ):
-        assert issubclass(cls, StringCompatibleToolResult), (
-            f"{cls.__name__} should inherit StringCompatibleToolResult"
-        )
+        assert issubclass(cls, StringCompatibleToolResult), f"{cls.__name__} should inherit StringCompatibleToolResult"

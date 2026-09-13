@@ -77,9 +77,7 @@ def test_parse_frontmatter_bad_yaml_degrades():
     assert body == text
 
 
-def _write_skill(
-    root: Path, name: str, description: str = "desc", content: str = "body"
-) -> Path:
+def _write_skill(root: Path, name: str, description: str = "desc", content: str = "body") -> Path:
     """helper：在 root/name/SKILL.md 写一个标准 skill，返回 SKILL.md 路径。"""
     d = root / name
     d.mkdir(parents=True)
@@ -90,9 +88,7 @@ def _write_skill(
 
 def test_load_skills_basic(tmp_path):
     """只认 <dir>/SKILL.md；name=目录名；description 来自 frontmatter（#2 #3）。"""
-    _write_skill(
-        tmp_path, "code-review", description="review code", content="checklist"
-    )
+    _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     skills = SkillManager([tmp_path]).list()
     assert len(skills) == 1
     assert skills[0].name == "code-review"
@@ -129,9 +125,7 @@ def test_load_skills_missing_skips(tmp_path):
     """缺 description → 跳过该 skill；目录不存在 → 静默空（#4）。"""
     d = tmp_path / "code-review"
     d.mkdir()
-    (d / "SKILL.md").write_text(
-        "---\nname: cr\n---\nbody", encoding="utf-8"
-    )  # 只有 name 没 description
+    (d / "SKILL.md").write_text("---\nname: cr\n---\nbody", encoding="utf-8")  # 只有 name 没 description
     assert SkillManager([tmp_path]).list() == []
     assert SkillManager([tmp_path / "nope"]).list() == []
 
@@ -191,18 +185,14 @@ def test_format_skill_invocation(tmp_path):
         + '">\nchecklist\n</skill>\n\n重点看并发'
     )
     assert mgr.format_invocation("code-review") == (
-        '<skill name="code-review" location="'
-        + str(tmp_path / "code-review" / "SKILL.md")
-        + '">\nchecklist\n</skill>'
+        '<skill name="code-review" location="' + str(tmp_path / "code-review" / "SKILL.md") + '">\nchecklist\n</skill>'
     )
 
 
 @pytest.mark.anyio
 async def test_agent_assembles_with_skills(tmp_path, monkeypatch):
     """skill_dirs → system 含清单块、agent.skills 正确、tools 不变（#7）。"""
-    _write_skill(
-        tmp_path, "code-review", description="review code", content="checklist"
-    )
+    _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     llm = FakeLLM([_response(content="ok")])
     agent = Agent(
         llm=llm,
@@ -267,9 +257,7 @@ def test_agent_skill_dirs_empty_list_no_probe(tmp_path, monkeypatch):
 @pytest.mark.anyio
 async def test_invoke_skill(tmp_path):
     """invoke_skill：追加 user 消息 = <skill>包装 + 附言；未知名字 → ValueError（#8）。"""
-    _write_skill(
-        tmp_path, "code-review", description="review code", content="checklist"
-    )
+    _write_skill(tmp_path, "code-review", description="review code", content="checklist")
     llm = FakeLLM([_response(content="done")])
     agent = Agent(
         llm=llm,

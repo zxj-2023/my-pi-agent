@@ -1,4 +1,5 @@
 """假 Anthropic SDK：messages.create 按脚本返回 content blocks。"""
+
 from types import SimpleNamespace
 
 

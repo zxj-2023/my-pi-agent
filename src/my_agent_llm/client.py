@@ -25,14 +25,9 @@ class LLM:
     def __init__(self, config: Config) -> None:
         """标准工程构造：严格接收 Config 实例。"""
         if not isinstance(config, Config):  # pyright: ignore[reportUnreachable]
-            raise TypeError(
-                f"LLM expects a Config instance, got {type(config).__name__}"
-            )  # pyright: ignore[reportUnreachable]
+            raise TypeError(f"LLM expects a Config instance, got {type(config).__name__}")  # pyright: ignore[reportUnreachable]
         if config.provider not in PROVIDER_REGISTRY:
-            raise ValueError(
-                f"Unknown provider '{config.provider}'. "
-                f"Available: {', '.join(sorted(PROVIDER_REGISTRY))}"
-            )
+            raise ValueError(f"Unknown provider '{config.provider}'. Available: {', '.join(sorted(PROVIDER_REGISTRY))}")
         if not config.api_key and config.provider != "antigravity":
             raise ValueError(f"No API key for provider: {config.provider}")
         provider_cls = PROVIDER_REGISTRY[config.provider]
@@ -65,9 +60,7 @@ class LLM:
     ) -> Response:
         """同步对话：完整历史 + 可选工具。"""
         opts = self._resolve_kwargs(kwargs)
-        return self._provider.chat(
-            messages, model=model or self.model, tools=tools, **opts
-        )
+        return self._provider.chat(messages, model=model or self.model, tools=tools, **opts)
 
     def stream(
         self,
@@ -79,9 +72,7 @@ class LLM:
     ) -> Iterator[StreamChunk]:
         """同步流式。"""
         opts = self._resolve_kwargs(kwargs)
-        return self._provider.stream(
-            messages, model=model or self.model, tools=tools, **opts
-        )
+        return self._provider.stream(messages, model=model or self.model, tools=tools, **opts)
 
     async def achat(
         self,
@@ -93,9 +84,7 @@ class LLM:
     ) -> Response:
         """异步对话。"""
         opts = self._resolve_kwargs(kwargs)
-        return await self._provider.achat(
-            messages, model=model or self.model, tools=tools, **opts
-        )
+        return await self._provider.achat(messages, model=model or self.model, tools=tools, **opts)
 
     async def achat_stream(
         self,
@@ -107,9 +96,7 @@ class LLM:
     ) -> AsyncIterator[StreamChunk]:
         """异步流式。调用方直接 `async for chunk in llm.achat_stream(...)` 迭代，不 await。"""
         opts = self._resolve_kwargs(kwargs)
-        async for chunk in self._provider.achat_stream(
-            messages, model=model or self.model, tools=tools, **opts
-        ):
+        async for chunk in self._provider.achat_stream(messages, model=model or self.model, tools=tools, **opts):
             yield chunk
 
     async def astream_events(

@@ -79,9 +79,7 @@ async def test_write_to_directory_error(tmp_path: Path):
 async def test_write_dict_args_and_kwargs(tmp_path: Path):
     tool = make_write_tool(tmp_path)
     # dict args
-    res_dict = await tool.execute(
-        {"path": "dict_call.txt", "content": "hello from dict"}
-    )
+    res_dict = await tool.execute({"path": "dict_call.txt", "content": "hello from dict"})
     assert res_dict.ok is True
     assert "Successfully wrote" in str(res_dict.data)
     assert (tmp_path / "dict_call.txt").read_text(encoding="utf-8") == "hello from dict"

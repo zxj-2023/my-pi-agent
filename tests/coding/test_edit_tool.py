@@ -136,9 +136,7 @@ async def test_edit_no_params_error(tmp_path: Path):
     f.write_text("test", encoding="utf-8")
     tool = make_edit_tool(tmp_path)
     res = await tool.execute(path="code.py")
-    assert (
-        "Error: Either 'edits' or ('old_text' and 'new_text') must be provided." in res
-    )
+    assert "Error: Either 'edits' or ('old_text' and 'new_text') must be provided." in res
 
     res_empty = await tool.execute(path="code.py", edits=[])
     assert "Error: No edits provided." in res_empty
@@ -185,9 +183,7 @@ async def test_edit_dict_call_and_is_parallel_safe(tmp_path: Path):
     tool = make_edit_tool(tmp_path)
     assert tool.is_parallel_safe is True
 
-    res = await tool.execute(
-        {"path": "dict_call.py", "old_text": "world", "new_text": "friend"}
-    )
+    res = await tool.execute({"path": "dict_call.py", "old_text": "world", "new_text": "friend"})
     assert res.ok is True
     assert "Successfully applied 1 edit(s)" in str(res.data)
     assert f.read_text(encoding="utf-8") == "hello friend\n"

@@ -257,9 +257,7 @@ async def test_hook_rewrites_args():
 
     def rewrite(hook: ToolCallHook):
         if isinstance(hook, ToolCallHook):
-            return HookResult(
-                updated_args={"a": hook.args["a"] * 10, "b": hook.args["b"]}
-            )
+            return HookResult(updated_args={"a": hook.args["a"] * 10, "b": hook.args["b"]})
         return None
 
     agent = _agent(llm, hooks=[(ToolCallHook, rewrite)])
@@ -407,9 +405,7 @@ async def test_agent_async_run_streaming_events():
     llm = FakeLLM([_response(content="streaming hello world")])
     updates = []
     agent = _agent(llm)
-    agent.subscribe(
-        lambda ev: updates.append(ev) if isinstance(ev, MessageUpdate) else None
-    )
+    agent.subscribe(lambda ev: updates.append(ev) if isinstance(ev, MessageUpdate) else None)
     res = await agent.run("say hello")
     assert res == "streaming hello world"
     assert len(updates) >= 2
@@ -499,9 +495,7 @@ async def test_agent_user_input_hook_rewrite():
     # LLM 收到的 user 消息为改写后的文本
     assert llm.calls[0]["messages"][-1].content == "hello bar"
     # Session 记录的也是改写后的文本
-    assert (
-        getattr(list(session.tree.entries.values())[0], "content", None) == "hello bar"
-    )
+    assert getattr(list(session.tree.entries.values())[0], "content", None) == "hello bar"
 
 
 @pytest.mark.anyio
@@ -556,19 +550,13 @@ async def test_agent_before_model_call_hook_temporary_view_rewrite():
 
     # 1. LLM 接收到的 view 中包含 ephemeral reminder
     last_call_messages = llm.calls[0]["messages"]
-    assert any(
-        "[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in last_call_messages
-    )
+    assert any("[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in last_call_messages)
 
     # 2. agent.messages 中绝不包含 ephemeral reminder
-    assert not any(
-        "[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in agent.messages
-    )
+    assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in m.content for m in agent.messages)
 
     # 3. session 磁盘中绝不包含 ephemeral reminder
-    session_contents = [
-        getattr(e, "content", "") for e in session.tree.entries.values()
-    ]
+    session_contents = [getattr(e, "content", "") for e in session.tree.entries.values()]
     assert not any("[EPHEMERAL REMINDER: BE CONCISE]" in c for c in session_contents)
 
 

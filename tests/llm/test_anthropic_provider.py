@@ -59,13 +59,7 @@ def test_chat_converts_tool_messages():
 
 def test_chat_extracts_text_and_tool_calls():
     """响应 content blocks → content + tool_calls。"""
-    p = _provider(
-        [
-            make_anthropic_response(
-                text="answer", tool_uses=[{"id": "2", "name": "g", "input": {"y": 2}}]
-            )
-        ]
-    )
+    p = _provider([make_anthropic_response(text="answer", tool_uses=[{"id": "2", "name": "g", "input": {"y": 2}}])])
     resp = p.chat([Message(role="user", content="hi")], model="claude-sonnet-4-5")
     assert resp.content == "answer"
     assert resp.tool_calls == [ToolCall(id="2", name="g", args={"y": 2})]
@@ -81,6 +75,4 @@ def test_chat_web_search_enhancement():
         web_search_max_uses=3,
     )
     call = p.client.calls[0]
-    assert {"type": "web_search_20250305", "name": "web_search", "max_uses": 3} in call[
-        "tools"
-    ]
+    assert {"type": "web_search_20250305", "name": "web_search", "max_uses": 3} in call["tools"]

@@ -29,9 +29,7 @@ class NudgeTestLLM:
                         "type": "function",
                         "function": {
                             "name": "todo",
-                            "arguments": json.dumps(
-                                {"action": "create", "subject": "Write code"}
-                            ),
+                            "arguments": json.dumps({"action": "create", "subject": "Write code"}),
                         },
                     },
                     {

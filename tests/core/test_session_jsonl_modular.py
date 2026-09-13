@@ -179,9 +179,7 @@ def test_entry_from_json_line_rejects_legacy_flat_message() -> None:
             "role": "assistant",
             "content": "thinking output",
             "metadata": {
-                "tool_calls": [
-                    {"id": "tc1", "type": "function", "function": {"name": "read"}}
-                ],
+                "tool_calls": [{"id": "tc1", "type": "function", "function": {"name": "read"}}],
             },
         }
     )
@@ -246,9 +244,7 @@ async def test_jsonl_storage_append_and_read_all(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(file_path)
 
     e0 = SessionInfoEntry(id="info1", cwd=str(tmp_path))
-    m1 = MessageEntry(
-        id="m1", parent_id="info1", message=Message(role="user", content="hello")
-    )
+    m1 = MessageEntry(id="m1", parent_id="info1", message=Message(role="user", content="hello"))
 
     await storage.append(e0)
     await storage.append(m1)
@@ -274,12 +270,8 @@ async def test_jsonl_storage_append_batch(tmp_path: Path) -> None:
 
     batch = [
         SessionInfoEntry(id="i1", cwd="."),
-        MessageEntry(
-            id="m1", parent_id="i1", message=Message(role="user", content="q1")
-        ),
-        MessageEntry(
-            id="m2", parent_id="m1", message=Message(role="assistant", content="a1")
-        ),
+        MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="q1")),
+        MessageEntry(id="m2", parent_id="m1", message=Message(role="assistant", content="a1")),
     ]
     await storage.append_batch(batch)
 
@@ -334,11 +326,7 @@ async def test_jsonl_storage_removes_temp_on_append(tmp_path: Path) -> None:
     tmp_file.write_text("ghost data", encoding="utf-8")
     assert tmp_file.exists()
 
-    await storage.append(
-        MessageEntry(
-            id="m1", parent_id="i1", message=Message(role="user", content="hi")
-        )
-    )
+    await storage.append(MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="hi")))
     assert not tmp_file.exists()
 
 
@@ -354,9 +342,7 @@ async def test_jsonl_storage_tolerates_torn_last_line(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(file_path)
 
     e0 = SessionInfoEntry(id="i1", cwd=".")
-    m1 = MessageEntry(
-        id="m1", parent_id="i1", message=Message(role="user", content="fine")
-    )
+    m1 = MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="fine"))
     await storage.append_batch([e0, m1])
 
     # 手动在文件末尾追加半截撕裂行
@@ -375,9 +361,7 @@ async def test_jsonl_storage_rejects_corrupted_middle_line(tmp_path: Path) -> No
     storage = JsonlSessionStorage(file_path)
 
     e0 = SessionInfoEntry(id="i1", cwd=".")
-    m1 = MessageEntry(
-        id="m1", parent_id="i1", message=Message(role="user", content="ok")
-    )
+    m1 = MessageEntry(id="m1", parent_id="i1", message=Message(role="user", content="ok"))
     await storage.append_batch([e0, m1])
 
     # 在中间插入损坏行，最后仍有有效行

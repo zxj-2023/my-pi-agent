@@ -82,10 +82,7 @@ def test_memory_store_deduplication_and_bom_tolerance():
         store = MemoryStore(mem_dir=mem_dir)
         store.load_from_disk()
 
-        assert (
-            store.format_for_system_prompt("memory")
-            == "Entry A\n§\nEntry B\n§\nEntry C"
-        )
+        assert store.format_for_system_prompt("memory") == "Entry A\n§\nEntry B\n§\nEntry C"
 
 
 def test_memory_store_add_validation_and_limits():
@@ -110,10 +107,7 @@ def test_memory_store_add_validation_and_limits():
         # 超限拒绝（50 字符上限，当前 10 字符 + "\n§\n" 3 字符 + 40 字符 = 53 字符 > 50）
         overflow_content = "X" * 40
         res_overflow = store.add("memory", overflow_content)
-        assert (
-            "Cannot add: total length (53) exceeds limit (50) for memory"
-            in res_overflow
-        )
+        assert "Cannot add: total length (53) exceeds limit (50) for memory" in res_overflow
         assert "Please consolidate or remove older entries first." in res_overflow
         assert "Current entries:\nShort fact" in res_overflow
 
@@ -121,9 +115,7 @@ def test_memory_store_add_validation_and_limits():
 def test_memory_store_replace():
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir)
-        (mem_dir / "MEMORY.md").write_text(
-            "First item\n§\nSecond item\n§\nSecond duplicate key", encoding="utf-8"
-        )
+        (mem_dir / "MEMORY.md").write_text("First item\n§\nSecond item\n§\nSecond duplicate key", encoding="utf-8")
         store = MemoryStore(mem_dir=mem_dir, memory_char_limit=100)
         store.load_from_disk()
 
@@ -139,16 +131,11 @@ def test_memory_store_replace():
         assert "Replaced in memory" in res
 
         # 未命中报错
-        assert "Text 'NonExistent' not found in memory" in store.replace(
-            "memory", "NonExistent", "New"
-        )
+        assert "Text 'NonExistent' not found in memory" in store.replace("memory", "NonExistent", "New")
 
         # 歧义多处命中报错
         res_ambiguous = store.replace("memory", "Second", "New second")
-        assert (
-            "Ambiguous match: found 2 entries matching 'Second' in memory"
-            in res_ambiguous
-        )
+        assert "Ambiguous match: found 2 entries matching 'Second' in memory" in res_ambiguous
         assert "Second item" in res_ambiguous
         assert "Second duplicate key" in res_ambiguous
 
@@ -159,18 +146,13 @@ def test_memory_store_replace():
 
         # 验证磁盘状态
         disk_content = (mem_dir / "MEMORY.md").read_text(encoding="utf-8-sig")
-        assert (
-            disk_content
-            == "Updated first item\n§\nSecond item\n§\nSecond duplicate key"
-        )
+        assert disk_content == "Updated first item\n§\nSecond item\n§\nSecond duplicate key"
 
 
 def test_memory_store_remove():
     with tempfile.TemporaryDirectory() as tmpdir:
         mem_dir = Path(tmpdir)
-        (mem_dir / "USER.md").write_text(
-            "Prefers concise code\n§\nPrefers async\n§\nPrefers tabs", encoding="utf-8"
-        )
+        (mem_dir / "USER.md").write_text("Prefers concise code\n§\nPrefers async\n§\nPrefers tabs", encoding="utf-8")
         store = MemoryStore(mem_dir=mem_dir)
         store.load_from_disk()
 
@@ -185,10 +167,7 @@ def test_memory_store_remove():
 
         # 歧义匹配（"Prefers" 命中全部 3 条）
         res_ambiguous = store.remove("user", "Prefers")
-        assert (
-            "Ambiguous match: found 3 entries matching 'Prefers' in user"
-            in res_ambiguous
-        )
+        assert "Ambiguous match: found 3 entries matching 'Prefers' in user" in res_ambiguous
 
         # 唯原子串删除
         res_del = store.remove("user", "async")
@@ -234,9 +213,7 @@ async def test_make_memory_tool_schema_and_execution():
         assert "new_content" in props
 
         # 1. 测试 execute add
-        res_add = await tool.execute(
-            {"target": "user", "action": "add", "content": "User likes concise code"}
-        )
+        res_add = await tool.execute({"target": "user", "action": "add", "content": "User likes concise code"})
         assert res_add.ok is True
         assert "Added to user" in str(res_add.data)
         assert (mem_dir / "USER.md").exists()
@@ -266,9 +243,7 @@ async def test_make_memory_tool_schema_and_execution():
         assert "Replaced in user" in str(res_rep_fallback.data)
 
         # 4. 测试 execute remove
-        res_rem = await tool.execute(
-            {"target": "user", "action": "remove", "old_text": "ultra-concise"}
-        )
+        res_rem = await tool.execute({"target": "user", "action": "remove", "old_text": "ultra-concise"})
         assert res_rem.ok is True
         assert "Removed from user" in str(res_rem.data)
 
@@ -286,20 +261,14 @@ async def test_make_memory_tool_never_throw_validation_errors():
         assert "`content` is required when action is 'add'" in (res1.error or "")
 
         # replace 缺少 old_text
-        res2 = await tool.execute(
-            {"target": "memory", "action": "replace", "new_content": "new"}
-        )
+        res2 = await tool.execute({"target": "memory", "action": "replace", "new_content": "new"})
         assert res2.ok is False
         assert "`old_text` is required when action is 'replace'" in (res2.error or "")
 
         # replace 缺少 new_content 和 content
-        res3 = await tool.execute(
-            {"target": "memory", "action": "replace", "old_text": "old"}
-        )
+        res3 = await tool.execute({"target": "memory", "action": "replace", "old_text": "old"})
         assert res3.ok is False
-        assert "`new_content` is required when action is 'replace'" in (
-            res3.error or ""
-        )
+        assert "`new_content` is required when action is 'replace'" in (res3.error or "")
 
         # remove 缺少 old_text
         res4 = await tool.execute({"target": "memory", "action": "remove"})
@@ -331,9 +300,7 @@ async def test_agent_memory_dir_detection_and_prompt_injection():
         (mem_dir / "MEMORY.md").write_text("Project uses Python 3.11", encoding="utf-8")
 
         session = Session(path=workspace / "session.jsonl")
-        llm = FakeMemoryLLM(
-            [Response(content="I know the project uses Python 3.11", model="test")]
-        )
+        llm = FakeMemoryLLM([Response(content="I know the project uses Python 3.11", model="test")])
 
         agent = Agent(
             llm=llm,
@@ -447,9 +414,7 @@ async def test_agent_cross_session_memory_e2e():
 
         # Session B: 全新 Agent 实例加载同一 memory_dir
         session_b = Session(path=Path(tmpdir) / "session_b.jsonl")
-        llm_b = FakeMemoryLLM(
-            [Response(content="You prefer async code.", model="test")]
-        )
+        llm_b = FakeMemoryLLM([Response(content="You prefer async code.", model="test")])
         agent_b = Agent(llm=llm_b, tools=[], session=session_b, memory_dir=mem_dir)
 
         # Session B 的 System Prompt 自动包含 Session A 写入的记忆

@@ -135,20 +135,12 @@ async def test_rewind_then_run_grows_new_branch(tmp_path):
     session = Session(path=tmp_path / "s.jsonl")
     agent = Agent(llm=llm1, tools=[multiply], session=session)
     await agent.run("q1")
-    q1_entry = next(
-        e
-        for e in session.tree.entries.values()
-        if e.role == "user" and e.content == "q1"
-    )
+    q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
     session.rewind(q1_entry.id)
     llm2 = FakeLLM([_response(content="另答")])
     agent2 = Agent(llm=llm2, tools=[multiply], session=session)
     await agent2.run("换个问法")
-    new_user = next(
-        e
-        for e in session.tree.entries.values()
-        if e.role == "user" and e.content == "换个问法"
-    )
+    new_user = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "换个问法")
     assert new_user.parent_id == q1_entry.id  # 从回退点长新枝
     assert [e.content for e in session.tree.get_current_path()] == [
         "q1",
@@ -178,14 +170,10 @@ async def test_resume_uses_new_system_prompt(tmp_path):
     """session 不含 system：恢复后 Agent 用传入的 system_prompt 拼 system。"""
     llm1 = FakeLLM([_response(content="hi")])
     session = Session(path=tmp_path / "s.jsonl")
-    await Agent(
-        llm=llm1, tools=[multiply], session=session, system_prompt="旧system"
-    ).run("q1")
+    await Agent(llm=llm1, tools=[multiply], session=session, system_prompt="旧system").run("q1")
     restored = Session.load(session.path)
     llm2 = FakeLLM([_response(content="ok")])
-    agent2 = Agent(
-        llm=llm2, tools=[multiply], session=restored, system_prompt="新system"
-    )
+    agent2 = Agent(llm=llm2, tools=[multiply], session=restored, system_prompt="新system")
     await agent2.run("q2")
     first = llm2.calls[0]["messages"]
     sys_msgs = [m for m in first if m.role == "system"]
@@ -200,11 +188,7 @@ async def test_rewind_then_same_agent_run_syncs_context(tmp_path):
     session = Session(path=tmp_path / "s.jsonl")
     agent = Agent(llm=llm1, tools=[multiply], session=session, system_prompt="sys")
     await agent.run("q1")
-    q1_entry = next(
-        e
-        for e in session.tree.entries.values()
-        if e.role == "user" and e.content == "q1"
-    )
+    q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
     session.rewind(q1_entry.id)
     llm2 = FakeLLM([_response(content="另答")])
     agent.llm = llm2  # 同一 Agent 实例续跑

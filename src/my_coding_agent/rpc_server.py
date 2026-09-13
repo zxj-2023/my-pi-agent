@@ -203,7 +203,9 @@ class RpcServer:
                     provider = None
                     if model_name and "/" in model_name:
                         provider, model_name = model_name.split("/", 1)
-                    elif model_name and (model_name.startswith("gemini-") or "flash" in model_name or "pro" in model_name):
+                    elif model_name and (
+                        model_name.startswith("gemini-") or "flash" in model_name or "pro" in model_name
+                    ):
                         provider = "antigravity"
                     elif model_name and "deepseek" in model_name:
                         provider = "deepseek"
@@ -226,7 +228,9 @@ class RpcServer:
                     api_key = os.environ.get(f"{provider.upper()}_API_KEY") or os.environ.get("OPENAI_API_KEY")
                     base_url = os.environ.get(f"{provider.upper()}_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
                     try:
-                        llm = LLM(config=Config(provider=provider, model=model_name, api_key=api_key, base_url=base_url))
+                        llm = LLM(
+                            config=Config(provider=provider, model=model_name, api_key=api_key, base_url=base_url)
+                        )
                     except Exception:
                         llm = None
 

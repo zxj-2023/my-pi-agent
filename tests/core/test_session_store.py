@@ -120,12 +120,8 @@ def test_store_workspace_isolation(tmp_path):
     assert [m.id for m in store_a.list()] == [sa.id]
     assert [m.id for m in store_b.list()] == [sb.id]  # 互不可见
     # 各自目录独立
-    assert (
-        tmp_path / "proj-a" / ".my_agent_core" / "sessions" / f"{sa.id}.jsonl"
-    ).exists()
-    assert (
-        tmp_path / "proj-b" / ".my_agent_core" / "sessions" / f"{sb.id}.jsonl"
-    ).exists()
+    assert (tmp_path / "proj-a" / ".my_agent_core" / "sessions" / f"{sa.id}.jsonl").exists()
+    assert (tmp_path / "proj-b" / ".my_agent_core" / "sessions" / f"{sb.id}.jsonl").exists()
     # Session.cwd = workspace
     assert sa.cwd == str(tmp_path / "proj-a")
     assert sb.cwd == str(tmp_path / "proj-b")

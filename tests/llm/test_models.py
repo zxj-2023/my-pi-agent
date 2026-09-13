@@ -135,7 +135,5 @@ def test_response_to_message_with_structured_tool_calls():
     msg = r.to_message()
     assert msg.role == "assistant"
     assert msg.metadata is not None
-    assert msg.metadata["tool_calls"] == [
-        {"id": "call_99", "name": "grep", "args": {"pattern": "foo"}, "error": None}
-    ]
+    assert msg.metadata["tool_calls"] == [{"id": "call_99", "name": "grep", "args": {"pattern": "foo"}, "error": None}]
     assert msg.metadata["stop_reason"] == "tool_calls"

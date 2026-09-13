@@ -36,9 +36,7 @@ class FakeLLM:
         model: str | None = None,
         **kwargs: Any,
     ) -> Response:
-        self.calls.append(
-            {"messages": list(messages), "tools": tools, "model": model, **kwargs}
-        )
+        self.calls.append({"messages": list(messages), "tools": tools, "model": model, **kwargs})
         return self._next_response()
 
     async def achat(
@@ -59,9 +57,7 @@ class FakeLLM:
         model: str | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[StreamChunk]:
-        self.calls.append(
-            {"messages": list(messages), "tools": tools, "model": model, **kwargs}
-        )
+        self.calls.append({"messages": list(messages), "tools": tools, "model": model, **kwargs})
         resp = self._next_response()
 
         if resp.content:

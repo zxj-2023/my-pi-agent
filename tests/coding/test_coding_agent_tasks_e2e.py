@@ -29,9 +29,7 @@ class ScriptedCodingLLM:
                         "type": "function",
                         "function": {
                             "name": "todo",
-                            "arguments": json.dumps(
-                                {"action": "create", "subject": "Run test suite"}
-                            ),
+                            "arguments": json.dumps({"action": "create", "subject": "Run test suite"}),
                         },
                     },
                     {
@@ -39,9 +37,7 @@ class ScriptedCodingLLM:
                         "type": "function",
                         "function": {
                             "name": "bash",
-                            "arguments": json.dumps(
-                                {"command": cmd, "run_in_background": True}
-                            ),
+                            "arguments": json.dumps({"command": cmd, "run_in_background": True}),
                         },
                     },
                 ],

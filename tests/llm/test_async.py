@@ -19,9 +19,7 @@ class FakeAsyncOpenAI:
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls: list[dict] = []
-        self.chat.completions.create = (
-            self.create
-        )  # 接通 async_client.chat.completions.create → self.create
+        self.chat.completions.create = self.create  # 接通 async_client.chat.completions.create → self.create
 
     @property
     def chat(self):
@@ -114,9 +112,7 @@ def test_openai_achat():
         client=FakeAsyncOpenAI([]),  # 占位：achat 只走 async_client
         async_client=FakeAsyncOpenAI([make_openai_response(content="hello")]),
     )
-    resp = asyncio.run(
-        p.achat([Message(role="user", content="hi")], model="gpt-4.1-mini")
-    )
+    resp = asyncio.run(p.achat([Message(role="user", content="hi")], model="gpt-4.1-mini"))
     assert isinstance(resp, Response)
     assert resp.content == "hello"
     assert resp.model == "gpt-4.1-mini"
@@ -127,17 +123,11 @@ def test_openai_achat_stream():
     chunks = [
         SimpleNamespace(
             id="1",
-            choices=[
-                SimpleNamespace(delta=SimpleNamespace(content="a"), finish_reason=None)
-            ],
+            choices=[SimpleNamespace(delta=SimpleNamespace(content="a"), finish_reason=None)],
         ),
         SimpleNamespace(
             id="2",
-            choices=[
-                SimpleNamespace(
-                    delta=SimpleNamespace(content="b"), finish_reason="stop"
-                )
-            ],
+            choices=[SimpleNamespace(delta=SimpleNamespace(content="b"), finish_reason="stop")],
         ),
         SimpleNamespace(id="3", choices=[]),  # usage-only 末块
     ]
@@ -148,12 +138,7 @@ def test_openai_achat_stream():
     )
 
     async def collect():
-        return [
-            c
-            async for c in p.achat_stream(
-                [Message(role="user", content="hi")], model="gpt-4.1-mini"
-            )
-        ]
+        return [c async for c in p.achat_stream([Message(role="user", content="hi")], model="gpt-4.1-mini")]
 
     out = asyncio.run(collect())
     assert [c.content for c in out] == ["a", "b", ""]
@@ -174,9 +159,7 @@ def test_openai_achat_stream_aggregates_tool_calls():
                             SimpleNamespace(
                                 index=0,
                                 id="call_1",
-                                function=SimpleNamespace(
-                                    name="get_weather", arguments=""
-                                ),
+                                function=SimpleNamespace(name="get_weather", arguments=""),
                             )
                         ],
                     ),
@@ -195,9 +178,7 @@ def test_openai_achat_stream_aggregates_tool_calls():
                             SimpleNamespace(
                                 index=0,
                                 id=None,
-                                function=SimpleNamespace(
-                                    name=None, arguments='{"city":"Tokyo"}'
-                                ),
+                                function=SimpleNamespace(name=None, arguments='{"city":"Tokyo"}'),
                             )
                         ],
                     ),
@@ -209,9 +190,7 @@ def test_openai_achat_stream_aggregates_tool_calls():
         SimpleNamespace(
             id="3",
             choices=[],
-            usage=SimpleNamespace(
-                prompt_tokens=10, completion_tokens=5, total_tokens=15
-            ),
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         ),
     ]
     p = OpenAIProvider(
@@ -221,18 +200,11 @@ def test_openai_achat_stream_aggregates_tool_calls():
     )
 
     async def collect():
-        return [
-            c
-            async for c in p.achat_stream(
-                [Message(role="user", content="hi")], model="gpt-4.1-mini"
-            )
-        ]
+        return [c async for c in p.achat_stream([Message(role="user", content="hi")], model="gpt-4.1-mini")]
 
     out = asyncio.run(collect())
     assert [c.content for c in out] == [""]
-    assert out[0].tool_calls == [
-        ToolCall(id="call_1", name="get_weather", args={"city": "Tokyo"})
-    ]
+    assert out[0].tool_calls == [ToolCall(id="call_1", name="get_weather", args={"city": "Tokyo"})]
     assert out[0].usage == {
         "prompt_tokens": 10,
         "completion_tokens": 5,
@@ -255,9 +227,7 @@ def test_anthropic_achat():
         client=FakeAsyncAnthropic([]),
         async_client=FakeAsyncAnthropic([make_anthropic_response(text="hello")]),
     )
-    resp = asyncio.run(
-        p.achat([Message(role="user", content="hi")], model="claude-sonnet-4-5")
-    )
+    resp = asyncio.run(p.achat([Message(role="user", content="hi")], model="claude-sonnet-4-5"))
     assert resp.content == "hello"
     assert resp.model == "claude-sonnet-4-5"
 
@@ -268,18 +238,11 @@ def test_anthropic_achat_stream():
     p = AnthropicProvider(
         Config(api_key="test"),
         client=FakeAsyncAnthropic([]),
-        async_client=FakeAsyncAnthropic(
-            [], stream_response=FakeAsyncAnthropicStream(texts=["a", "b"], final=final)
-        ),
+        async_client=FakeAsyncAnthropic([], stream_response=FakeAsyncAnthropicStream(texts=["a", "b"], final=final)),
     )
 
     async def collect():
-        return [
-            c
-            async for c in p.achat_stream(
-                [Message(role="user", content="hi")], model="claude-sonnet-4-5"
-            )
-        ]
+        return [c async for c in p.achat_stream([Message(role="user", content="hi")], model="claude-sonnet-4-5")]
 
     out = asyncio.run(collect())
     assert [c.content for c in out] == ["a", "b", ""]
@@ -299,18 +262,11 @@ def test_anthropic_achat_stream_reasoning():
     p = AnthropicProvider(
         Config(api_key="test"),
         client=FakeAsyncAnthropic([]),
-        async_client=FakeAsyncAnthropic(
-            [], stream_response=FakeAsyncAnthropicStream(texts=[], final=final)
-        ),
+        async_client=FakeAsyncAnthropic([], stream_response=FakeAsyncAnthropicStream(texts=[], final=final)),
     )
 
     async def collect():
-        return [
-            c
-            async for c in p.achat_stream(
-                [Message(role="user", content="hi")], model="claude-sonnet-4-5"
-            )
-        ]
+        return [c async for c in p.achat_stream([Message(role="user", content="hi")], model="claude-sonnet-4-5")]
 
     out = asyncio.run(collect())
     assert out[-1].metadata == {"reasoning_content": "let me think"}
@@ -320,6 +276,4 @@ def test_anthropic_achat_missing_async_client():
     """async_client 未注入 → achat 抛 RuntimeError（fail-loud）。"""
     p = AnthropicProvider(Config(api_key="test"), client=FakeAsyncAnthropic([]))
     with pytest.raises(RuntimeError, match="async_client"):
-        asyncio.run(
-            p.achat([Message(role="user", content="hi")], model="claude-sonnet-4-5")
-        )
+        asyncio.run(p.achat([Message(role="user", content="hi")], model="claude-sonnet-4-5"))

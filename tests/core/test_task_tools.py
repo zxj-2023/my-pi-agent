@@ -29,16 +29,12 @@ def test_todo_tool_crud_lifecycle(tmp_path: Path):
         assert "task_1: Implement Auth" in res1.data["board"]
 
         # 2. create second
-        res2 = await todo_tool.execute(
-            {"action": "create", "subject": "Implement Tests"}
-        )
+        res2 = await todo_tool.execute({"action": "create", "subject": "Implement Tests"})
         assert res2.ok
         assert res2.data["task"]["id"] == "task_2"
 
         # 3. update (addBlockedBy)
-        res_up = await todo_tool.execute(
-            {"action": "update", "task_id": "task_2", "add_blocked_by": ["task_1"]}
-        )
+        res_up = await todo_tool.execute({"action": "update", "task_id": "task_2", "add_blocked_by": ["task_1"]})
         assert res_up.ok
         assert res_up.data["task"]["blocked_by"] == ["task_1"]
 
@@ -53,9 +49,7 @@ def test_todo_tool_crud_lifecycle(tmp_path: Path):
         assert len(res_list.data["tasks"]) == 2
 
         # 6. complete task_1 -> unlocks task_2
-        res_comp = await todo_tool.execute(
-            {"action": "update", "task_id": "task_1", "status": "completed"}
-        )
+        res_comp = await todo_tool.execute({"action": "update", "task_id": "task_1", "status": "completed"})
         assert res_comp.ok
         assert "task_2" in res_comp.data["unblocked"]
         assert "[x] task_1: Implement Auth" in res_comp.data["board"]
@@ -100,9 +94,7 @@ def test_todo_tool_never_throw_on_error(tmp_path: Path):
         assert res_err1.error is not None and "cannot be empty" in res_err1.error
 
         # Non-existent task update
-        res_err2 = await todo_tool.execute(
-            {"action": "update", "task_id": "task_999", "status": "completed"}
-        )
+        res_err2 = await todo_tool.execute({"action": "update", "task_id": "task_999", "status": "completed"})
         assert not res_err2.ok
         assert res_err2.error is not None and "not found" in res_err2.error
 

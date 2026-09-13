@@ -74,18 +74,14 @@ def multiply(a: int, b: int) -> int:
 @pytest.mark.anyio
 async def test_start_task_success(tmp_path: Path):
     """start_task 成功 ➔ COMPLETED + result 正确 + id 非空。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
-    )
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
     parent = Agent(
         llm=FakeLLM([_response(content="found issues")]),
         tools=[multiply],
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
-    task = await SubagentTaskManager(manager, parent).start_task(
-        "review this", "code-reviewer"
-    )
+    task = await SubagentTaskManager(manager, parent).start_task("review this", "code-reviewer")
     assert task.status is SubagentTaskStatus.COMPLETED
     assert task.result == "found issues"
     assert task.error is None
@@ -95,9 +91,7 @@ async def test_start_task_success(tmp_path: Path):
 @pytest.mark.anyio
 async def test_start_task_unknown_agent_error(tmp_path: Path):
     """未知名 agent ➔ ERROR + error 包含可用列表提示。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
-    )
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
     parent = Agent(
         llm=FakeLLM([_response(content="")]),
@@ -129,9 +123,7 @@ async def test_start_task_default_fallback(tmp_path: Path):
 @pytest.mark.anyio
 async def test_start_task_subagent_exception(tmp_path: Path):
     """子代理抛出异常 ➔ ERROR + error 包含 'Subagent ... failed: ' 前缀。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
-    )
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
     parent = Agent(
         llm=RaisingLLM(),
@@ -147,9 +139,7 @@ async def test_start_task_subagent_exception(tmp_path: Path):
 @pytest.mark.anyio
 async def test_make_task_tool_bridge(tmp_path: Path):
     """工具桥：task 工具成功返回 result。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
-    )
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
     parent = Agent(
         llm=FakeLLM([_response(content="found issues")]),
@@ -157,9 +147,7 @@ async def test_make_task_tool_bridge(tmp_path: Path):
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
     task_tool = make_task_tool(manager, parent)
-    result = await task_tool.execute(
-        {"prompt": "review", "agent_type": "code-reviewer"}
-    )
+    result = await task_tool.execute({"prompt": "review", "agent_type": "code-reviewer"})
     assert result.ok is True
     assert result.data == "found issues"
 
@@ -167,9 +155,7 @@ async def test_make_task_tool_bridge(tmp_path: Path):
 @pytest.mark.anyio
 async def test_make_task_tool_bridge_error(tmp_path: Path):
     """工具桥：异常时返回错误信息字符串。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
-    )
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
     parent = Agent(
         llm=RaisingLLM(),
@@ -177,9 +163,7 @@ async def test_make_task_tool_bridge_error(tmp_path: Path):
         session=Session(path=Path(tempfile.mkdtemp()) / "s.jsonl"),
     )
     task_tool = make_task_tool(manager, parent)
-    result = await task_tool.execute(
-        {"prompt": "review", "agent_type": "code-reviewer"}
-    )
+    result = await task_tool.execute({"prompt": "review", "agent_type": "code-reviewer"})
     assert result.ok is True
     assert "Subagent 'code-reviewer' failed: boom" in str(result.data)
 
@@ -187,9 +171,7 @@ async def test_make_task_tool_bridge_error(tmp_path: Path):
 @pytest.mark.anyio
 async def test_subagent_session_persists(tmp_path: Path):
     """委派后子代理独立 session 存入 subagents/，且父 session 不受污染。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="d", content="You are a reviewer."
-    )
+    _write_agent(tmp_path, "code-reviewer", description="d", content="You are a reviewer.")
     manager = SubagentManager([tmp_path])
     parent_session = Session(path=tmp_path / "parent.jsonl")
     llm = FakeLLM(
@@ -210,9 +192,7 @@ async def test_subagent_session_persists(tmp_path: Path):
     child = Session.load(files[0])
     assert any(e.role == "assistant" for e in child.tree.entries.values())
     assert not any(
-        e.content == "found issues"
-        and e.role == "assistant"
-        and "tool_calls" not in e.metadata
+        e.content == "found issues" and e.role == "assistant" and "tool_calls" not in e.metadata
         for e in parent_session.tree.entries.values()
     )
 
@@ -221,9 +201,7 @@ async def test_subagent_session_persists(tmp_path: Path):
 async def test_multiple_subagents_parallel_delegation(tmp_path: Path):
     """验证同时派发多个 Subagent 并行执行业务。"""
     _write_agent(tmp_path, "reviewer", description="review", content="Reviewer prompt")
-    _write_agent(
-        tmp_path, "researcher", description="research", content="Researcher prompt"
-    )
+    _write_agent(tmp_path, "researcher", description="research", content="Researcher prompt")
     manager = SubagentManager([tmp_path])
     parent_session = Session(path=tmp_path / "parent.jsonl")
 
@@ -356,12 +334,8 @@ async def test_task_manager_steer_and_followup_task(tmp_path: Path):
                 f_ok = tm.follow_up_task(tid, "child followup msg")
                 observed_active["steer_ok"] = s_ok
                 observed_active["follow_ok"] = f_ok
-                observed_active["has_steering"] = (
-                    child_agent.message_queue.has_steering()
-                )
-                observed_active["has_followup"] = (
-                    child_agent.message_queue.has_followup()
-                )
+                observed_active["has_steering"] = child_agent.message_queue.has_steering()
+                observed_active["has_followup"] = child_agent.message_queue.has_followup()
 
             yield StreamChunk(content=f"Child answer {self.calls}")
 

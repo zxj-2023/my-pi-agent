@@ -74,17 +74,13 @@ def test_antigravity_provider_in_registry():
 
 
 def test_llm_routes_to_antigravity_provider():
-    llm = LLM(
-        Config(provider="antigravity", api_key="ya29.test", model="gemini-1.5-pro")
-    )
+    llm = LLM(Config(provider="antigravity", api_key="ya29.test", model="gemini-1.5-pro"))
     assert isinstance(llm._provider, AntigravityProvider)
     assert llm.model == "gemini-1.5-pro"
 
 
 def test_antigravity_provider_chat_with_fake():
-    resp = make_openai_response(
-        content="Hello from Antigravity!", model="gemini-1.5-flash"
-    )
+    resp = make_openai_response(content="Hello from Antigravity!", model="gemini-1.5-flash")
     fake_client = FakeOpenAI([resp])
     cfg = Config(provider="antigravity", model="gemini-1.5-flash", api_key="ya29.test")
     provider = AntigravityProvider(cfg, client=fake_client)
@@ -130,9 +126,7 @@ def test_antigravity_provider_stream_with_fake():
                 SimpleNamespace(
                     id="3",
                     choices=[],
-                    usage=SimpleNamespace(
-                        prompt_tokens=5, completion_tokens=3, total_tokens=8
-                    ),
+                    usage=SimpleNamespace(prompt_tokens=5, completion_tokens=3, total_tokens=8),
                 ),
             ]
 
@@ -142,9 +136,7 @@ def test_antigravity_provider_stream_with_fake():
     cfg = Config(provider="antigravity", model="gemini-1.5-flash", api_key="ya29.test")
     provider = AntigravityProvider(cfg)
     provider.client = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=lambda **kw: FakeStream())
-        )
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: FakeStream()))
     )
 
     chunks = list(
@@ -171,9 +163,7 @@ async def test_antigravity_provider_achat_with_fake():
     resp = make_openai_response(content="Async hello!", model="gemini-1.5-pro")
     mock_async_client = SimpleNamespace(
         chat=SimpleNamespace(
-            completions=SimpleNamespace(
-                create=pytest.importorskip("unittest.mock").AsyncMock(return_value=resp)
-            )
+            completions=SimpleNamespace(create=pytest.importorskip("unittest.mock").AsyncMock(return_value=resp))
         )
     )
     cfg = Config(provider="antigravity", model="gemini-1.5-pro", api_key="ya29.test")
@@ -221,9 +211,7 @@ async def test_antigravity_provider_achat_stream_with_fake():
                 SimpleNamespace(
                     id="3",
                     choices=[],
-                    usage=SimpleNamespace(
-                        prompt_tokens=4, completion_tokens=2, total_tokens=6
-                    ),
+                    usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2, total_tokens=6),
                 ),
             ]
 
@@ -240,9 +228,7 @@ async def test_antigravity_provider_achat_stream_with_fake():
     mock_async_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(
-                create=pytest.importorskip("unittest.mock").AsyncMock(
-                    return_value=AsyncFakeStream()
-                )
+                create=pytest.importorskip("unittest.mock").AsyncMock(return_value=AsyncFakeStream())
             )
         )
     )

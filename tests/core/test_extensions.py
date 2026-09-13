@@ -417,11 +417,7 @@ def extension(api):
     assert res == "safe answer"
 
     # 1. UserInput 改写生效：LLM 收到的 user prompt 中包含 good_word 而非 bad_word
-    last_user_msg = [
-        m
-        for m in llm.calls[0]["messages"]
-        if m.role == "user" and "[EPHEMERAL" not in m.content
-    ][-1]
+    last_user_msg = [m for m in llm.calls[0]["messages"] if m.role == "user" and "[EPHEMERAL" not in m.content][-1]
     assert last_user_msg.content == "test good_word"
 
     # 2. AgentStart 改写生效：LLM 收到的 system prompt 为 Guarded System Prompt
@@ -431,8 +427,6 @@ def extension(api):
     assert any("[EPHEMERAL WARNING]" in m.content for m in llm.calls[0]["messages"])
 
     # 4. Session 保持零污染：Session 磁盘绝不包含 [EPHEMERAL WARNING]
-    session_contents = [
-        getattr(e, "content", "") for e in agent.session.tree.entries.values()
-    ]
+    session_contents = [getattr(e, "content", "") for e in agent.session.tree.entries.values()]
     assert not any("[EPHEMERAL WARNING]" in c for c in session_contents)
     assert any("test good_word" in c for c in session_contents)

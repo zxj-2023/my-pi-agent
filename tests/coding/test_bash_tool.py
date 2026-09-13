@@ -79,9 +79,7 @@ async def test_bash_byte_truncation_spills_log(tmp_path: Path):
 
 async def test_bash_command_failure_exit_code(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
-    res = await tool.execute(
-        command="python -c \"import sys; print('error details'); sys.exit(42)\""
-    )
+    res = await tool.execute(command="python -c \"import sys; print('error details'); sys.exit(42)\"")
     assert "Command failed with exit code 42:" in res
     assert "error details" in res
 
@@ -135,11 +133,7 @@ async def test_bash_result_ergonomics(tmp_path: Path):
 async def test_bash_cancelled_kills_process(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     pid_file = tmp_path / "child.pid"
-    cmd = (
-        'python -c "import os, time; '
-        f"open(r'{pid_file}', 'w').write(str(os.getpid())); "
-        'time.sleep(30)"'
-    )
+    cmd = f"python -c \"import os, time; open(r'{pid_file}', 'w').write(str(os.getpid())); time.sleep(30)\""
     task = asyncio.create_task(tool.execute(command=cmd))
 
     # 等待子进程启动并写入 PID

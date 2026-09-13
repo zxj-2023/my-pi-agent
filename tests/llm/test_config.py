@@ -1,4 +1,5 @@
 """Config 配置模型测试。"""
+
 import pytest
 from pydantic import ValidationError
 

@@ -81,18 +81,9 @@ def test_repair_multiple_dangling_tool_calls():
     assert len(repair.messages) == 4
     assert repair.synthesized_results == 3
 
-    assert (
-        repair.messages[1].metadata is not None
-        and repair.messages[1].metadata["tool_call_id"] == "c1"
-    )
-    assert (
-        repair.messages[2].metadata is not None
-        and repair.messages[2].metadata["tool_call_id"] == "c2"
-    )
-    assert (
-        repair.messages[3].metadata is not None
-        and repair.messages[3].metadata["tool_call_id"] == "c3"
-    )
+    assert repair.messages[1].metadata is not None and repair.messages[1].metadata["tool_call_id"] == "c1"
+    assert repair.messages[2].metadata is not None and repair.messages[2].metadata["tool_call_id"] == "c2"
+    assert repair.messages[3].metadata is not None and repair.messages[3].metadata["tool_call_id"] == "c3"
     for i in (1, 2, 3):
         assert repair.messages[i].content == _INTERRUPTED_TOOL_RESULT
 
@@ -138,10 +129,7 @@ def test_repair_reorders_misplaced_tool_result():
     # 验证 c1 的 tool 结果被移动到 assistant 之后，紧接着才是 user 消息
     assert repair.messages[0].role == "assistant"
     assert repair.messages[1].role == "tool"
-    assert (
-        repair.messages[1].metadata is not None
-        and repair.messages[1].metadata["tool_call_id"] == "c1"
-    )
+    assert repair.messages[1].metadata is not None and repair.messages[1].metadata["tool_call_id"] == "c1"
     assert repair.messages[2].role == "user"
 
 
@@ -244,10 +232,7 @@ def test_agent_aborted_with_tool_calls_repaired(tmp_path):
         tool_msgs = [m for m in session.get_current_path_messages() if m.role == "tool"]
         assert len(tool_msgs) == 1
         assert tool_msgs[0].content == _INTERRUPTED_TOOL_RESULT
-        assert (
-            tool_msgs[0].metadata is not None
-            and tool_msgs[0].metadata["tool_call_id"] == "call_aborted"
-        )
+        assert tool_msgs[0].metadata is not None and tool_msgs[0].metadata["tool_call_id"] == "call_aborted"
 
         # 续跑恢复：下一轮能够顺利恢复，不会因悬空工具调用报 API 400 异常
         agent._aborted = False

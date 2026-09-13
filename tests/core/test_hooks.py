@@ -52,9 +52,7 @@ def test_hook_points_attributes_and_frozen():
     assert is_dataclass(tch) and tch.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
     assert not isinstance(tch, Event)
 
-    trh = ToolResultHook(
-        tool_call_id="call_1", tool_name="bash", result="output", is_error=False
-    )
+    trh = ToolResultHook(tool_call_id="call_1", tool_name="bash", result="output", is_error=False)
     assert trh.tool_call_id == "call_1"
     assert trh.tool_name == "bash"
     assert trh.result == "output"
@@ -201,7 +199,5 @@ async def test_hook_registry_never_throw_all_fail():
 
     reg.register(ToolResultHook, crashing_hook)
 
-    res = await reg.emit(
-        ToolResultHook(tool_call_id="1", tool_name="bash", result="err", is_error=True)
-    )
+    res = await reg.emit(ToolResultHook(tool_call_id="1", tool_name="bash", result="err", is_error=True))
     assert res is None

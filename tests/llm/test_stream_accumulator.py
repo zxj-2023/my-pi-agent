@@ -38,9 +38,7 @@ def test_accumulator_text_stream():
         async def fake_chunks():
             yield StreamChunk(content="Hello")
             yield StreamChunk(content=" world")
-            resp = Response(
-                content="Hello world", model="gpt-4o", usage={"total_tokens": 10}
-            )
+            resp = Response(content="Hello world", model="gpt-4o", usage={"total_tokens": 10})
             yield StreamChunk(content="", usage={"total_tokens": 10}, response=resp)
 
         acc = StreamAccumulator()
@@ -76,9 +74,7 @@ def test_accumulator_tool_call_and_thinking():
     async def run():
         async def fake_chunks():
             # 思维链 chunk
-            yield StreamChunk(
-                content="", metadata={"reasoning_content": "let me think"}
-            )
+            yield StreamChunk(content="", metadata={"reasoning_content": "let me think"})
             # 工具调用 chunk
             yield StreamChunk(content="", tool_calls=[tc])
             resp = Response(
@@ -95,9 +91,7 @@ def test_accumulator_tool_call_and_thinking():
         assert isinstance(events[0], StreamStartEvent)
         assert isinstance(events[1], ThinkingDeltaEvent)
         assert events[1].delta == "let me think"
-        assert (events[1].partial.metadata or {}).get(
-            "reasoning_content"
-        ) == "let me think"
+        assert (events[1].partial.metadata or {}).get("reasoning_content") == "let me think"
 
         assert isinstance(events[2], ToolCallDoneEvent)
         assert events[2].tool_call == tc

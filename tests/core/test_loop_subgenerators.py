@@ -94,13 +94,7 @@ async def test_assistant_turn_with_usage_and_context_manager():
             self.recorded = usage
 
     cm = DummyContextManager()
-    llm = FakeStreamLLM(
-        [
-            StreamChunk(
-                content="reply", usage={"prompt_tokens": 20, "completion_tokens": 10}
-            )
-        ]
-    )
+    llm = FakeStreamLLM([StreamChunk(content="reply", usage={"prompt_tokens": 20, "completion_tokens": 10})])
     events = []
     async for ev in _assistant_turn(
         llm=llm,
@@ -244,9 +238,7 @@ async def test_execute_tools_turn_pi_timing_and_blocking():
     assert "blocked: policy violation" in ends[1].result
 
     # 3. MessageStart and MessageEnd yielded in source order
-    tool_ends = [
-        e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
-    ]
+    tool_ends = [e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"]
     assert len(tool_ends) == 2
     assert tool_ends[0].message.metadata is not None
     assert tool_ends[1].message.metadata is not None
@@ -329,9 +321,7 @@ async def test_execute_tools_turn_args_and_result_rewriting():
     assert end_ev.result == "welcome Bob"
     assert not end_ev.is_error
 
-    msg_ev = [
-        e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
-    ][0]
+    msg_ev = [e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"][0]
     assert msg_ev.message.content == "welcome Bob"
 
 
@@ -366,9 +356,7 @@ async def test_execute_tools_turn_cancellation_synthesizes_interrupted():
     assert end_ev.is_error
     assert end_ev.result == _INTERRUPTED_TOOL_RESULT
 
-    msg_ev = [
-        e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"
-    ][0]
+    msg_ev = [e for e in events if isinstance(e, MessageEnd) and e.message.role == "tool"][0]
     assert msg_ev.message.content == _INTERRUPTED_TOOL_RESULT
     assert msg_ev.message.metadata is not None
     assert msg_ev.message.metadata["is_error"]
@@ -570,9 +558,7 @@ def test_reserved_params_excluded_from_schema():
     """验证阶段 5 参数反射保护：on_update, signal, tool_call_id 不会被暴露进 LLM Schema。"""
 
     @tool
-    def heavy_tool(
-        cmd: str, timeout: int = 10, on_update=None, signal=None, tool_call_id=None
-    ) -> str:
+    def heavy_tool(cmd: str, timeout: int = 10, on_update=None, signal=None, tool_call_id=None) -> str:
         _ = (on_update, signal, tool_call_id)
         return f"{cmd}:{timeout}"
 

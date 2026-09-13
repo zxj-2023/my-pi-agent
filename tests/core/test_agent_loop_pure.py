@@ -249,9 +249,7 @@ async def test_run_agent_loop_steering_message_harvesting():
                 steer_queue.append(Message(role="user", content="Wait, reconsider!"))
                 yield StreamChunk(content="Initial thought", finish_reason="end_turn")
             else:
-                yield StreamChunk(
-                    content="Steered correction", finish_reason="end_turn"
-                )
+                yield StreamChunk(content="Steered correction", finish_reason="end_turn")
 
     def get_steering() -> Sequence[Message]:
         nonlocal steer_queue
@@ -415,10 +413,7 @@ async def test_run_agent_loop_provider_context_cleaning_in_loop():
     call_msgs = llm.calls[0]["messages"]
     # 失败的空消息应已被 _provider_context 剔除
     assert not any(
-        m.role == "assistant"
-        and m.content == ""
-        and m.metadata
-        and m.metadata.get("stop_reason") == "error"
+        m.role == "assistant" and m.content == "" and m.metadata and m.metadata.get("stop_reason") == "error"
         for m in call_msgs
     )
     roles = [m.role for m in call_msgs]
@@ -785,9 +780,7 @@ async def test_run_agent_loop_hook_terminate_composition():
             "function": {"name": "term_tool", "arguments": "{}"},
         }
     ]
-    llm_case1 = FakeLLM(
-        [_response(tool_calls=tc_term), _response(content="Unreachable")]
-    )
+    llm_case1 = FakeLLM([_response(tool_calls=tc_term), _response(content="Unreachable")])
 
     @tool
     def term_tool() -> ToolResult:
@@ -839,7 +832,5 @@ async def test_run_agent_loop_hook_terminate_composition():
 
     agent_ends2 = [e for e in events2 if isinstance(e, AgentEnd)]
     assert len(agent_ends2) == 1
-    assert (
-        agent_ends2[0].iterations == 2
-    )  # 成功跑了 2 轮，没有被第一轮的工具强行提前退出
+    assert agent_ends2[0].iterations == 2  # 成功跑了 2 轮，没有被第一轮的工具强行提前退出
     assert agent_ends2[0].final_text == "Continued after suppression"

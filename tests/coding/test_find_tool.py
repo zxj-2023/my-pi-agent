@@ -74,9 +74,7 @@ async def test_find_limit_truncation(tmp_path: Path):
     tool = make_find_tool(tmp_path)
     res = await tool.execute(pattern="*.txt", limit=3)
     assert "[Truncated at limit of 3 results]" in res
-    lines = [
-        line for line in str(res).splitlines() if not line.startswith("[Truncated")
-    ]
+    lines = [line for line in str(res).splitlines() if not line.startswith("[Truncated")]
     assert len(lines) == 3
 
 

@@ -60,13 +60,7 @@ async def test_mcp_extension_integration(tmp_path):
     # 2. 写入 .mcp.json
     mcp_config = tmp_path / ".mcp.json"
     mcp_config.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "calc": {"command": sys.executable, "args": [str(server_script)]}
-                }
-            }
-        ),
+        json.dumps({"mcpServers": {"calc": {"command": sys.executable, "args": [str(server_script)]}}}),
         encoding="utf-8",
     )
 

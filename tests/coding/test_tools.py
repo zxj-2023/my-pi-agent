@@ -28,9 +28,7 @@ async def test_read_basic(tmp_path):
 async def test_read_limit(tmp_path):
     """limit 截断 → 输出包含 Showing lines 提示。"""
     read = make_read_tool(tmp_path)
-    (tmp_path / "a.txt").write_text(
-        "\n".join(f"l{i}" for i in range(10)), encoding="utf-8"
-    )
+    (tmp_path / "a.txt").write_text("\n".join(f"l{i}" for i in range(10)), encoding="utf-8")
     result = await read.execute({"path": "a.txt", "limit": 3})
     # 新工具显示 "[Showing lines X-Y of Z. ...]" 形式的截断提示
     assert "Showing lines" in result.data or "l0" in result.data
@@ -80,9 +78,7 @@ async def test_edit_replaces_once(tmp_path):
     """精确替换一次（#4）。"""
     edit = make_edit_tool(tmp_path)
     (tmp_path / "a.txt").write_text("hello world hello", encoding="utf-8")
-    result = await edit.execute(
-        {"path": "a.txt", "old_text": "world", "new_text": "earth"}
-    )
+    result = await edit.execute({"path": "a.txt", "old_text": "world", "new_text": "earth"})
     # 新工具返回 "Successfully applied N edit(s) to ..."
     assert "a.txt" in result.data or "edit" in result.data.lower()
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello earth hello"
@@ -104,9 +100,7 @@ async def test_edit_multiple_matches(tmp_path):
     """old_text 命中多处 → 提示提供更多上下文。"""
     edit = make_edit_tool(tmp_path)
     (tmp_path / "a.txt").write_text("dup\ndup\n", encoding="utf-8")
-    result = await edit.execute(
-        {"path": "a.txt", "old_text": "dup", "new_text": "unique"}
-    )
+    result = await edit.execute({"path": "a.txt", "old_text": "dup", "new_text": "unique"})
     # 新工具: "'oldText' matched 2 times"
     assert "matched 2" in result.data or "2 times" in result.data
     assert "Please provide more surrounding context lines" in result.data
@@ -153,11 +147,7 @@ async def test_bash_dangerous(tmp_path):
     bash = make_bash_tool(tmp_path)
     result = await bash.execute({"command": "sudo rm -rf /"})
     # 新工具: "Error: Blocked dangerous command pattern 'rm -rf /'"
-    assert (
-        "rm -rf /" in result.data
-        or "Blocked" in result.data
-        or "blocked" in result.data
-    )
+    assert "rm -rf /" in result.data or "Blocked" in result.data or "blocked" in result.data
 
 
 @pytest.mark.anyio

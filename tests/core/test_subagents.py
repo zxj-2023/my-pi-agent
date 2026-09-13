@@ -25,17 +25,13 @@ def _write_agent(
 ) -> Path:
     """helper：在 root/<name>.md 写一个标准化 agent（扁平文件式）。"""
     p = root / f"{name}.md"
-    p.write_text(
-        f"---\ndescription: {description}\n{extra}---\n\n{content}", encoding="utf-8"
-    )
+    p.write_text(f"---\ndescription: {description}\n{extra}---\n\n{content}", encoding="utf-8")
     return p
 
 
 def test_load_basic(tmp_path: Path):
     """只认 <dir>/*.md；name=frontmatter name；description/正文正确（#1）。"""
-    _write_agent(
-        tmp_path, "code-reviewer", description="review code", content="checklist"
-    )
+    _write_agent(tmp_path, "code-reviewer", description="review code", content="checklist")
     skills = SubagentManager([tmp_path]).list()
     assert len(skills) == 1
     assert skills[0].name == "code-reviewer"
@@ -47,9 +43,7 @@ def test_name_falls_back_to_stem(tmp_path: Path):
     """无 name 键 → name=文件 stem；缺 description → 跳过（#2）。"""
     p = tmp_path / "reviewer.md"
     p.write_text("---\ndescription: d\n---\nbody", encoding="utf-8")
-    (tmp_path / "nobody.md").write_text(
-        "---\nname: x\n---\nbody", encoding="utf-8"
-    )  # 缺 description
+    (tmp_path / "nobody.md").write_text("---\nname: x\n---\nbody", encoding="utf-8")  # 缺 description
     skills = SubagentManager([tmp_path]).list()
     assert [s.name for s in skills] == ["reviewer"]
 
@@ -95,9 +89,7 @@ def test_frontmatter_camelcase_map(tmp_path: Path):
 
 def test_load_bad_yaml_and_bom(tmp_path: Path):
     """坏 YAML → 静默跳过；BOM → 正常加载（#5）。"""
-    (tmp_path / "bad.md").write_text(
-        "---\ndescription: [unclosed\n---\nbody", encoding="utf-8"
-    )
+    (tmp_path / "bad.md").write_text("---\ndescription: [unclosed\n---\nbody", encoding="utf-8")
     d = tmp_path / "bom.md"
     d.write_bytes("---\ndescription: review\n---\n\nbody".encode("utf-8-sig"))
     skills = SubagentManager([tmp_path]).list()
@@ -167,9 +159,7 @@ def _task_call(prompt: str, agent_type: str = "code-reviewer") -> dict:
     }
 
 
-def _parent(
-    manager: SubagentManager, llm: FakeLLM, tools=(multiply, get_time)
-) -> Agent:
+def _parent(manager: SubagentManager, llm: FakeLLM, tools=(multiply, get_time)) -> Agent:
     """构造父 Agent 并手动装配 task 工具（Task 4 前暂不自动装配）。"""
     agent = Agent(
         llm=llm,
@@ -230,9 +220,7 @@ async def test_subagent_tool_filtering(tmp_path: Path):
     agent = _parent(manager, llm)
     await agent.run("delegate")
     sub_tool_names = [t["function"]["name"] for t in llm.calls[1]["tools"]]
-    assert sub_tool_names == [
-        "multiply"
-    ]  # 只剩白名单（get_time 被黑名单 + 白名单共同剔除）
+    assert sub_tool_names == ["multiply"]  # 只剩白名单（get_time 被黑名单 + 白名单共同剔除）
 
 
 @pytest.mark.anyio

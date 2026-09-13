@@ -299,9 +299,7 @@ def test_tool_result_serialize():
 
 def test_tool_result_meta():
     """ToolResult 支持携带结构化元数据 meta。"""
-    res = ToolResult(
-        ok=True, data="hello", meta={"server": "test_server", "latency_ms": 12}
-    )
+    res = ToolResult(ok=True, data="hello", meta={"server": "test_server", "latency_ms": 12})
     assert res.ok is True
     assert res.meta["server"] == "test_server"
     assert res.meta["latency_ms"] == 12

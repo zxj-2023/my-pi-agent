@@ -9,9 +9,7 @@ from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingI
 def test_task_store_create_and_get(tmp_path: Path):
     async def _test():
         store = TaskStore(tmp_path)
-        t1 = await store.create(
-            subject="Design schema", description="Create users table"
-        )
+        t1 = await store.create(subject="Design schema", description="Create users table")
         assert t1.id == "task_1"
         assert t1.status == "pending"
         assert t1.subject == "Design schema"

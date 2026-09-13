@@ -107,19 +107,11 @@ def test_stream_yields_chunks():
             self.chunks = [
                 SimpleNamespace(
                     id="1",
-                    choices=[
-                        SimpleNamespace(
-                            delta=SimpleNamespace(content="a"), finish_reason=None
-                        )
-                    ],
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="a"), finish_reason=None)],
                 ),
                 SimpleNamespace(
                     id="2",
-                    choices=[
-                        SimpleNamespace(
-                            delta=SimpleNamespace(content="b"), finish_reason="stop"
-                        )
-                    ],
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content="b"), finish_reason="stop")],
                 ),
                 SimpleNamespace(id="3", choices=[]),  # usage-only 末块
             ]
@@ -128,11 +120,7 @@ def test_stream_yields_chunks():
             return iter(self.chunks)
 
     p = _provider([])
-    p.client = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=lambda **kw: FakeStream())
-        )
-    )
+    p.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: FakeStream())))
     chunks = list(p.stream([Message(role="user", content="hi")], model="gpt-4.1-mini"))
     assert [c.content for c in chunks] == ["a", "b", ""]
     assert chunks[-1].response is not None
@@ -156,9 +144,7 @@ def test_stream_aggregates_tool_calls():
                                     SimpleNamespace(
                                         index=0,
                                         id="call_1",
-                                        function=SimpleNamespace(
-                                            name="get_weather", arguments=""
-                                        ),
+                                        function=SimpleNamespace(name="get_weather", arguments=""),
                                     )
                                 ],
                             ),
@@ -177,9 +163,7 @@ def test_stream_aggregates_tool_calls():
                                     SimpleNamespace(
                                         index=0,
                                         id=None,
-                                        function=SimpleNamespace(
-                                            name=None, arguments='{"city":'
-                                        ),
+                                        function=SimpleNamespace(name=None, arguments='{"city":'),
                                     )
                                 ],
                             ),
@@ -198,9 +182,7 @@ def test_stream_aggregates_tool_calls():
                                     SimpleNamespace(
                                         index=0,
                                         id=None,
-                                        function=SimpleNamespace(
-                                            name=None, arguments='"Tokyo"}'
-                                        ),
+                                        function=SimpleNamespace(name=None, arguments='"Tokyo"}'),
                                     )
                                 ],
                             ),
@@ -212,9 +194,7 @@ def test_stream_aggregates_tool_calls():
                 SimpleNamespace(
                     id="4",
                     choices=[],
-                    usage=SimpleNamespace(
-                        prompt_tokens=10, completion_tokens=5, total_tokens=15
-                    ),
+                    usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
                 ),
             ]
 
@@ -222,17 +202,11 @@ def test_stream_aggregates_tool_calls():
             return iter(self.chunks)
 
     p = _provider([])
-    p.client = SimpleNamespace(
-        chat=SimpleNamespace(
-            completions=SimpleNamespace(create=lambda **kw: FakeStream())
-        )
-    )
+    p.client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: FakeStream())))
     chunks = list(p.stream([Message(role="user", content="hi")], model="gpt-4.1-mini"))
     # 无文本增量（content=None），只剩一个聚合末块
     assert [c.content for c in chunks] == [""]
-    assert chunks[0].tool_calls == [
-        ToolCall(id="call_1", name="get_weather", args={"city": "Tokyo"})
-    ]
+    assert chunks[0].tool_calls == [ToolCall(id="call_1", name="get_weather", args={"city": "Tokyo"})]
     assert chunks[0].usage == {
         "prompt_tokens": 10,
         "completion_tokens": 5,

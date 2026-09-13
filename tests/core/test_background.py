@@ -70,9 +70,7 @@ def test_agent_abort_cancels_background_processes(tmp_path: Path):
 
         py_exe = sys.executable
         cmd = f'"{py_exe}" -c "import time; time.sleep(5); print(\'Should abort\')"'
-        job_id = await agent.background_runner.run_process(
-            cmd, cwd=tmp_path, description="long job"
-        )
+        job_id = await agent.background_runner.run_process(cmd, cwd=tmp_path, description="long job")
 
         assert agent.background_runner.jobs[job_id].status == "running"
 
