@@ -301,4 +301,3 @@ async def test_commands_steer_and_followup(tmp_path: Path):
     assert "已排队追问指令" in buf.getvalue()
     assert agent.agent.message_queue.has_followup()
     assert agent.agent.message_queue.get_followup_messages()[0].content == "执行单元测试"
-
