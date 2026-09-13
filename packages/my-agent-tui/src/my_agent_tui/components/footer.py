@@ -7,6 +7,13 @@ from typing import Any
 from rich.console import Console
 from rich.text import Text
 
+# 使用 ASCII 安全的 Unicode 转义字符，避免 Windows/平台环境编码损坏
+ICON_DIR = "\U0001f4c1"  # 📁
+ICON_GIT = "\U0001f33f"  # 🌿
+ICON_MODEL = "\U0001f916"  # 🤖
+ICON_TOKENS = "\U0001f4ca"  # 📊
+ICON_TIME = "\u23f1\ufe0f"  # ⏱️
+
 
 def resolve_git_branch(cwd: Path) -> str | None:
     """轻量调用 git symbolic-ref 获取当前分支名，非 git 仓库或游离 HEAD 优雅返回 None。"""
@@ -65,7 +72,7 @@ class FooterComponent:
             workspace = Path(workspace)
         cwd_str = format_cwd_for_footer(workspace)
         branch = resolve_git_branch(workspace)
-        branch_str = f"🌿 {branch}" if branch else "🌿 (no git)"
+        branch_str = f"{ICON_GIT} {branch}" if branch else f"{ICON_GIT} (no git)"
 
         # 提取模型与思考级别
         llm = getattr(getattr(agent, "agent", None), "llm", None) or getattr(agent, "llm", None)
@@ -106,11 +113,11 @@ class FooterComponent:
         tokens_str = format_tokens(tokens_used)
 
         line = Text()
-        line.append(f"📁 {cwd_str} ", style="bold cyan")
+        line.append(f"{ICON_DIR} {cwd_str} ", style="bold cyan")
         line.append(f"[{branch_str}] ", style="green")
-        line.append(f"[🤖 {model_name}] ", style="magenta")
-        line.append(f"[📊 Tokens: {tokens_str}] ", style="yellow")
+        line.append(f"[{ICON_MODEL} {model_name}] ", style="magenta")
+        line.append(f"[{ICON_TOKENS} Tokens: {tokens_str}] ", style="yellow")
         if elapsed is not None and elapsed > 0:
-            line.append(f"[⏱️ {elapsed:.1f}s] ", style="dim")
+            line.append(f"[{ICON_TIME} {elapsed:.1f}s] ", style="dim")
 
         self.console.print(line)

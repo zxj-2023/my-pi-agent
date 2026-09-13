@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import inspect
 import os
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -54,8 +55,9 @@ async def run_cli_loop(
     console.print("[dim]输入提问，输入 [bold]/help[/bold] 查看命令，按 [bold]Ctrl+D[/bold] 退出。[/dim]\n")
 
     try:
+        last_elapsed: float | None = None
         while not cmd_dispatcher.exit_requested:
-            footer.render(agent)
+            footer.render(agent, elapsed=last_elapsed)
             try:
                 user_input = await session.prompt_async(">>> ")
             except (EOFError, KeyboardInterrupt):
@@ -105,13 +107,17 @@ async def run_cli_loop(
                     except RuntimeError:
                         _do_steer()
 
+            turn_start = time.perf_counter()
             try:
                 with LiveInputListener(on_escape=safe_abort, on_line=safe_steer):
                     async for event in agent.run_stream(expanded_input):
                         renderer.on_event(event)
+                last_elapsed = time.perf_counter() - turn_start
             except (asyncio.CancelledError, KeyboardInterrupt):
+                last_elapsed = time.perf_counter() - turn_start
                 console.print("\n[yellow]已取消当前生成轮次。[/yellow]")
             except Exception as e:
+                last_elapsed = time.perf_counter() - turn_start
                 console.print(f"\n[red]运行出错: {e}[/red]")
     finally:
         if hasattr(agent, "close_mcp") and callable(getattr(agent, "close_mcp")):

@@ -7,6 +7,11 @@ from my_coding_agent import CodingAgent
 from my_agent_llm.models import Response
 from my_agent_tui.components import FooterComponent
 from my_agent_tui.components.footer import (
+    ICON_DIR,
+    ICON_GIT,
+    ICON_MODEL,
+    ICON_TIME,
+    ICON_TOKENS,
     format_cwd_for_footer,
     format_tokens,
     resolve_git_branch,
@@ -88,8 +93,10 @@ def test_footer_render_output(tmp_path: Path):
 
     footer.render(agent)
     out = console.export_text()
-    assert "📁" in out
-    assert "🤖" in out
+    assert ICON_DIR in out
+    assert ICON_MODEL in out
+    assert ICON_GIT in out
+    assert ICON_TOKENS in out
     assert "fake" in out
     assert "Tokens:" in out
 
@@ -101,7 +108,7 @@ def test_footer_render_with_elapsed(tmp_path: Path):
 
     footer.render(agent, elapsed=2.345)
     out = console.export_text()
-    assert "⏱️" in out
+    assert ICON_TIME in out
     assert "2.3s" in out
 
 

@@ -12,6 +12,7 @@ from my_agent_core.events import AgentEnd, MessageUpdate
 from my_agent_llm.models import Message, Response, StreamChunk
 from my_coding_agent import CodingAgent
 from my_agent_tui.cli import run_cli_loop
+from my_agent_tui.components.footer import ICON_DIR, ICON_MODEL
 
 
 class FakeLLM:
@@ -34,8 +35,8 @@ async def test_cli_renders_footer_in_loop(tmp_path: Path):
 
     await run_cli_loop(agent, console, prompt_session=mock_session)
     out = console.export_text()
-    assert "📁" in out
-    assert "🌿" in out
+    assert ICON_DIR in out
+    assert ICON_MODEL in out
     assert "fake" in out
     assert "Tokens:" in out
 

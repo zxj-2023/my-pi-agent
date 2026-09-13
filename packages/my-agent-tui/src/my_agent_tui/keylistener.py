@@ -68,6 +68,12 @@ class LiveInputListener:
                     rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
                     if rlist:
                         ch = sys.stdin.read(1)
+                        if ch == "\x1b":
+                            # 区分单独 ESC 还是 ANSI 转义序列 (如方向键 \x1b[A)
+                            r_esc, _, _ = select.select([sys.stdin], [], [], 0.02)
+                            if r_esc:
+                                sys.stdin.read(2)  # 消费多字符序列
+                                continue
                         if ch:
                             self._handle_key(ch)
                 except Exception:
@@ -90,6 +96,7 @@ class LiveInputListener:
             return
 
         self.active = True
+        self._buffer.clear()
         self._stop_event.clear()
         target_worker = self._worker_windows if sys.platform == "win32" else self._worker_posix
         self._thread = threading.Thread(target=target_worker, daemon=True)
