@@ -1,3 +1,4 @@
+import * as process from "node:process";
 import {
   Container,
   Editor,

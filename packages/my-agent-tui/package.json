@@ -1,10 +1,11 @@
 {
-  "name": "my-agent-shell",
+  "name": "my-agent-tui",
   "version": "0.1.0",
-  "description": "High-fidelity Pi-TUI terminal shell for my-pi-agent",
+  "description": "High-fidelity Pi-TUI terminal presentation layer for my-pi-agent",
   "type": "module",
   "bin": {
-    "my-agent": "./bin/my-agent.js"
+    "my-agent": "./bin/my-agent.js",
+    "my-agent-tui": "./bin/my-agent.js"
   },
   "main": "dist/index.js",
   "scripts": {
