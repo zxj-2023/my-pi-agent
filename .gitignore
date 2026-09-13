@@ -5,7 +5,6 @@ __pycache__/
 .coverage
 htmlcov/
 .my_agent_core/
-.git_pre_clean_backup/
 
 # 本地工具配置（Claude Code / Codex / Superpowers / MCP / Pi）
 node_modules/
