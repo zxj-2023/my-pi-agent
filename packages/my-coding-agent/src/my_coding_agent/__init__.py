@@ -3,6 +3,7 @@
 from my_coding_agent.agent import CodingAgent
 from my_coding_agent.mcp import MCPClientManager, MCPConnection, MCPServerConfig
 from my_coding_agent.mutation_queue import FileMutationQueue
+from my_coding_agent.permissions import PermissionGate, PermissionMode, PermissionRequest
 from my_coding_agent.prompt import build_default_coding_prompt
 from my_coding_agent.tools import (
     EditBlock,
@@ -32,4 +33,7 @@ __all__ = [
     "MCPServerConfig",
     "MCPConnection",
     "MCPClientManager",
+    "PermissionGate",
+    "PermissionRequest",
+    "PermissionMode",
 ]
