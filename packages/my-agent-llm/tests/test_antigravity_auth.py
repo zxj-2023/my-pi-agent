@@ -188,9 +188,7 @@ def test_refresh_token_http_error_raises(monkeypatch):
 
     with (
         patch("httpx.post", return_value=mock_resp),
-        pytest.raises(
-            RuntimeError, match="Failed to refresh Antigravity token: 400"
-        ),
+        pytest.raises(RuntimeError, match="Failed to refresh Antigravity token: 400"),
     ):
         resolver.refresh(creds)
 

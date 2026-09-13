@@ -61,9 +61,7 @@ class AntigravityAuthResolver:
         if env_token:
             return AntigravityCredentials(
                 access_token=env_token,
-                project_id=os.environ.get(
-                    "ANTIGRAVITY_PROJECT_ID", "aicode-consumers"
-                ),
+                project_id=os.environ.get("ANTIGRAVITY_PROJECT_ID", "aicode-consumers"),
                 client_id=os.environ.get("GOOGLE_OAUTH_CLIENT_ID"),
                 client_secret=os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"),
             )
@@ -81,7 +79,9 @@ class AntigravityAuthResolver:
                     if entry and isinstance(entry, dict):
                         access_token = entry.get("access") or entry.get("access_token")
                         if access_token:
-                            expires_raw = entry.get("expires") or entry.get("expires_at", 0)
+                            expires_raw = entry.get("expires") or entry.get(
+                                "expires_at", 0
+                            )
                             try:
                                 exp_val = int(expires_raw)
                             except (ValueError, TypeError):
@@ -101,7 +101,9 @@ class AntigravityAuthResolver:
                                 or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"),
                             )
                 except Exception as exc:
-                    logger.debug("Failed to read credentials from %s: %s", target_path, exc)
+                    logger.debug(
+                        "Failed to read credentials from %s: %s", target_path, exc
+                    )
                     continue
 
         return None
@@ -153,7 +155,9 @@ class AntigravityAuthResolver:
         new_access = data["access_token"]
         expires_in = data.get("expires_in", 3600)
         try:
-            new_expires_at = int(time.time() * 1000) + (expires_in * 1000) - (300 * 1000)
+            new_expires_at = (
+                int(time.time() * 1000) + (expires_in * 1000) - (300 * 1000)
+            )
         except Exception:
             new_expires_at = 0
 
@@ -216,7 +220,12 @@ class AntigravityAuthResolver:
         client_secret = creds.client_secret or os.environ.get(
             "GOOGLE_OAUTH_CLIENT_SECRET"
         )
-        if self.is_expired(creds) and creds.refresh_token and client_id and client_secret:
+        if (
+            self.is_expired(creds)
+            and creds.refresh_token
+            and client_id
+            and client_secret
+        ):
             with contextlib.suppress(Exception):
                 creds = self.refresh(creds)
         return creds
