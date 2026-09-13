@@ -1,6 +1,7 @@
 """my_coding_agent 公共 API（产品层：文件工具 + MCP + 业务装配）。"""
 
 from my_coding_agent.agent import CodingAgent
+from my_coding_agent.file_reference import FileReferenceParser
 from my_coding_agent.mcp import MCPClientManager, MCPConnection, MCPServerConfig
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.permissions import PermissionGate, PermissionMode, PermissionRequest
@@ -19,6 +20,7 @@ from my_coding_agent.tools import (
 
 __all__ = [
     "CodingAgent",
+    "FileReferenceParser",
     "build_coding_tools",
     "build_default_coding_prompt",
     "FileMutationQueue",
