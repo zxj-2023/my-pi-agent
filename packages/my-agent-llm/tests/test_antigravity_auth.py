@@ -124,7 +124,9 @@ def test_resolve_credentials_detects_expiration(tmp_path: Path):
     assert resolver.is_expired(None) is True
 
 
-def test_refresh_token_replaces_auth_file(tmp_path: Path):
+def test_refresh_token_replaces_auth_file(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "test_cid")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test_sec")
     auth_file = tmp_path / "auth.json"
     auth_data = {
         "antigravity": {
@@ -171,7 +173,9 @@ def test_refresh_token_missing_refresh_token_raises():
         resolver.refresh(creds)
 
 
-def test_refresh_token_http_error_raises():
+def test_refresh_token_http_error_raises(monkeypatch):
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "test_cid")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "test_sec")
     resolver = AntigravityAuthResolver()
     creds = AntigravityCredentials(
         access_token="ya29.old",
@@ -182,11 +186,13 @@ def test_refresh_token_http_error_raises():
     mock_resp.status_code = 400
     mock_resp.text = "invalid_grant"
 
-    with patch("httpx.post", return_value=mock_resp):
-        with pytest.raises(
+    with (
+        patch("httpx.post", return_value=mock_resp),
+        pytest.raises(
             RuntimeError, match="Failed to refresh Antigravity token: 400"
-        ):
-            resolver.refresh(creds)
+        ),
+    ):
+        resolver.refresh(creds)
 
 
 def test_get_valid_credentials_no_creds_raises(monkeypatch, tmp_path: Path):
