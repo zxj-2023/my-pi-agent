@@ -17,9 +17,9 @@ from my_coding_agent.agent import CodingAgent
 from my_coding_agent.permissions import PermissionGate, PermissionRequest
 from my_agent_tui.cli_base import _force_utf8_streams
 from my_agent_tui.commands import CommandDispatcher, SLASH_COMMANDS
-from my_agent_tui.components import ConfirmView, FileReferenceCompleter
+from my_agent_tui.components import ConfirmView, FileReferenceCompleter, FooterComponent
+from my_agent_tui.keylistener import LiveInputListener
 from my_agent_tui.renderer import EventRenderer
-
 
 
 def build_prompt_session(workspace: Path) -> PromptSession:
@@ -48,12 +48,14 @@ async def run_cli_loop(
     cmd_dispatcher = dispatcher if dispatcher is not None else CommandDispatcher(agent)
     renderer = EventRenderer(console)
     file_ref_parser = FileReferenceParser(agent.workspace)
+    footer = FooterComponent(console)
 
     console.print(f"[bold green]my-agent-tui 终端交互助手[/bold green] [dim](工作区: {agent.workspace})[/dim]")
     console.print("[dim]输入提问，输入 [bold]/help[/bold] 查看命令，按 [bold]Ctrl+D[/bold] 退出。[/dim]\n")
 
     try:
         while not cmd_dispatcher.exit_requested:
+            footer.render(agent)
             try:
                 user_input = await session.prompt_async(">>> ")
             except (EOFError, KeyboardInterrupt):
@@ -71,9 +73,42 @@ async def run_cli_loop(
 
             expanded_input = file_ref_parser.expand_references(cleaned)
 
+            main_loop = asyncio.get_running_loop()
+
+            def safe_abort() -> None:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop is main_loop:
+                    agent.abort()
+                else:
+                    try:
+                        main_loop.call_soon_threadsafe(agent.abort)
+                    except RuntimeError:
+                        agent.abort()
+
+            def safe_steer(msg: str) -> None:
+                def _do_steer() -> None:
+                    agent.steer(msg)
+                    console.print(f"\n[yellow]已注入即时转向指令: {msg}[/yellow]")
+
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop is main_loop:
+                    _do_steer()
+                else:
+                    try:
+                        main_loop.call_soon_threadsafe(_do_steer)
+                    except RuntimeError:
+                        _do_steer()
+
             try:
-                async for event in agent.run_stream(expanded_input):
-                    renderer.on_event(event)
+                with LiveInputListener(on_escape=safe_abort, on_line=safe_steer):
+                    async for event in agent.run_stream(expanded_input):
+                        renderer.on_event(event)
             except (asyncio.CancelledError, KeyboardInterrupt):
                 console.print("\n[yellow]已取消当前生成轮次。[/yellow]")
             except Exception as e:
