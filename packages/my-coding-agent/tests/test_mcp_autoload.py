@@ -316,4 +316,3 @@ async def test_coding_agent_connect_failure_graceful(tmp_path: Path):
         res = await agent.run("test input")
         assert res == "still working"
         await agent.close_mcp()
-

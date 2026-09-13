@@ -54,12 +54,8 @@ class MCPConnection:
             env=server_env,
         )
 
-        read_stream, write_stream = await self._exit_stack.enter_async_context(
-            stdio_client(params)
-        )
-        session = await self._exit_stack.enter_async_context(
-            ClientSession(read_stream, write_stream)
-        )
+        read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(params))
+        session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
         self._session = session
         await session.initialize()
 
