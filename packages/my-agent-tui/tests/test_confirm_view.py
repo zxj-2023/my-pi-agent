@@ -74,7 +74,9 @@ async def test_confirm_view_with_plain_details():
     confirm_view = ConfirmView(console=console, input_hook=AsyncMock(return_value="n"))
 
     cmd_text = "rm -rf /tmp/test_dir"
-    res = await confirm_view.prompt_confirm("是否执行危险命令？", default=False, details_text=cmd_text, title="危险命令拦截")
+    res = await confirm_view.prompt_confirm(
+        "是否执行危险命令？", default=False, details_text=cmd_text, title="危险命令拦截"
+    )
     assert res is False
     output = buf.getvalue()
     assert "危险命令拦截" in output
