@@ -16,9 +16,7 @@ class FileReferenceCompleter(Completer):
         self.workspace = Path(workspace).resolve()
         self.base_completer = base_completer
 
-    def get_completions(
-        self, document: Document, complete_event: CompleteEvent | None = None
-    ) -> Iterator[Completion]:
+    def get_completions(self, document: Document, complete_event: CompleteEvent | None = None) -> Iterator[Completion]:
         text_before_cursor = document.get_word_before_cursor(WORD=True)
 
         if text_before_cursor.startswith("@"):
