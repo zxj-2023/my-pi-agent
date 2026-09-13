@@ -1,0 +1,13 @@
+{
+  "name": "my-pi-agent",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/my-agent-tui"
+  ],
+  "scripts": {
+    "start": "npm start --prefix packages/my-agent-tui",
+    "build": "npm run build --prefix packages/my-agent-tui",
+    "test": "npm test --prefix packages/my-agent-tui"
+  }
+}
