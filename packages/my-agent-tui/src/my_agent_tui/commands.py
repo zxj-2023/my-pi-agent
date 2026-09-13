@@ -114,12 +114,24 @@ class CommandDispatcher:
         self.register("session", self._cmd_session, COMMAND_HELP.get("session", "查看当前会话状态与 Token 统计"))
         self.register("tasks", self._cmd_tasks, COMMAND_HELP.get("tasks", "查看项目 TaskStore 待办看板"))
         self.register("mcp", self._cmd_mcp, COMMAND_HELP.get("mcp", "查看已挂载的 MCP 服务器与工具"))
-        self.register("quota", self._cmd_quota, COMMAND_HELP.get("quota", "查询 Google Antigravity 模型剩余配额与重置时间"))
-        self.register("login", self._cmd_login, COMMAND_HELP.get("login", "自省并连接 Antigravity 等本地 OAuth 鉴权凭据"))
+        self.register(
+            "quota", self._cmd_quota, COMMAND_HELP.get("quota", "查询 Google Antigravity 模型剩余配额与重置时间")
+        )
+        self.register(
+            "login", self._cmd_login, COMMAND_HELP.get("login", "自省并连接 Antigravity 等本地 OAuth 鉴权凭据")
+        )
         self.register("model", self._cmd_model, COMMAND_HELP.get("model", "查看或即时热切换当前 Agent 底层模型"))
-        self.register("mode", self._cmd_mode, COMMAND_HELP.get("mode", "查看或切换当前权限模式 (review/yolo/strict/autonomous)"))
-        self.register("steer", self._cmd_steer, COMMAND_HELP.get("steer", "注入即时转向指令（在下一个安全点打断/干预模型执行）"))
-        self.register("followup", self._cmd_followup, COMMAND_HELP.get("followup", "追加排队追问指令（在当前轮次彻底完成后自动执行）"))
+        self.register(
+            "mode", self._cmd_mode, COMMAND_HELP.get("mode", "查看或切换当前权限模式 (review/yolo/strict/autonomous)")
+        )
+        self.register(
+            "steer", self._cmd_steer, COMMAND_HELP.get("steer", "注入即时转向指令（在下一个安全点打断/干预模型执行）")
+        )
+        self.register(
+            "followup",
+            self._cmd_followup,
+            COMMAND_HELP.get("followup", "追加排队追问指令（在当前轮次彻底完成后自动执行）"),
+        )
         self.register("exit", self._cmd_exit, COMMAND_HELP.get("exit", "退出当前交互式会话"))
         self.register("quit", self._cmd_exit, COMMAND_HELP.get("quit", "退出当前交互式会话"))
 

@@ -193,7 +193,4 @@ class CodingAgent:
                 self.agent._current_signal.cancel()
             self.agent.message_queue.clear()
             if self._loop is not None and self._loop.is_running():
-                self._loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(self.agent.background_runner.cancel_all())
-                )
-
+                self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self.agent.background_runner.cancel_all()))
