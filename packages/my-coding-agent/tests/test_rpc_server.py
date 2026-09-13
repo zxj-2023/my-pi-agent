@@ -189,4 +189,3 @@ async def test_rpc_server_run_forever(tmp_path: Path):
     assert '"id": 2' in output
     assert '"id": 3' in output
     assert server.is_shutting_down is True
-
