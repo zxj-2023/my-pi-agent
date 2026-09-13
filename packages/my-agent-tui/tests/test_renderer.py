@@ -50,8 +50,8 @@ def test_renderer_tool_execution_with_diff():
 
     output = buf.getvalue()
     assert "[edit]" in output
-    assert "-old" in output
-    assert "+new" in output
+    assert "old" in output
+    assert "new" in output
 
 
 def test_renderer_tool_execution_failure():

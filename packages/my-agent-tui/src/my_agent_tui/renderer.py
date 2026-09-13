@@ -22,10 +22,10 @@ from my_agent_core.events import (
     ToolExecutionEnd,
     ToolExecutionStart,
 )
+from my_agent_tui.diff import render_diff_with_word_highlight
 from pydantic import BaseModel
 from rich.console import Console
 from rich.markup import escape
-from rich.syntax import Syntax
 from rich.text import Text
 
 __all__ = ["EventRenderer", "TextChunk"]
@@ -98,8 +98,8 @@ class EventRenderer:
                 m = re.search(r"```diff\r?\n(.*?)(?:\r?\n)?```", res_str, re.DOTALL)
                 if m:
                     diff_block = m.group(1)
-                    syntax = Syntax(diff_block, "diff", theme="monokai", line_numbers=False)
-                    self.console.print(syntax)
+                    rendered = render_diff_with_word_highlight(diff_block)
+                    self.console.print(rendered)
 
         elif isinstance(event, AgentEnd):
             if self._in_thinking:
