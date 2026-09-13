@@ -9,6 +9,7 @@ htmlcov/
 # 本地工具配置（Claude Code / Codex / Superpowers / MCP / Pi）
 node_modules/
 dist/
+packages/
 .claude/
 .codex/
 .superpowers/

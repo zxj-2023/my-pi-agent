@@ -176,30 +176,32 @@
 
 ### 1. 安装与环境准备
 
-本项目使用 [uv](https://docs.astral.sh/uv/) 进行工作区与依赖管理：
+本项目使用 [uv](https://docs.astral.sh/uv/) 进行 Python 依赖管理，使用 `npm` 管理前端 TUI 依赖：
 
-```powershell
-# 1. 运行框架核心层 demo
-cd packages/my-agent-core
+```bash
+# 1. 根目录安装 Python 依赖与同步全局唯一的虚拟环境
 uv sync
-Copy-Item .env.example .env    # 填入真实 API 密钥
-uv run python -m my_agent_core.main
 
-# 2. 运行编码助手 demo
-cd ../my-coding-agent
-uv sync
-uv run python -m my_coding_agent.agent
+# 2. 根目录一键运行全量 Python 单元测试 (575 passed)
+uv run python -m pytest
+
+# 3. 运行前端 Pi-TUI 测试套件 (8 passed)
+npm test
+
+# 4. 根目录一键启动全新高质感 Pi-TUI 终端交互助手
+npm start
 ```
 
 ### 2. 运行离线测试套件
 
-本项目所有单元测试均严格使用 FakeLLM 与模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
+本项目所有测试均使用模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
-```powershell
-# 运行全部三个包的单元测试（378 tests）
-cd packages/my-agent-core && uv run python -m pytest -q
-cd ../my-agent-llm && uv run python -m pytest -q
-cd ../my-coding-agent && uv run python -m pytest -q
+```bash
+# 1. 运行全部 Python 核心测试 (575 tests, 100% 绿灯全通)
+uv run python -m pytest
+
+# 2. 运行全部前端 TUI 测试 (8 tests, 100% 绿灯全通)
+npm test
 ```
 
 ---
@@ -208,55 +210,57 @@ cd ../my-coding-agent && uv run python -m pytest -q
 
 ```text
 my-pi-agent/
-├── docs/                           # 全套技术设计规范文档库 (17 篇模块规范 + 全景导航)
-│   ├── README.md                   # 架构全景与文档索引
-│   ├── llm/                        # 模型边界层规范 (01-llm-boundary.md)
-│   ├── core/                       # 框架核心层规范 (01-tool-system.md ~ 15-tau-alignment-implementation-plan.md)
-│   └── coding/                     # 产品与编码层规范 (01-file-tools.md, 02-mcp-client.md)
+├── pyproject.toml                  # ⭐ 全局统一的 Python 构建与依赖配置 (uv)
+├── uv.lock                         # 全局唯一的 Python 依赖锁定文件
+├── .venv/                          # 全局唯一的 Python 虚拟环境
 │
-├── packages/
-│   ├── my-agent-llm/               # 模型边界层独立 uv 项目 (51 tests)
-│   │   ├── pyproject.toml          # src 布局 + hatchling 构建
-│   │   ├── src/my_agent_llm/       # Python 包
-│   │   │   ├── client.py           # LLM 门面（chat/stream/achat/achat_stream）
-│   │   │   ├── config.py           # Config（pydantic frozen）
-│   │   │   ├── models.py           # Message / Response / StreamChunk
-│   │   │   └── providers/          # openai / deepseek / anthropic + 注册表
-│   │   └── tests/                  # 离线测试（假 SDK 注入）
+├── src/                            # ⭐ 统一收拢的 Python 业务源码 (对标 Tau)
+│   ├── my_agent_llm/               # 1. 模型直连层 (Antigravity/DeepSeek/OpenAI/Stream)
+│   │   ├── client.py               # 统一 LLM 门面 (chat/stream/achat/achat_stream)
+│   │   ├── config.py               # Config 配置模型 (pydantic frozen)
+│   │   ├── models.py               # Message / Response / StreamChunk
+│   │   └── providers/              # Antigravity (Google OAuth) / DeepSeek / OpenAI
 │   │
-│   ├── my-agent-core/              # 框架核心层独立 uv 项目 (337 tests)
-│   │   ├── pyproject.toml          # src 布局 + hatchling 构建
-│   │   ├── src/my_agent_core/      # Python 包
-│   │   │   ├── agent.py            # Agent 轻量 Harness 外壳（prompt_stream 与事件订阅）
-│   │   │   ├── loop.py             # 纯函数无状态微内核 run_agent_loop 与上下文清洗
-│   │   │   ├── tool_history.py     # 对话转录本三阶段自愈与断头保护引擎 (repair_tool_history)
-│   │   │   ├── message_queue.py    # MessageQueue 动态干预队列（Steer & Follow-up）
-│   │   │   ├── task_store.py       # TaskItem + TaskStore（DAG 依赖图、环检测与原子落盘）
-│   │   │   ├── background.py       # BackgroundRunner（后台异步调度与孤儿进程防御）
-│   │   │   ├── tools/              # 工具系统（Tool / @tool / ToolRegistry / ToolResult / task_tools）
-│   │   │   ├── events.py           # 12 个生命周期事件 + HookResult 统一干预模型
-│   │   │   ├── session/            # 模块化会话存储子系统（9 种 Entry / 纯内存树 / 只追加存储驱动 / SessionStore 仓库）
-│   │   │   ├── context.py          # ContextManager（四层压缩管线）+ ContextSessionBridge
-│   │   │   ├── memory.py           # MemoryStore + make_memory_tool（长期记忆与快照管理）
-│   │   │   ├── skills.py           # Skill / SkillManager（.agents/skills 发现与提示词注入）
-│   │   │   ├── subagents.py        # Subagent / SubagentManager（.agents/agents 发现）
-│   │   │   ├── subagent_tasks.py   # SubagentTask / SubagentTaskManager（子代理生命周期与独立会话隔离）
-│   │   │   ├── extensions/         # ExtensionAPI + ExtensionManager（扩展加载与命令路由）
-│   │   │   ├── plugins.py          # Plugin + PluginManager（Claude Code 插件聚合分发）
-│   │   │   └── main.py             # 核心层 demo 入口
-│   │   └── tests/                  # 离线测试 (320 tests)
+│   ├── my_agent_core/              # 2. 框架微内核层 (ReAct/会话树/压缩/任务系统)
+│   │   ├── agent.py                # Agent 纯异步 Harness 外壳
+│   │   ├── loop.py                 # run_agent_loop 纯函数无状态微内核与七阶段流水线
+│   │   ├── tool_history.py         # 对话转录本三阶段自愈引擎 (API 400 免疫)
+│   │   ├── message_queue.py        # MessageQueue 动态干预队列 (Steer & Follow-up)
+│   │   ├── task_store.py           # TaskStore 任务状态机与 DAG 依赖图
+│   │   ├── background.py           # BackgroundRunner 进程树清理引擎
+│   │   ├── session/                # 树状分支持久化会话系统
+│   │   ├── context.py              # ContextManager 四层压缩管线 (L3->L1->L2->L4)
+│   │   └── skills.py               # Skills 声明式管理与提示词注入
 │   │
-│   └── my-coding-agent/            # 产品层独立 uv 项目 (22 tests)
-│       ├── pyproject.toml          # src 布局 + 依赖 core, llm, mcp
-│       ├── src/my_coding_agent/    # Python 包
-│       │   ├── tools.py            # 内置编码工具（read/write/edit/bash + _safe_path 沙箱 + 精细化报错）
-│       │   ├── mutation_queue.py   # FileMutationQueue 细粒度单文件并发互斥锁
-│       │   ├── mcp.py              # MCP 客户端扩展（AsyncExitStack + JSON-RPC 2.0 桥接）
-│       │   └── agent.py            # CodingAgent 组装门面
-│       └── tests/                  # 离线测试
+│   └── my_coding_agent/            # 3. 业务工具与 stdio RPC 服务端 (纯无头架构)
+│       ├── agent.py                # CodingAgent 门面 (Dual API: run & run_stream)
+│       ├── tools/                  # 6 大编码工具 (read/write/edit/bash/grep/find)
+│       ├── mutation_queue.py       # FileMutationQueue 细粒度单文件并发互斥锁
+│       ├── permissions.py          # PermissionGate 业务权限审查门禁 (Accept-on-Diff)
+│       ├── mcp.py                  # Turnkey MCP 客户端自动加载与回收
+│       ├── file_reference.py       # @ 文件引用解析与快照直通注入
+│       └── rpc_server.py           # stdio JSON-RPC 2.0 服务端门面
 │
+├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
+│   ├── llm/                        # LLM 层单元测试 (76 tests)
+│   ├── core/                       # 框架内核单元测试 (337 tests)
+│   └── coding/                     # 业务与工具测试 (162 tests)
+│
+├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
+│   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
+│   ├── tsconfig.json
+│   ├── bin/
+│   │   └── my-agent.js             # CLI 执行文件
+│   ├── src/
+│   │   ├── app.ts                  # TuiMainScreen 状态机与组件树组装
+│   │   ├── client.ts               # PythonKernelClient (管理 uv run python 子进程)
+│   │   ├── components/             # Pi 原厂 UI 组件 (assistant-message, tool-execution, footer...)
+│   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
+│   └── test/                       # 前端 8 个自动化测试与端到端测试
+│
+├── docs/                           # 架构与技术设计文档中心
+├── package.json                    # 根目录 npm 工作区配置与一键启动脚本
 ├── REFERENCES.md                   # 全模块架构设计参考溯源与工程复盘
-├── PROGRESS.md                     # 项目进度复盘与详细演进记录
 └── README.md                       # 仓库级总览（本文件）
 ```
 

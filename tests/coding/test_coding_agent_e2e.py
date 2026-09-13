@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 from typing import Any
 
 import pytest
@@ -120,7 +121,7 @@ def _build_5_turn_scenario() -> list[dict[str, Any]]:
                 ToolCall(
                     id="call_4_bash",
                     name="bash",
-                    args={"command": "pytest"},
+                    args={"command": f'"{sys.executable}" -m pytest'},
                 )
             ],
         },

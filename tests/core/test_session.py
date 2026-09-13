@@ -6,11 +6,11 @@ from my_agent_llm import Message
 
 from my_agent_core.agent import Agent
 from my_agent_core.session import Session
-from tests.conftest import (  # pyright: ignore[reportMissingImports]
+from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
     multiply,
 )
-from tests.conftest import (
+from tests.core.conftest import (
     make_response as _response,
 )
 

@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/my-agent-tui"
+    "tui"
   ],
   "scripts": {
-    "start": "npm start --prefix packages/my-agent-tui",
-    "build": "npm run build --prefix packages/my-agent-tui",
-    "test": "npm test --prefix packages/my-agent-tui"
+    "start": "npm start --prefix tui",
+    "build": "npm run build --prefix tui",
+    "test": "npm test --prefix tui"
   },
   "devDependencies": {
     "@earendil-works/pi-tui": "^0.85.1",

@@ -65,6 +65,7 @@ def test_schema_zero_params():
     @tool
     def f() -> str:
         """doc"""
+        return ""
 
     params = f.to_openai_schema()["function"]["parameters"]
     assert params["type"] == "object"

@@ -5,7 +5,7 @@ from pathlib import Path
 from my_agent_core.agent import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
 from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
-from tests.conftest import (  # pyright: ignore[reportMissingImports]
+from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
     make_response,
 )

@@ -15,10 +15,10 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
-from tests.conftest import (  # pyright: ignore[reportMissingImports]
+from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
 )
-from tests.conftest import (
+from tests.core.conftest import (
     make_response as _resp,
 )
 

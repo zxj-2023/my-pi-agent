@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from my_agent_llm.config import Config
 from my_agent_llm.models import Message, ToolCall
 from my_agent_llm.providers.deepseek import DeepSeekProvider
-from tests.fakes import FakeOpenAI
+from tests.llm.fakes import FakeOpenAI
 
 
 def _provider(responses):
@@ -15,7 +15,7 @@ def _provider(responses):
 
 def test_chat_extracts_reasoning():
   """响应 reasoning_content → Response.reasoning_content。"""
-  from tests.fakes import make_openai_response
+  from tests.llm.fakes import make_openai_response
 
   resp = make_openai_response(content="answer")
   resp.choices[0].message.reasoning_content = "thinking..."

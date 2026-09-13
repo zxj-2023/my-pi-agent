@@ -21,11 +21,10 @@ from my_agent_core.tools import tool  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools.builtin import (
     make_task_tool,  # pyright: ignore[reportMissingImports]
 )
-from tests.conftest import (  # pyright: ignore[reportMissingImports]
+from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
-    multiply,
 )
-from tests.conftest import (
+from tests.core.conftest import (
     make_response as _response,
 )
 

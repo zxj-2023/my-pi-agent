@@ -30,7 +30,7 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
-from tests.conftest import FakeLLM, multiply
+from tests.core.conftest import FakeLLM, multiply
 
 
 def _response(content: str = "", tool_calls=None) -> Response:

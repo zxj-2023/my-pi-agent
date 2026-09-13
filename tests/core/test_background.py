@@ -9,7 +9,7 @@ from my_agent_core.message_queue import (
     MessageQueue,  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
-from tests.conftest import FakeLLM  # pyright: ignore[reportMissingImports]
+from tests.core.conftest import FakeLLM  # pyright: ignore[reportMissingImports]
 
 
 def test_background_runner_executes_and_notifies(tmp_path: Path):

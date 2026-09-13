@@ -38,15 +38,9 @@ export class PythonKernelClient extends EventEmitter {
 
     const workspace = this.options.workspace || process.cwd();
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const repoRoot = path.resolve(__dirname, "../../..");
-    const codingAgentPackage = path.resolve(
-      repoRoot,
-      "packages/my-coding-agent",
-    );
+    const repoRoot = path.resolve(__dirname, "../..");
 
     const args = [
-      "--project",
-      codingAgentPackage,
       "run",
       "python",
       "-m",
@@ -59,22 +53,10 @@ export class PythonKernelClient extends EventEmitter {
     }
 
     const cmd = this.options.pythonExecutable || "uv";
-    const pythonPaths = [
-      path.resolve(repoRoot, "packages/my-coding-agent/src"),
-      path.resolve(repoRoot, "packages/my-agent-core/src"),
-      path.resolve(repoRoot, "packages/my-agent-llm/src"),
-      process.env.PYTHONPATH,
-    ]
-      .filter(Boolean)
-      .join(process.platform === "win32" ? ";" : ":");
 
     this.child = spawn(cmd, args, {
       stdio: ["pipe", "pipe", "inherit"],
-      cwd: workspace,
-      env: {
-        ...process.env,
-        PYTHONPATH: pythonPaths,
-      },
+      cwd: repoRoot,
       windowsHide: true,
     });
 

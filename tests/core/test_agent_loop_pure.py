@@ -38,11 +38,11 @@ from my_agent_core.loop import (
 )
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import ToolResult, tool
-from tests.conftest import (  # pyright: ignore[reportMissingImports]
+from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
     FakeLLM,
     multiply,
 )
-from tests.conftest import (
+from tests.core.conftest import (
     make_response as _response,
 )
 

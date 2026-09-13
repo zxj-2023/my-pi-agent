@@ -76,7 +76,8 @@ def test_followup_one_at_a_time_and_all():
 def test_clear_and_peek():
     q = MessageQueue()
     q.add_steering("S1")
-    assert q.peek().content == "S1"
+    peeked = q.peek()
+    assert peeked is not None and peeked.content == "S1"
     cleared = q.clear()
     assert len(cleared) == 1
     assert len(q) == 0

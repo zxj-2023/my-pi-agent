@@ -4,7 +4,7 @@
 from my_agent_llm.config import Config
 from my_agent_llm.models import Message, ToolCall
 from my_agent_llm.providers.anthropic import AnthropicProvider
-from tests.fake_anthropic import FakeAnthropic, make_anthropic_response
+from tests.llm.fake_anthropic import FakeAnthropic, make_anthropic_response
 
 
 def _provider(responses):

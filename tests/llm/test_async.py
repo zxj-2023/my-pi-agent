@@ -9,8 +9,8 @@ from my_agent_llm.config import Config
 from my_agent_llm.models import Message, Response, ToolCall
 from my_agent_llm.providers.anthropic import AnthropicProvider
 from my_agent_llm.providers.openai import OpenAIProvider
-from tests.fake_anthropic import make_anthropic_response, make_block
-from tests.fakes import make_openai_response
+from tests.llm.fake_anthropic import make_anthropic_response, make_block
+from tests.llm.fakes import make_openai_response
 
 
 class FakeAsyncOpenAI:

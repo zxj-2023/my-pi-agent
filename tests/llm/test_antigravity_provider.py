@@ -12,7 +12,7 @@ from my_agent_llm.providers.antigravity import (  # pyright: ignore[reportMissin
     AntigravityProvider,
 )
 from my_agent_llm.providers.registry import PROVIDER_REGISTRY
-from tests.fakes import FakeOpenAI, make_openai_response
+from tests.llm.fakes import FakeOpenAI, make_openai_response
 
 
 def test_antigravity_provider_initialization():
