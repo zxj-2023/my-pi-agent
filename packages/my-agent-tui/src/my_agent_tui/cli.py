@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import inspect
 import os
 from pathlib import Path
 from typing import Sequence
@@ -11,11 +12,12 @@ from prompt_toolkit.history import FileHistory
 from rich.console import Console
 
 from my_agent_llm import LLM, Config
+from my_coding_agent import FileReferenceParser
 from my_coding_agent.agent import CodingAgent
 from my_coding_agent.permissions import PermissionGate, PermissionRequest
 from my_agent_tui.cli_base import _force_utf8_streams
 from my_agent_tui.commands import CommandDispatcher
-from my_agent_tui.components import ConfirmView
+from my_agent_tui.components import ConfirmView, FileReferenceCompleter
 from my_agent_tui.renderer import EventRenderer
 
 SLASH_COMMANDS = [
@@ -40,7 +42,8 @@ def build_prompt_session(workspace: Path) -> PromptSession:
     hist_dir = workspace / ".my_agent_core"
     hist_dir.mkdir(parents=True, exist_ok=True)
     hist_file = str(hist_dir / "cli_history")
-    completer = WordCompleter(SLASH_COMMANDS, ignore_case=True, sentence=True)
+    slash_completer = WordCompleter(SLASH_COMMANDS, ignore_case=True, sentence=True)
+    completer = FileReferenceCompleter(workspace, base_completer=slash_completer)
     try:
         return PromptSession(history=FileHistory(hist_file), completer=completer)
     except Exception:
@@ -59,33 +62,42 @@ async def run_cli_loop(
     session = prompt_session if prompt_session is not None else build_prompt_session(agent.workspace)
     cmd_dispatcher = dispatcher if dispatcher is not None else CommandDispatcher(agent)
     renderer = EventRenderer(console)
+    file_ref_parser = FileReferenceParser(agent.workspace)
 
     console.print(f"[bold green]my-agent-tui 终端交互助手[/bold green] [dim](工作区: {agent.workspace})[/dim]")
     console.print("[dim]输入提问，输入 [bold]/help[/bold] 查看命令，按 [bold]Ctrl+D[/bold] 退出。[/dim]\n")
 
-    while not cmd_dispatcher.exit_requested:
-        try:
-            user_input = await session.prompt_async(">>> ")
-        except (EOFError, KeyboardInterrupt):
-            console.print("\n[dim]再见！[/dim]")
-            break
-
-        cleaned = user_input.strip()
-        if not cleaned:
-            continue
-
-        if await cmd_dispatcher.dispatch(cleaned, console):
-            if cmd_dispatcher.exit_requested:
+    try:
+        while not cmd_dispatcher.exit_requested:
+            try:
+                user_input = await session.prompt_async(">>> ")
+            except (EOFError, KeyboardInterrupt):
+                console.print("\n[dim]再见！[/dim]")
                 break
-            continue
 
-        try:
-            async for event in agent.run_stream(cleaned):
-                renderer.on_event(event)
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            console.print("\n[yellow]已取消当前生成轮次。[/yellow]")
-        except Exception as e:
-            console.print(f"\n[red]运行出错: {e}[/red]")
+            cleaned = user_input.strip()
+            if not cleaned:
+                continue
+
+            if await cmd_dispatcher.dispatch(cleaned, console):
+                if cmd_dispatcher.exit_requested:
+                    break
+                continue
+
+            expanded_input = file_ref_parser.expand_references(cleaned)
+
+            try:
+                async for event in agent.run_stream(expanded_input):
+                    renderer.on_event(event)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                console.print("\n[yellow]已取消当前生成轮次。[/yellow]")
+            except Exception as e:
+                console.print(f"\n[red]运行出错: {e}[/red]")
+    finally:
+        if hasattr(agent, "close_mcp") and callable(getattr(agent, "close_mcp")):
+            res = agent.close_mcp()
+            if inspect.isawaitable(res):
+                await res
 
 
 def main(argv: Sequence[str] | None = None, llm: LLM | None = None) -> None:
