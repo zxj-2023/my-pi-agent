@@ -15,6 +15,46 @@ from my_agent_llm.config import Config
 if TYPE_CHECKING:
     from my_coding_agent.agent import CodingAgent
 
+SLASH_COMMANDS: list[str] = [
+    "/help",
+    "/clear",
+    "/undo",
+    "/compact",
+    "/session",
+    "/tasks",
+    "/mcp",
+    "/quota",
+    "/model",
+    "/mode",
+    "/login",
+    "/steer",
+    "/followup",
+    "/exit",
+    "/quit",
+]
+
+COMMAND_HELP: dict[str, str] = {
+    "/help": "显示所有可用命令及说明",
+    "/clear": "清空终端屏幕",
+    "/undo": "撤销上一轮对话修改 (session.rewind)",
+    "/compact": "手动触发上下文智能压缩",
+    "/session": "查看当前会话状态与 Token 统计",
+    "/tasks": "查看项目 TaskStore 待办看板",
+    "/mcp": "查看已挂载的 MCP 服务器与工具",
+    "/quota": "查询 Google Antigravity 模型剩余配额与重置时间",
+    "/login": "自省并连接 Antigravity 等本地 OAuth 鉴权凭据",
+    "/model": "查看或即时热切换当前 Agent 底层模型",
+    "/mode": "查看或切换当前权限模式 (review/yolo/strict/autonomous)",
+    "/steer": "注入即时转向指令（在下一个安全点打断/干预模型执行）",
+    "/followup": "追加排队追问指令（在当前轮次彻底完成后自动执行）",
+    "/exit": "退出当前交互式会话",
+    "/quit": "退出当前交互式会话",
+}
+
+for _k, _v in list(COMMAND_HELP.items()):
+    if _k.startswith("/"):
+        COMMAND_HELP[_k.lstrip("/")] = _v
+
 
 @dataclass
 class CommandContext:
@@ -67,19 +107,21 @@ class CommandDispatcher:
         return True
 
     def _register_builtins(self) -> None:
-        self.register("help", self._cmd_help, "显示所有可用命令及说明")
-        self.register("clear", self._cmd_clear, "清空终端屏幕")
-        self.register("undo", self._cmd_undo, "撤销上一轮对话修改 (session.rewind)")
-        self.register("compact", self._cmd_compact, "手动触发上下文智能压缩")
-        self.register("session", self._cmd_session, "查看当前会话状态与 Token 统计")
-        self.register("tasks", self._cmd_tasks, "查看项目 TaskStore 待办看板")
-        self.register("mcp", self._cmd_mcp, "查看已挂载的 MCP 服务器与工具")
-        self.register("quota", self._cmd_quota, "查询 Google Antigravity 模型剩余配额与重置时间")
-        self.register("login", self._cmd_login, "自省并连接 Antigravity 等本地 OAuth 鉴权凭据")
-        self.register("model", self._cmd_model, "查看或即时热切换当前 Agent 底层模型")
-        self.register("mode", self._cmd_mode, "查看或切换当前权限模式 (review/yolo/strict/autonomous)")
-        self.register("exit", self._cmd_exit, "退出当前交互式会话")
-        self.register("quit", self._cmd_exit, "退出当前交互式会话")
+        self.register("help", self._cmd_help, COMMAND_HELP.get("help", "显示所有可用命令及说明"))
+        self.register("clear", self._cmd_clear, COMMAND_HELP.get("clear", "清空终端屏幕"))
+        self.register("undo", self._cmd_undo, COMMAND_HELP.get("undo", "撤销上一轮对话修改 (session.rewind)"))
+        self.register("compact", self._cmd_compact, COMMAND_HELP.get("compact", "手动触发上下文智能压缩"))
+        self.register("session", self._cmd_session, COMMAND_HELP.get("session", "查看当前会话状态与 Token 统计"))
+        self.register("tasks", self._cmd_tasks, COMMAND_HELP.get("tasks", "查看项目 TaskStore 待办看板"))
+        self.register("mcp", self._cmd_mcp, COMMAND_HELP.get("mcp", "查看已挂载的 MCP 服务器与工具"))
+        self.register("quota", self._cmd_quota, COMMAND_HELP.get("quota", "查询 Google Antigravity 模型剩余配额与重置时间"))
+        self.register("login", self._cmd_login, COMMAND_HELP.get("login", "自省并连接 Antigravity 等本地 OAuth 鉴权凭据"))
+        self.register("model", self._cmd_model, COMMAND_HELP.get("model", "查看或即时热切换当前 Agent 底层模型"))
+        self.register("mode", self._cmd_mode, COMMAND_HELP.get("mode", "查看或切换当前权限模式 (review/yolo/strict/autonomous)"))
+        self.register("steer", self._cmd_steer, COMMAND_HELP.get("steer", "注入即时转向指令（在下一个安全点打断/干预模型执行）"))
+        self.register("followup", self._cmd_followup, COMMAND_HELP.get("followup", "追加排队追问指令（在当前轮次彻底完成后自动执行）"))
+        self.register("exit", self._cmd_exit, COMMAND_HELP.get("exit", "退出当前交互式会话"))
+        self.register("quit", self._cmd_exit, COMMAND_HELP.get("quit", "退出当前交互式会话"))
 
     async def _cmd_help(self, ctx: CommandContext) -> None:
         table = Table(
@@ -353,6 +395,22 @@ class CommandDispatcher:
         else:
             gate.mode = target_mode
             ctx.console.print(f"[green]✓ 权限模式已切换为:[/green] [bold cyan]{target_mode}[/bold cyan]")
+
+    async def _cmd_steer(self, ctx: CommandContext) -> None:
+        msg = ctx.raw_args.strip()
+        if not msg:
+            ctx.console.print("[yellow]用法: /steer <指令内容> (即时干预转向当前执行)[/yellow]")
+            return
+        self.agent.steer(msg)
+        ctx.console.print(f"[green]✓ 已排队即时转向指令:[/green] [cyan]{msg}[/cyan]")
+
+    async def _cmd_followup(self, ctx: CommandContext) -> None:
+        msg = ctx.raw_args.strip()
+        if not msg:
+            ctx.console.print("[yellow]用法: /followup <指令内容> (追加在当前任务完成后自动执行)[/yellow]")
+            return
+        self.agent.follow_up(msg)
+        ctx.console.print(f"[green]✓ 已排队追问指令:[/green] [cyan]{msg}[/cyan]")
 
     async def _cmd_exit(self, ctx: CommandContext) -> None:
         self.exit_requested = True

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -45,6 +46,7 @@ class CodingAgent:
         self.auto_load_mcp = auto_load_mcp
         self._mcp_manager: MCPClientManager | None = None
         self._mcp_loaded: bool = False
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         if isinstance(session, (str, Path)):
             session = Session(path=Path(session))
@@ -154,12 +156,44 @@ class CodingAgent:
 
     async def run(self, user_input: str) -> str:
         """批处理高阶入口：聚合最终助手文本"""
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
         await self.ensure_mcp_loaded()
         res = await self.agent.run(user_input)
         return res if res is not None else ""
 
     async def run_stream(self, user_input: str) -> AsyncIterator[Event]:
         """流式一等公民入口：实时产出全生命周期事件"""
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
         await self.ensure_mcp_loaded()
         async for event in self.agent.prompt_stream(user_input):
             yield event
+
+    def steer(self, message: str) -> None:
+        """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
+        self.agent.steer(message)
+
+    def follow_up(self, message: str) -> None:
+        """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
+        self.agent.follow_up(message)
+
+    def abort(self) -> None:
+        """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本并清空干预队列）。"""
+        try:
+            asyncio.get_running_loop()
+            self.agent.abort()
+        except RuntimeError:
+            self.agent._aborted = True
+            if self.agent._current_signal is not None:
+                self.agent._current_signal.cancel()
+            self.agent.message_queue.clear()
+            if self._loop is not None and self._loop.is_running():
+                self._loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self.agent.background_runner.cancel_all())
+                )
+
