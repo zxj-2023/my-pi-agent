@@ -12,8 +12,10 @@ from rich.console import Console
 
 from my_agent_llm import LLM, Config
 from my_coding_agent.agent import CodingAgent
+from my_coding_agent.permissions import PermissionGate, PermissionRequest
 from my_agent_tui.cli_base import _force_utf8_streams
 from my_agent_tui.commands import CommandDispatcher
+from my_agent_tui.components import ConfirmView
 from my_agent_tui.renderer import EventRenderer
 
 SLASH_COMMANDS = [
@@ -26,6 +28,7 @@ SLASH_COMMANDS = [
     "/mcp",
     "/quota",
     "/model",
+    "/mode",
     "/login",
     "/exit",
     "/quit",
@@ -92,10 +95,28 @@ def main(argv: Sequence[str] | None = None, llm: LLM | None = None) -> None:
     parser = argparse.ArgumentParser(description="my-agent-tui 交互式终端助手")
     parser.add_argument("-w", "--workspace", default=".", help="工作区路径")
     parser.add_argument("-m", "--model", default=None, help="LLM 模型标识符")
+    parser.add_argument(
+        "--mode",
+        default="review",
+        choices=["review", "yolo", "autonomous", "strict"],
+        help="权限审查模式 (review, yolo, autonomous, strict)",
+    )
     args = parser.parse_args(argv)
 
     workspace = Path(args.workspace).resolve()
     console = Console()
+    confirm_view = ConfirmView(console=console)
+
+    async def confirm_callback(req: PermissionRequest) -> bool:
+        details = req.preview or req.target
+        return await confirm_view.prompt_confirm(
+            prompt_text=f"智能体请求执行工具 [{req.action}]，是否批准？",
+            default=True,
+            details_text=details,
+            title=f"⚠️ 工具权限审查: {req.action}",
+        )
+
+    gate = PermissionGate(mode=args.mode, confirm_callback=confirm_callback)
 
     # 初始化默认 LLM（若未外部注入）
     if llm is None:
@@ -117,7 +138,12 @@ def main(argv: Sequence[str] | None = None, llm: LLM | None = None) -> None:
         llm = LLM(Config(provider=provider_name, model=model_name, api_key=api_key, base_url=base_url))
 
     session_path = workspace / ".my_agent_core" / "sessions" / "default_session.jsonl"
-    agent = CodingAgent(workspace=workspace, llm=llm, session=session_path)
+    agent = CodingAgent(
+        workspace=workspace,
+        llm=llm,
+        session=session_path,
+        permission_gate=gate,
+    )
 
     asyncio.run(run_cli_loop(agent, console))
 

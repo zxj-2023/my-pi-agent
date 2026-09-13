@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from my_agent_core import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.events import Event  # pyright: ignore[reportMissingImports]
+from my_agent_core.hooks import ToolCallHook  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
 
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.prompt import build_default_coding_prompt
 from my_coding_agent.tools import build_coding_tools
+
+if TYPE_CHECKING:
+    from my_coding_agent.permissions import PermissionGate
 
 
 class CodingAgent:
@@ -26,10 +31,12 @@ class CodingAgent:
         session: Session,
         system_prompt: str | None = None,
         extra_tools: list[Tool] | tuple[Tool, ...] = (),
+        permission_gate: PermissionGate | None = None,
         **kw,
     ):
         self.workspace = Path(workspace).resolve()
         self.mutation_queue = FileMutationQueue()
+        self._permission_gate = permission_gate
 
         if isinstance(session, (str, Path)):
             session = Session(path=Path(session))
@@ -46,7 +53,11 @@ class CodingAgent:
             **kw,
         )
 
-        # 3. 装配 6 大编码专属工具
+        # 3. 若注入了权限门禁，注册到 ToolCallHook
+        if self._permission_gate is not None:
+            self.agent.hooks.register(ToolCallHook, self._permission_gate)
+
+        # 4. 装配 6 大编码专属工具
         coding_tools = build_coding_tools(
             self.workspace,
             mutation_queue=self.mutation_queue,
@@ -54,6 +65,11 @@ class CodingAgent:
         )
         for t in coding_tools:
             self.agent.registry.register(t)
+
+    @property
+    def permission_gate(self) -> PermissionGate | None:
+        """底层安全权限门禁。"""
+        return self._permission_gate
 
     @property
     def task_store(self):

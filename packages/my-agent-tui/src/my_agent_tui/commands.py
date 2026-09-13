@@ -77,6 +77,7 @@ class CommandDispatcher:
         self.register("quota", self._cmd_quota, "查询 Google Antigravity 模型剩余配额与重置时间")
         self.register("login", self._cmd_login, "自省并连接 Antigravity 等本地 OAuth 鉴权凭据")
         self.register("model", self._cmd_model, "查看或即时热切换当前 Agent 底层模型")
+        self.register("mode", self._cmd_mode, "查看或切换当前权限模式 (review/yolo/strict/autonomous)")
         self.register("exit", self._cmd_exit, "退出当前交互式会话")
         self.register("quit", self._cmd_exit, "退出当前交互式会话")
 
@@ -323,6 +324,35 @@ class CommandDispatcher:
                 llm.config = Config(provider="openai", model=target_model, api_key="placeholder")
 
         ctx.console.print(f"[green]✓ 模型已成功切换为:[/green] [bold cyan]{target_model}[/bold cyan]", highlight=False)
+
+    async def _cmd_mode(self, ctx: CommandContext) -> None:
+        target_mode = ctx.raw_args.strip().lower()
+        gate = getattr(self.agent, "permission_gate", None)
+
+        if not target_mode:
+            if gate is None:
+                ctx.console.print("[yellow]当前会话未启用权限门禁 (PermissionGate)。[/yellow]")
+                return
+            curr_mode = getattr(gate, "mode", "unknown")
+            ctx.console.print(f"[bold]当前权限模式:[/bold] [cyan]{curr_mode}[/cyan]")
+            ctx.console.print("[dim]使用方式: /mode [review|yolo|autonomous|strict] 切换安全审查级别[/dim]")
+            return
+
+        valid_modes = ("review", "yolo", "autonomous", "strict")
+        if target_mode not in valid_modes:
+            ctx.console.print(f"[red]无效的权限模式: '{target_mode}'。可选模式: review, yolo, autonomous, strict[/red]")
+            return
+
+        if gate is None:
+            ctx.console.print("[yellow]当前会话未启用权限门禁 (PermissionGate)，无法切换模式。[/yellow]")
+            return
+
+        if target_mode == "yolo":
+            gate.mode = "autonomous"
+            ctx.console.print("[green]✓ 权限模式已切换为:[/green] [bold cyan]autonomous (yolo)[/bold cyan]")
+        else:
+            gate.mode = target_mode
+            ctx.console.print(f"[green]✓ 权限模式已切换为:[/green] [bold cyan]{target_mode}[/bold cyan]")
 
     async def _cmd_exit(self, ctx: CommandContext) -> None:
         self.exit_requested = True

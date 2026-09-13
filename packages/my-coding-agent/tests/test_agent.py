@@ -114,3 +114,27 @@ async def test_coding_agent_session_and_compact(tmp_path: Path):
     # Compact without crash
     res = await agent.compact()
     assert res is None
+
+
+async def test_coding_agent_permission_gate(tmp_path: Path):
+    from unittest.mock import AsyncMock
+
+    from my_agent_core.hooks import ToolCallHook
+    from my_coding_agent.permissions import PermissionGate
+
+    mock_cb = AsyncMock(return_value=False)
+    gate = PermissionGate(mode="strict", confirm_callback=mock_cb)
+
+    session = Session(path=tmp_path / "session_gate.jsonl")
+    fake_llm = FakeCodingLLM([Response(content="ok", model="fake")])
+    agent = CodingAgent(
+        workspace=tmp_path,
+        llm=fake_llm,
+        session=session,
+        permission_gate=gate,
+    )
+
+    assert agent.permission_gate is gate
+    # ToolCallHook should be registered in agent.agent.hooks
+    handlers = agent.agent.hooks._handlers.get(ToolCallHook, [])
+    assert gate in handlers
