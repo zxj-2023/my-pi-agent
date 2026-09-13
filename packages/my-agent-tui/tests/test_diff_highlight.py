@@ -20,27 +20,14 @@ def test_diff_word_highlight_single_replacement():
 
 
 def test_diff_word_highlight_pure_add_and_delete():
-    diff_sample = (
-        "--- a/test.py\n"
-        "+++ b/test.py\n"
-        "@@ -1,2 +1,3 @@\n"
-        "+new_line_1\n"
-        "-deleted_line_2\n"
-        "+added_line_3\n"
-    )
+    diff_sample = "--- a/test.py\n+++ b/test.py\n@@ -1,2 +1,3 @@\n+new_line_1\n-deleted_line_2\n+added_line_3\n"
     rendered = render_diff_with_word_highlight(diff_sample)
     assert "new_line_1" in rendered.plain
     assert "deleted_line_2" in rendered.plain
 
 
 def test_diff_word_highlight_style_spans():
-    diff_sample = (
-        "--- a/math.py\n"
-        "+++ b/math.py\n"
-        "@@ -1,1 +1,1 @@\n"
-        "-x = 1\n"
-        "+x = 2\n"
-    )
+    diff_sample = "--- a/math.py\n+++ b/math.py\n@@ -1,1 +1,1 @@\n-x = 1\n+x = 2\n"
     rendered = render_diff_with_word_highlight(diff_sample)
     assert isinstance(rendered, Text)
     # Check that styles contain reverse highlighting for replaced words
