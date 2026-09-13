@@ -86,10 +86,11 @@ async def test_cli_streaming_live_steering_and_abort(tmp_path: Path):
 
     agent.run_stream = fake_stream  # type: ignore
 
-    with patch("my_agent_tui.cli.LiveInputListener", MockLiveInputListener), \
-         patch.object(agent, "steer") as mock_steer, \
-         patch.object(agent, "abort") as mock_abort:
-
+    with (
+        patch("my_agent_tui.cli.LiveInputListener", MockLiveInputListener),
+        patch.object(agent, "steer") as mock_steer,
+        patch.object(agent, "abort") as mock_abort,
+    ):
         mock_session = MagicMock()
         mock_session.prompt_async = AsyncMock(side_effect=["实现功能", "/exit"])
 
@@ -133,10 +134,11 @@ async def test_cli_streaming_live_steering_and_abort_direct(tmp_path: Path):
 
     agent.run_stream = fake_stream  # type: ignore
 
-    with patch("my_agent_tui.cli.LiveInputListener", MockLiveInputListener), \
-         patch.object(agent, "steer") as mock_steer, \
-         patch.object(agent, "abort") as mock_abort:
-
+    with (
+        patch("my_agent_tui.cli.LiveInputListener", MockLiveInputListener),
+        patch.object(agent, "steer") as mock_steer,
+        patch.object(agent, "abort") as mock_abort,
+    ):
         mock_session = MagicMock()
         mock_session.prompt_async = AsyncMock(side_effect=["测试直接调用", "/exit"])
 
@@ -146,4 +148,3 @@ async def test_cli_streaming_live_steering_and_abort_direct(tmp_path: Path):
         mock_abort.assert_called_once()
         out = console.export_text()
         assert "已注入即时转向指令: 直接转向指令" in out
-
