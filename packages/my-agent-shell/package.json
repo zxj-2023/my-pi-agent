@@ -1,0 +1,24 @@
+{
+  "name": "my-agent-shell",
+  "version": "0.1.0",
+  "description": "High-fidelity Pi-TUI terminal shell for my-pi-agent",
+  "type": "module",
+  "bin": {
+    "my-agent": "./bin/my-agent.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/*.test.js",
+    "start": "node bin/my-agent.js"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.85.1",
+    "chalk": "^5.4.1",
+    "marked": "^15.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  }
+}
