@@ -31,6 +31,7 @@ def test_format_tokens():
     assert format_tokens(14200) == "14.2k"
     assert format_tokens(1000000) == "1.0M"
     assert format_tokens(2500000) == "2.5M"
+    assert format_tokens("invalid") == "0"
 
 
 def test_format_cwd_for_footer():

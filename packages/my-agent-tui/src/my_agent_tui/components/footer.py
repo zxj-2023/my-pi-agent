@@ -41,12 +41,16 @@ def format_cwd_for_footer(cwd: Path, home: Path | None = None) -> str:
 
 def format_tokens(count: int) -> str:
     """紧凑格式化 Token 计数（如 500, 14.2k, 1.0M）。"""
-    count = int(count)
-    if count < 1000:
-        return str(count)
-    if count < 1_000_000:
-        return f"{count / 1000:.1f}k"
-    return f"{count / 1_000_000:.1f}M"
+    try:
+        num = int(count)
+    except (TypeError, ValueError):
+        return "0"
+
+    if num < 1000:
+        return str(num)
+    if num < 1_000_000:
+        return f"{num / 1000:.1f}k"
+    return f"{num / 1_000_000:.1f}M"
 
 
 class FooterComponent:
@@ -87,9 +91,15 @@ class FooterComponent:
                 if isinstance(meta, dict):
                     usage = meta.get("usage")
                     if isinstance(usage, dict):
-                        tokens_used += int(usage.get("total_tokens", 0) or 0)
+                        try:
+                            tokens_used += int(usage.get("total_tokens", 0) or 0)
+                        except (TypeError, ValueError):
+                            pass
                     elif usage is not None and hasattr(usage, "total_tokens"):
-                        tokens_used += int(getattr(usage, "total_tokens", 0) or 0)
+                        try:
+                            tokens_used += int(getattr(usage, "total_tokens", 0) or 0)
+                        except (TypeError, ValueError):
+                            pass
             if tokens_used == 0 and path:
                 tokens_used = len(path) * 150
 
