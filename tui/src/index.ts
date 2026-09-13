@@ -1,4 +1,4 @@
-export { AgentApp, type AppOptions } from "./app.js";
+export { AgentApp, type AppOptions, BUILTIN_SLASH_COMMANDS } from "./app.js";
 export { PythonKernelClient, type PythonKernelClientOptions } from "./client.js";
 export * from "./protocol.js";
 export { theme, getMarkdownTheme } from "./theme/theme.js";

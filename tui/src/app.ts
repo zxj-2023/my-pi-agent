@@ -1,10 +1,15 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as process from "node:process";
 import {
+  CombinedAutocompleteProvider,
   Container,
   Editor,
   type EditorTheme,
   matchesKey,
   ProcessTerminal,
+  type SlashCommand,
   type TUI,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
@@ -20,6 +25,35 @@ export interface AppOptions {
   workspace?: string;
   model?: string;
   mode?: string;
+}
+
+export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
+  { name: "help", description: "查看所有可用命令与快捷键说明" },
+  { name: "clear", description: "清空当前终端屏幕会话" },
+  { name: "model", description: "切换生效的大语言模型 (如 deepseek-chat, gemini-3.8-flash)", argumentHint: "<model>" },
+  { name: "quota", description: "查询当前用户的模型调用配额与余量" },
+  { name: "steer", description: "即时注入转向指令 (在下一个执行节点纠偏)", argumentHint: "<instruction>" },
+  { name: "followup", description: "追加排队追问任务", argumentHint: "<task>" },
+  { name: "exit", description: "安全退出交互终端并清理子进程" },
+];
+
+function findFdPath(): string | undefined {
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".pi", "agent", "bin", process.platform === "win32" ? "fd.exe" : "fd"),
+    path.join(home, ".local", "bin", "fd"),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // 忽略无法访问的路径
+    }
+  }
+  return undefined;
 }
 
 export class AgentApp {
@@ -62,6 +96,16 @@ export class AgentApp {
     };
 
     this.editor = new Editor(this.tui, editorTheme);
+
+    // 挂载 @ 文件智能联想与 / 斜杠命令气泡补全器
+    const workspace = options.workspace || process.cwd();
+    const fdPath = findFdPath();
+    const autocompleteProvider = new CombinedAutocompleteProvider(
+      BUILTIN_SLASH_COMMANDS,
+      workspace,
+      fdPath,
+    );
+    this.editor.setAutocompleteProvider(autocompleteProvider);
 
     this.tui.addChild(this.chatContainer);
     this.tui.addChild(this.footer);

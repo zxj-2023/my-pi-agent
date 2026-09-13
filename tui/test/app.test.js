@@ -53,3 +53,24 @@ test("AgentApp handles agent events without throwing", () => {
 
   assert.ok(true);
 });
+
+test("AgentApp mounts autocomplete provider with slash commands and @ file references", async () => {
+  const app = new AgentApp({ workspace: "." });
+  const provider = app.editor.autocompleteProvider;
+  assert.ok(provider);
+
+  // 1. 测试 / 斜杠命令联想补全
+  const slashSuggestions = await provider.getSuggestions(["/mod"], 0, 4, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(slashSuggestions);
+  assert.ok(slashSuggestions.items.some((i) => i.value === "model" || i.label === "model"));
+
+  // 2. 测试 @ 文件路径模糊匹配联想
+  const fileSuggestions = await provider.getSuggestions(["@package"], 0, 8, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(fileSuggestions);
+  assert.ok(fileSuggestions.items.some((i) => i.value.includes("package.json")));
+});
+
