@@ -27,6 +27,11 @@
 - [十二、产品层 Coding 工具与原生异步 MCP 客户端 (`my_coding_agent`)](#十二产品层-coding-工具与原生异步-mcp-客户端-my_coding_agent)
 - [十三、统一任务系统与后台异步执行 (`my_agent_core.task_store` & `background`)](#十三统一任务系统与后台异步执行-my_agent_coretask_store--background)
 - [十四、Tau 微内核演进与转录本自愈 (`my_agent_core.loop` & `tool_history`)](#十四tau-微内核演进与转录本自愈-my_agent_coreloop--tool_history)
+- [十五、Antigravity OAuth 鉴权与零硬编码自省 (`my_agent_llm.auth.antigravity`)](#十五antigravity-oauth-鉴权与零硬编码自省-my_agent_llmauthantigravity)
+- [十六、Accept-on-Diff 权限审查门禁与词级差异增强 (`my_coding_agent.permissions`)](#十六accept-on-diff-权限审查门禁与词级差异增强-my_coding_agentpermissions)
+- [十七、提示词 @ 文件引用与工作区 Turnkey MCP (`my_coding_agent.file_reference` & `mcp`)](#十七提示词--文件引用与工作区-turnkey-mcp-my_coding_agentfile_reference--mcp)
+- [十八、Pi 原厂 TUI 独立表现层与 stdio JSON-RPC 双核架构 (`tui/`)](#十八pi-原厂-tui-独立表现层与-stdio-json-rpc-双核架构-tui)
+- [十九、Tau 式单工程拓扑与统一测试最佳实践 (`pyproject.toml` & `tests/`)](#十九tau-式单工程拓扑与统一测试最佳实践-pyprojecttoml--tests)
 
 ---
 
@@ -363,21 +368,92 @@
 
 ---
 
+## 十五、Antigravity OAuth 鉴权与零硬编码自省 (`my_agent_llm.auth.antigravity`)
+
+### 1. 参考项目与源码定位
+- **主要参考**：
+  - **Pi 官方插件 (`pi-antigravity`)**：Google Cloud Code Assist OAuth 凭据自省与自动静默刷新机制；
+  - **Google OAuth 2.0 端点规约**：使用 refresh_token 换取新 access_token 的刷新标准。
+
+### 2. 核心机制与本土化创新
+- **严格零源码硬编码铁律**：严禁在源码中写死任何 Google Client ID 或 Client Secret；
+- **动态探测 `~/.pi/agent/auth.json`**：直接复用本地已有认证凭据，支持过期自动感知与多账户静默刷新，并接入 `/quota` 实时配额余量查询。
+
+---
+
+## 十六、Accept-on-Diff 权限审查门禁与词级差异增强 (`my_coding_agent.permissions`)
+
+### 1. 参考项目与源码定位
+- **主要参考**：
+  - **Pig-Mono (`permissions.py`)**：写操作审查拦截门禁与人机交互放行机制；
+  - **Pi (`modes/interactive/components/diff.ts`)**：词级细粒度反色高亮加亮差异。
+
+### 2. 核心机制与本土化创新
+- **基于 `ToolCallHook` 介入**：在工具执行前捕获 `write`、`edit`、`bash` 等高危动作，支持 `review`（审查）、`autonomous`（自主）、`strict`（只读）与 `yolo`（全放行）四种安全模式；
+- **行内精细词级加亮**：不仅比对行变更，对修改行做单词级细粒度反色突出，一眼看清细微改动。
+
+---
+
+## 十七、提示词 @ 文件引用与工作区 Turnkey MCP (`my_coding_agent.file_reference` & `mcp`)
+
+### 1. 参考项目与源码定位
+- **主要参考**：
+  - **Pig-Mono (`file_reference.py`)**：提示词 `@path` 语法解析与快照直通注入；
+  - **Pi (`coding-agent/src/core/mcp.ts`)**：工作区 `.mcp.json` 自动扫描与外部子进程生命周期绑定。
+
+### 2. 核心机制与本土化创新
+- **首轮直通免 `read`**：从用户提问中正则提取文件路径，双重截断保护（2000 行 / 50KB）后封装为 `<referenced_file>` 块追加至 Prompt 末尾，模型首轮免调工具直接分析，提速 50%；
+- **Turnkey MCP 自动挂载与彻底反注册**：启动时自动连接 `.mcp.json` 中的工具，退出时不仅销毁子进程，还同步调用 `registry.unregister()` 清理所有工具 Schema，杜绝残留。
+
+---
+
+## 十八、Pi 原厂 TUI 独立表现层与 stdio JSON-RPC 双核架构 (`tui/`)
+
+### 1. 参考项目与源码定位
+- **主要参考**：
+  - **Pi 原厂终端 (`@earendil-works/pi-tui`)**：Mario Zechner 打造的差量重绘引擎与 `TuiMainScreen`；
+  - **Pi 交互组件 (`coding-agent/src/modes/interactive/components/`)**：`assistant-message.ts`（思考块折叠）、`tool-execution.ts`（圆角边框卡片+Spinner）、`editor.ts`（中文 IME 硬件光标对齐）；
+  - **Jupyter / VSCode 架构哲学**：前端 UI 外壳与无头后端内核彻底解耦。
+
+### 2. 核心机制与本土化创新
+- **无状态 stdio JSON-RPC 双向流**：前端 Node.js 与后端 Python 仅通过单行 JSON 通信，零端口冲突、零防火墙弹窗、生命周期强绑定；
+- **天然同构事件流**：Python 的 `AgentEvent` 与 Pi 的前端事实事件 1:1 映射，无缝驱动流式思考块与圆角工具卡片就地变绿展开；
+- **全浮窗补全挂载**：挂载 `CombinedAutocompleteProvider`，支持 `@` 工作区文件路径联想与 `/` 斜杠命令提示。
+
+---
+
+## 十九、Tau 式单工程拓扑与统一测试最佳实践 (`pyproject.toml` & `tests/`)
+
+### 1. 参考项目与源码定位
+- **主要参考**：
+  - **HuggingFace 官方 Tau (`tau-ai`)**：单一工程管理、`hatchling` 多包目标导出、统一 `tests/` 目录与秒级回归。
+
+### 2. 核心机制与本土化创新
+- **彻底消灭“伪多包”分裂**：全局唯一 `pyproject.toml`、唯一 `.venv` 与 `uv.lock`；
+- **单行跑完全库测试**：根目录单行 `uv run pytest`，20 秒内并发跑完全部 575 个 Python 测试；
+- **前端独立顶层 `tui/`**：语义清晰，根目录 `npm start` 一键拉起终端。
+
+---
+
 ## 全景参考映射总结表
 
 | 核心模块 | 对应源码路径 | 主要参考项目 | 核心借鉴机制 |
 | --- | --- | --- | --- |
-| **模型边界层** | `packages/my-agent-llm/` | Pi, Anthropic, DeepSeek | 统一多模型门面、流式增量拼接、Usage 锚定 |
-| **工具系统** | `my_agent_core/tools/` | pig-mono, OpenHands, Pi | Pydantic 动态建模、Never-Throw 保证、`is_parallel_safe` 并发 |
-| **事件拦截** | `my_agent_core/events.py` | Pi (`hooks.md`) | 五大生命周期决策拦截点、HookResult 统一干预、流式熔断丢弃半截 |
-| **异步循环** | `my_agent_core/agent.py` | Pi (`agent-loop.ts`), pig-mono | 单层类内联 ReAct 循环、纯协程驱动、临时视图零污染 |
-| **会话持久化** | `my_agent_core/session/` | Pi (`jsonl-storage.ts`), Tau (`tau-ai`) | 树状分支存储、只追加存储驱动、`rewind/fork` 纯内存树算法 |
-| **上下文压缩** | `my_agent_core/context.py` | Pi (`compaction.ts`), OpenHands | 四层廉价优先管线 (L3➔L1➔L2➔L4)、retainedTail 缓存、防注入标签剥离 |
-| **Skills 机制** | `my_agent_core/skills.py` | Pi (`skills.ts`), OpenHands | 渐进式披露、启动仅注入清单、`invoke_skill` 显式调用 |
-| **Subagents** | `my_agent_core/subagent_tasks.py` | Claude Code, OpenHands, Pi | 独立子会话树、防递归工具过滤、子代理沙箱隔离 |
-| **Extension** | `my_agent_core/extensions/` | Pi (`ExtensionAPI`) | 静态注册面 + 动态调度、本地 0 Token 命令行前置路由 |
-| **Memory 系统** | `my_agent_core/memory.py` | Hermes Agent (`memory_tool.py`) | 双 Store 分区、Frozen Snapshot 保护 Prefix Cache、唯一子串匹配 |
-| **Plugin 系统** | `my_agent_core/plugins.py` | Claude Code 官方, OpenHands | `.claude-plugin/plugin.json`、目录名兜底推断、单 Skill 根级简写 |
-| **Coding & MCP** | `packages/my-coding-agent/` | OpenHands, MCP SDK, Pi | `_safe_path` 路径安全、`AsyncExitStack` 异步双扇门管理、闭包工厂 |
-| **统一任务与后台** | `my_agent_core/task_store.py`, `background.py` | Pi (`pi-background-tasks`), Claude Code | 孤儿进程防御、MessageQueue 优雅收割、`<TASK_BOARD>` 零污染投影 |
-| **Tau 微内核与自愈** | `my_agent_core/loop.py`, `tool_history.py`, `session/` | Tau (`tau-ai` / `tau_agent`) | 纯函数无状态微内核、三阶段转录本自愈、只追加模块化存储驱动 |
+| **模型边界层** | `src/my_agent_llm/` | Pi, Anthropic, DeepSeek, Google OAuth | 统一多模型门面、流式增量拼接、Antigravity 零硬编码动态自省 |
+| **工具系统** | `src/my_agent_core/tools/` | pig-mono, OpenHands, Pi | Pydantic 动态建模、Never-Throw 保证、`is_parallel_safe` 并发 |
+| **事件拦截** | `src/my_agent_core/events.py` | Pi (`hooks.md`) | 五大生命周期决策拦截点、HookResult 统一干预、流式熔断丢弃半截 |
+| **异步循环** | `src/my_agent_core/agent.py` | Pi (`agent-loop.ts`), pig-mono | 单层类内联 ReAct 循环、纯协程驱动、临时视图零污染 |
+| **会话持久化** | `src/my_agent_core/session/` | Pi (`jsonl-storage.ts`), Tau (`tau-ai`) | 树状分支存储、只追加存储驱动、`rewind/fork` 纯内存树算法 |
+| **上下文压缩** | `src/my_agent_core/context.py` | Pi (`compaction.ts`), OpenHands | 四层廉价优先管线 (L3➔L1➔L2➔L4)、retainedTail 缓存、防注入标签剥离 |
+| **Skills 机制** | `src/my_agent_core/skills.py` | Pi (`skills.ts`), OpenHands | 渐进式披露、启动仅注入清单、`invoke_skill` 显式调用 |
+| **Subagents** | `src/my_agent_core/subagent_tasks.py` | Claude Code, OpenHands, Pi | 独立子会话树、防递归工具过滤、子代理沙箱隔离 |
+| **Extension** | `src/my_agent_core/extensions/` | Pi (`ExtensionAPI`) | 静态注册面 + 动态调度、本地 0 Token 命令行前置路由 |
+| **Memory 系统** | `src/my_agent_core/memory.py` | Hermes Agent (`memory_tool.py`) | 双 Store 分区、Frozen Snapshot 保护 Prefix Cache、唯一子串匹配 |
+| **Plugin 系统** | `src/my_agent_core/plugins.py` | Claude Code 官方, OpenHands | `.claude-plugin/plugin.json`、目录名兜底推断、单 Skill 根级简写 |
+| **Coding 业务层** | `src/my_coding_agent/` | OpenHands, Pig-Mono, Pi | `read`/`write`/`edit`/`bash`/`grep`/`find` 6大工具、并发写锁、@ 引用直通 |
+| **统一任务与后台** | `src/my_agent_core/task_store.py`, `background.py` | Pi (`pi-background-tasks`), Claude Code | 孤儿进程防御、MessageQueue 优雅收割、`<TASK_BOARD>` 零污染投影 |
+| **Tau 微内核与自愈** | `src/my_agent_core/loop.py`, `tool_history.py` | Tau (`tau-ai` / `tau_agent`) | 纯函数无状态微内核、三阶段转录本自愈、只追加模块化存储驱动 |
+| **权限门禁审查** | `src/my_coding_agent/permissions.py` | Pig-Mono, Pi | Accept-on-Diff 词级反色高亮、四种安全模式、高危写操作阻断 |
+| **Turnkey MCP** | `src/my_coding_agent/mcp.py` | Pi, MCP SDK | 工作区 `.mcp.json` 自动扫描挂载、进程生命周期绑定与工具 Schema 清理 |
+| **Pi-TUI 表现层** | `tui/` | Pi (`@earendil-works/pi-tui`) | Mario Zechner 差量重绘引擎、CSI 2026 同步屏障、思考折叠、圆角卡片、IME 锚定 |
+| **单工程多包拓扑** | 根目录 `pyproject.toml` | Tau (`tau-ai`) | 单一工程与统一 `.venv`、hatchling 多包导出、tests/ 全量秒级并发跑测 |

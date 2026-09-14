@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportMissingTypeArgument=false
 """Context 管理：四层压缩管线（cheap-first）+ usage 锚定估算。
 
-设计文档：docs/superpowers/specs/2026-08-01-my-agent-context-design.md（2026-08-11 修订版）。
+设计文档：docs/core/05-context-compaction.md。
 本模块只做"视图变换"（非破坏，绝不修改传入 list）；树/文件由 Session 管。
 """
 
@@ -23,9 +23,7 @@ DEFAULT_CONTEXT_BUDGET = 100_000  # 默认 token 预算（约 gpt-4 context 上�
 
 def estimate_tokens(messages: list[Message], ratio: float | None = None) -> int:
     """估算 token 数。ratio 为 usage 锚定比例（每字符 token 数）；None 用 chars/4 兜底。"""
-    chars = len(
-        json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str)
-    )
+    chars = len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))
     if ratio is not None:
         return max(1, round(chars * ratio))
     return max(1, chars // CHARS_PER_TOKEN)
@@ -61,15 +59,11 @@ def snip_messages(messages: list[Message], max_messages: int = 50) -> list[Messa
     if head_end >= tail_start:
         return messages
     snipped = tail_start - head_end
-    placeholder = Message(
-        role="user", content=f"[snipped {snipped} messages from conversation middle]"
-    )
+    placeholder = Message(role="user", content=f"[snipped {snipped} messages from conversation middle]")
     return messages[:head_end] + [placeholder] + messages[tail_start:]
 
 
-def micro_compact(
-    messages: list[Message], keep_recent: int = 5, min_chars: int = 200
-) -> list[Message]:
+def micro_compact(messages: list[Message], keep_recent: int = 5, min_chars: int = 200) -> list[Message]:
     """L2：非最近 keep_recent 条、content > min_chars 的 tool 消息 → content 换占位符。
 
     metadata（tool_call_id 等）不动——配对不变式保住。
@@ -78,9 +72,7 @@ def micro_compact(
     tool_indices = [i for i, m in enumerate(result) if m.role == "tool"]
     for i in tool_indices[:-keep_recent]:
         if len(result[i].content) > min_chars:
-            result[i] = result[i].model_copy(
-                update={"content": "[Earlier tool result compacted]"}
-            )
+            result[i] = result[i].model_copy(update={"content": "[Earlier tool result compacted]"})
     return result
 
 
@@ -155,9 +147,7 @@ def extract_file_operations(
 
     # 1. 继承上一次摘要中的文件足迹
     if previous_summary:
-        read_match = re.search(
-            r"<read-files>\s*(.*?)\s*</read-files>", previous_summary, re.DOTALL
-        )
+        read_match = re.search(r"<read-files>\s*(.*?)\s*</read-files>", previous_summary, re.DOTALL)
         if read_match:
             for line in read_match.group(1).splitlines():
                 _add_unique(read_files, line.strip())
@@ -177,21 +167,12 @@ def extract_file_operations(
                 name = tc.get("function", {}).get("name", "")
                 raw_args = tc.get("function", {}).get("arguments", "{}")
                 try:
-                    args = (
-                        json.loads(raw_args)
-                        if isinstance(raw_args, str)
-                        else (raw_args or {})
-                    )
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
                 except (json.JSONDecodeError, TypeError):
                     args = {}
                 if not isinstance(args, dict):
                     continue
-                target_path = (
-                    args.get("path")
-                    or args.get("file_path")
-                    or args.get("filename")
-                    or args.get("file")
-                )
+                target_path = args.get("path") or args.get("file_path") or args.get("filename") or args.get("file")
                 if isinstance(target_path, str) and target_path.strip():
                     p = target_path.strip()
                     if name in (
@@ -257,9 +238,7 @@ class CompactionInfo:
         self.covered_count = covered_count  # 覆盖的消息条数（定位"之后新增"用）
         self.retained_tail = retained_tail  # 保留尾部的快照（list[dict]）
         # ── 审计组：缓存 entry metadata（摘要 LLM 调用的成本与模型）──
-        self.summary_usage = (
-            summary_usage  # 摘要调用的 usage（prompt/completion tokens）
-        )
+        self.summary_usage = summary_usage  # 摘要调用的 usage（prompt/completion tokens）
         self.summary_model = summary_model  # 摘要用的模型名
 
 
@@ -268,10 +247,7 @@ def _serialize_messages(messages: list[Message]) -> str:
     lines = []
     for m in messages:
         if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
-            names = [
-                tc.get("function", {}).get("name", "?")
-                for tc in m.metadata["tool_calls"]
-            ]
+            names = [tc.get("function", {}).get("name", "?") for tc in m.metadata["tool_calls"]]
             lines.append(f"assistant: [tool_calls: {', '.join(names)}] {m.content}")
         elif m.role == "tool":
             lines.append(f"tool: {m.content[:4000]}")
@@ -296,9 +272,7 @@ class ContextManager:
     ):
         self.budget = budget
         self.llm = llm
-        self.keep_recent_tokens = (
-            keep_recent_tokens if keep_recent_tokens is not None else budget // 4
-        )
+        self.keep_recent_tokens = keep_recent_tokens if keep_recent_tokens is not None else budget // 4
         self.results_dir = Path(results_dir) if results_dir else None
         self.budget_threshold = (self.budget * 4) // 5
         self._summary: str | None = None
@@ -308,9 +282,7 @@ class ContextManager:
         self._last_view_chars = 0
         self.pending_compaction: CompactionInfo | None = None
 
-    def restore_cache(
-        self, *, summary: str, covered_count: int, retained_tail: list[dict[str, Any]]
-    ) -> None:
+    def restore_cache(self, *, summary: str, covered_count: int, retained_tail: list[dict[str, Any]]) -> None:
         """从 session 缓存 entry 恢复（Agent 构造时调用）。"""
         self._summary = summary
         self._covered_count = covered_count
@@ -383,9 +355,7 @@ class ContextManager:
         # 新增段免费层：大结果落盘 + 旧结果占位（避免压缩后免费层失效）
         newly = budget_tool_results(newly, results_dir=self.results_dir)
         newly = micro_compact(newly)
-        view = system_msg + [
-            Message(role="user", content=SUMMARY_MESSAGE_PREFIX + self._summary)
-        ]
+        view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + self._summary)]
         view += [Message(**d) for d in self._retained_tail]
         view += newly
         # L1：整个视图消息数超限 → 裁中间
@@ -399,15 +369,11 @@ class ContextManager:
             return list(messages)  # 找不到 user 切点 → 不压缩
         return await self._summarize_from_cut(messages, cut)
 
-    async def _summarize_from_cut(
-        self, messages: list[Message], cut: int
-    ) -> list[Message]:
+    async def _summarize_from_cut(self, messages: list[Message], cut: int) -> list[Message]:
         """按既定 cut 执行摘要：调 LLM → 写缓存 → 构造视图。降级失败返回原视图。"""
         tokens_before = estimate_tokens(messages, self._ratio)
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
-        summarized = messages[
-            len(system_msg) : cut
-        ]  # 摘要输入不含 system（persona 保持原样）
+        summarized = messages[len(system_msg) : cut]  # 摘要输入不含 system（persona 保持原样）
         retained = messages[cut:]
         try:
             summary, usage, model = await self._call_summarizer(summarized)
@@ -428,11 +394,7 @@ class ContextManager:
             summary_usage=usage,
             summary_model=model,
         )
-        view = (
-            system_msg
-            + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + summary)]
-            + retained
-        )
+        view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + summary)] + retained
         self._last_view_chars = _chars_of(view)
         return view
 
@@ -455,9 +417,7 @@ class ContextManager:
             return None
         return cut
 
-    async def _call_summarizer(
-        self, messages: list[Message]
-    ) -> tuple[str, dict[str, Any] | None, str | None]:
+    async def _call_summarizer(self, messages: list[Message]) -> tuple[str, dict[str, Any] | None, str | None]:
         """调 self.llm 做摘要调用（tools=[]）→ (摘要, usage, model)。迭代：附旧摘要 + 文件足迹。"""
         conversation = _serialize_messages(messages)
         user_content = SUMMARIZATION_PROMPT_TEMPLATE.format(
@@ -473,11 +433,7 @@ class ContextManager:
         summary_text = self._extract_summary(resp.content)
         read_files, modified_files = extract_file_operations(messages, self._summary)
         file_ops_block = format_file_operations(read_files, modified_files)
-        if (
-            file_ops_block
-            and "<read-files>" not in summary_text
-            and "<modified-files>" not in summary_text
-        ):
+        if file_ops_block and "<read-files>" not in summary_text and "<modified-files>" not in summary_text:
             summary_text = f"{summary_text}\n\n{file_ops_block}"
 
         return summary_text, resp.usage, resp.model
@@ -530,6 +486,4 @@ class ContextSessionBridge:
 
 
 def _chars_of(messages: list[Message]) -> int:
-    return len(
-        json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str)
-    )
+    return len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))

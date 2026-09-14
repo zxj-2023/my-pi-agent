@@ -1,7 +1,6 @@
 """tools.py 离线测试：schema 生成（装饰期）+ Tool 类能力（执行期）。
 
-无需 API key。测试清单对应
-docs/superpowers/specs/2026-08-03-pydantic-tool-schema-design.md §7。
+无需 API key。测试清单对应 docs/core/01-tool-system.md。
 """
 
 from typing import Literal

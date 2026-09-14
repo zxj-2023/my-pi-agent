@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PythonKernelClient } from "../dist/client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, "../../..");
+const repoRoot = path.resolve(__dirname, "../..");
 
 test("End-to-End: PythonKernelClient launches real Python rpc_server and runs turn", async (t) => {
   const client = new PythonKernelClient({

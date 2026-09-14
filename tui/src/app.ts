@@ -30,9 +30,17 @@ export interface AppOptions {
 export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   { name: "help", description: "查看所有可用命令与快捷键说明" },
   { name: "clear", description: "清空当前终端屏幕会话" },
-  { name: "model", description: "切换生效的大语言模型 (如 deepseek-chat, gemini-3.8-flash)", argumentHint: "<model>" },
+  {
+    name: "model",
+    description: "切换生效的大语言模型 (如 deepseek-chat, gemini-3.8-flash)",
+    argumentHint: "<model>",
+  },
   { name: "quota", description: "查询当前用户的模型调用配额与余量" },
-  { name: "steer", description: "即时注入转向指令 (在下一个执行节点纠偏)", argumentHint: "<instruction>" },
+  {
+    name: "steer",
+    description: "即时注入转向指令 (在下一个执行节点纠偏)",
+    argumentHint: "<instruction>",
+  },
   { name: "followup", description: "追加排队追问任务", argumentHint: "<task>" },
   { name: "exit", description: "安全退出交互终端并清理子进程" },
 ];
@@ -40,7 +48,13 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
 function findFdPath(): string | undefined {
   const home = os.homedir();
   const candidates = [
-    path.join(home, ".pi", "agent", "bin", process.platform === "win32" ? "fd.exe" : "fd"),
+    path.join(
+      home,
+      ".pi",
+      "agent",
+      "bin",
+      process.platform === "win32" ? "fd.exe" : "fd",
+    ),
     path.join(home, ".local", "bin", "fd"),
   ];
 
@@ -65,6 +79,7 @@ export class AgentApp {
   private isBusy = false;
   private currentAssistantComp: AssistantMessageComponent | null = null;
   private activeTools = new Map<string, ToolExecutionComponent>();
+  private toolStartTimes = new Map<string, number>();
   private turnStartTime = 0;
 
   constructor(public readonly options: AppOptions = {}) {
@@ -155,10 +170,133 @@ export class AgentApp {
     });
   }
 
-  private async handleUserSubmit(text: string): Promise<void> {
+  private async handleSlashCommand(text: string): Promise<boolean> {
     if (text === "/exit" || text === "/quit") {
       await this.stop();
       process.exit(0);
+    }
+
+    if (text === "/clear") {
+      this.chatContainer.clear();
+      this.activeTools.clear();
+      this.toolStartTimes.clear();
+      this.currentAssistantComp = null;
+      this.editor.setText("");
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (text === "/help") {
+      this.chatContainer.addChild(new UserMessageComponent("/help"));
+      this.editor.setText("");
+      const helpComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(helpComp);
+      const helpText = [
+        "**可用斜杠命令与快捷键说明**：",
+        "- `/clear`：清空当前终端屏幕会话",
+        "- `/help`：查看命令与快捷键帮助",
+        "- `/steer <instruction>`：即时注入转向指令 (在下一个执行节点纠偏)",
+        "- `/followup <task>`：追加排队追问任务",
+        "- `/exit` 或 `/quit`：安全退出交互终端",
+        "",
+        "**常用快捷键**：",
+        "- `Esc`：打断当前正在执行或生成的轮次 (Abort)",
+        "- `Ctrl+O`：展开/折叠助手思考块与工具卡片",
+        "- `@`：在输入框中触发文件路径模糊匹配与气泡联想",
+        "- `/`：在输入框中触发斜杠命令气泡联想",
+      ].join("\n");
+      helpComp.appendTextDelta(helpText);
+      helpComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (text.startsWith("/steer")) {
+      const instruction = text.slice(6).trim();
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (instruction) {
+        try {
+          await this.client.steer(instruction);
+          infoComp.appendTextDelta(`✓ 已成功注入转向指令: *${instruction}*`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 注入转向指令失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          "⚠ 请输入转向指令内容，例如：`/steer 请优先编写测试用例`",
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (text.startsWith("/followup")) {
+      const followTask = text.slice(9).trim();
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (followTask) {
+        try {
+          await this.client.followup(followTask);
+          infoComp.appendTextDelta(`✓ 已成功追加追问任务: *${followTask}*`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 追加追问任务失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          "⚠ 请输入追问任务内容，例如：`/followup 顺便检查一下性能隐患`",
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (text.startsWith("/")) {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      infoComp.appendTextDelta(
+        `⚠ 命令 \`${text.split(" ")[0]}\` 暂未在当前内核模式下启用，输入 \`/help\` 查看所有可用命令。`,
+      );
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    return false;
+  }
+
+  private async handleUserSubmit(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    if (trimmed.startsWith("/")) {
+      await this.handleSlashCommand(trimmed);
+      return;
+    }
+
+    if (this.isBusy) {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      infoComp.appendTextDelta(
+        "⚠ 当前任务正在执行中。若需纠偏请使用 `/steer <指令>`，追加排队任务请使用 `/followup <任务>`，或按 `Esc` 打断当前执行。",
+      );
+      infoComp.finalize();
+      this.tui.requestRender();
+      return;
     }
 
     // 挂载用户消息气泡
@@ -170,6 +308,7 @@ export class AgentApp {
     this.chatContainer.addChild(assistantComp);
     this.currentAssistantComp = assistantComp;
     this.activeTools.clear();
+    this.toolStartTimes.clear();
 
     this.isBusy = true;
     this.turnStartTime = Date.now();
@@ -205,6 +344,7 @@ export class AgentApp {
         }
       }
     } else if (event.type === "tool_execution_start") {
+      this.toolStartTimes.set(event.toolCallId, Date.now());
       const toolComp = new ToolExecutionComponent(
         event.toolName,
         event.toolCallId,
@@ -220,8 +360,11 @@ export class AgentApp {
     } else if (event.type === "tool_execution_end") {
       const toolComp = this.activeTools.get(event.toolCallId);
       if (toolComp) {
-        const elapsed = (Date.now() - this.turnStartTime) / 1000;
+        const startTime =
+          this.toolStartTimes.get(event.toolCallId) || Date.now();
+        const elapsed = (Date.now() - startTime) / 1000;
         toolComp.updateResult(event.result, event.isError, elapsed);
+        this.toolStartTimes.delete(event.toolCallId);
       }
     } else if (event.type === "agent_end") {
       if (this.currentAssistantComp) {

@@ -64,13 +64,42 @@ test("AgentApp mounts autocomplete provider with slash commands and @ file refer
     signal: new AbortController().signal,
   });
   assert.ok(slashSuggestions);
-  assert.ok(slashSuggestions.items.some((i) => i.value === "model" || i.label === "model"));
+  assert.ok(
+    slashSuggestions.items.some(
+      (i) => i.value === "model" || i.label === "model",
+    ),
+  );
 
   // 2. 测试 @ 文件路径模糊匹配联想
   const fileSuggestions = await provider.getSuggestions(["@package"], 0, 8, {
     signal: new AbortController().signal,
   });
   assert.ok(fileSuggestions);
-  assert.ok(fileSuggestions.items.some((i) => i.value.includes("package.json")));
+  assert.ok(
+    fileSuggestions.items.some((i) => i.value.includes("package.json")),
+  );
 });
 
+test("AgentApp handles slash commands (/clear, /help, /steer, /followup) locally without throwing", async () => {
+  const app = new AgentApp({ workspace: "." });
+
+  // 1. /help 命令
+  await app.handleUserSubmit("/help");
+  assert.ok(app.chatContainer.children.length > 0);
+
+  // 2. /clear 命令
+  await app.handleUserSubmit("/clear");
+  assert.equal(app.chatContainer.children.length, 0);
+
+  // 3. /steer 命令
+  await app.handleUserSubmit("/steer 优先写测试");
+  assert.ok(app.chatContainer.children.length > 0);
+
+  // 4. /followup 命令
+  await app.handleUserSubmit("/followup 检查边界");
+  assert.ok(app.chatContainer.children.length > 0);
+
+  // 5. 未知命令
+  await app.handleUserSubmit("/unknown_cmd");
+  assert.ok(app.chatContainer.children.length > 0);
+});

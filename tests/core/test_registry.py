@@ -1,6 +1,6 @@
 """ToolRegistry 离线测试：注册/查表/批量 schema/执行（含错误路径）。
 
-无需 API key。对应 docs/superpowers/specs/2026-08-03-tool-class-design.md §7。
+无需 API key。对应 docs/core/01-tool-system.md。
 """
 
 import asyncio

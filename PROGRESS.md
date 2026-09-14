@@ -3,51 +3,62 @@
 学习项目：从零搭一个最小 agent 框架（参考 pi / pig-mono）。**透明度优先于通用性，不奔生产。**
 本文件记录每个阶段做了什么、改了哪些文件、验证方式，方便复盘。
 
-## 当前结构（2026-08）
+## 当前结构（2026-09）
 
 ```text
 my-pi-agent/
-├── packages/
-│   ├── my-agent-core/     # 框架层（src 布局，Python 包 my_agent_core）
-│   │   ├── agent.py       # Agent 轻量 Harness 外壳（prompt_stream 与事件订阅）
-│   │   ├── loop.py        # 纯函数无状态微内核 run_agent_loop 与上下文清洗
-│   │   ├── tool_history.py # 对话转录本三阶段自愈与断头保护引擎 (repair_tool_history)
-│   │   ├── registry.py    # ToolRegistry（工具注册表，读写分流并发 + 保序回填）
-│   │   ├── events.py      # 事件 dataclass + HookResult + HookRegistry（异步 emit + 流式 Interceptable）
-│   │   ├── tools/         # 工具包（Tool / ToolResult / @tool / make_task_tool / task_tools）
-│   │   │   ├── __init__.py  # 核心符号统一导出
-│   │   │   ├── core.py      # Tool / ToolResult / @tool 装饰器实现
-│   │   │   └── builtin/     # 内置工具 (task.py 子代理委派桥 / task_tools.py todo 标准工具)
-│   │   ├── session/       # 模块化会话存储子系统（9 种 Entry 判别实体 / 纯内存树 / 只追加存储驱动）
-│   │   │   ├── __init__.py  # 符号导出与门面
-│   │   │   ├── session.py   # 高级 Session / SessionTree 门面实现
-│   │   │   ├── entries.py   # 9 种强类型多态 SessionEntry 实体
-│   │   │   ├── tree.py      # 纯内存 DAG 算法（环路检测与 LCA 计算）
-│   │   │   ├── memory.py    # SessionState 事件溯源折叠投影 (from_entries)
-│   │   │   ├── storage.py   # 纯异步只追加 SessionStorage 协议
-│   │   │   ├── jsonl.py     # JsonlSessionStorage 追加驱动与跨进程锁
-│   │   │   └── store.py     # SessionStore（会话仓库，workspace 隔离）
-│   │   ├── context.py     # ContextManager + ContextSessionBridge（四层异步压缩管线）
-│   │   ├── memory.py      # MemoryStore + make_memory_tool（长期记忆存储与快照管理）
-│   │   ├── skills.py      # Skill + SkillManager（Repository：发现/清单/调用）
-│   │   ├── subagents.py   # Subagent + SubagentManager（agents/*.md 发现）
-│   │   ├── subagent_tasks.py # SubagentTask + SubagentTaskManager（子代理委派生命周期调度）
-│   │   ├── task_store.py  # TaskItem + TaskStore（DAG 依赖图与原子持久化）
-│   │   ├── background.py  # BackgroundRunner（后台异步调度与孤儿进程防御）
-│   │   ├── extensions/    # 扩展机制包（ExtensionAPI + ExtensionManager）
-│   │   │   ├── __init__.py  # 符号导出
-│   │   │   └── core.py      # 核心扩展管理器实现
-│   │   ├── plugins.py     # Plugin + PluginManager（Claude Code 插件聚合分发）
-│   │   └── main.py        # 异步流式打字机 demo
-│   ├── my-agent-llm/      # 模型边界层（src 布局，Python 包 my_agent_llm）
-│   │   ├── client.py      # LLM 门面（chat/stream/achat/achat_stream）
-│   │   ├── config.py      # Config（pydantic frozen）
-│   │   ├── models.py      # Message / Response / StreamChunk
-│   │   └── providers/     # openai / deepseek / anthropic + 注册表
-│   └── my-coding-agent/   # 产品层（src 布局，Python 包 my_coding_agent）
-│       ├── agent.py       # CodingAgent（自动装配文件工具与 extra_tools，委托框架 Agent）
-│       ├── tools.py       # 4 个文件工具（read/write/edit/bash 工厂 + _safe_path 逃逸防护）
-│       └── mcp.py         # MCP 客户端与扩展（MCPServerConfig/MCPConnection/MCPClientManager + extension 入口）
+├── pyproject.toml                  # ⭐ 全局统一的 Python 构建与依赖配置 (uv)
+├── uv.lock                         # 全局唯一的 Python 依赖锁定文件
+├── .venv/                          # 全局唯一的 Python 虚拟环境
+│
+├── src/                            # ⭐ 统合的 Python 业务源码 (完全对标 Tau)
+│   ├── my_agent_llm/               # 1. 统一 LLM 直连层 (Antigravity/DeepSeek/OpenAI/Stream)
+│   │   ├── client.py               # 统一 LLM 门面 (chat/stream/achat/achat_stream)
+│   │   ├── config.py               # Config 配置模型 (pydantic frozen)
+│   │   ├── models.py               # Message / Response / StreamChunk
+│   │   └── providers/              # Antigravity (Google OAuth) / DeepSeek / OpenAI
+│   │
+│   ├── my_agent_core/              # 2. 框架微内核层 (ReAct/会话树/压缩/任务系统)
+│   │   ├── agent.py                # Agent 纯异步 Harness 外壳
+│   │   ├── loop.py                 # run_agent_loop 纯函数无状态微内核与七阶段流水线
+│   │   ├── tool_history.py         # 对话转录本三阶段自愈引擎 (API 400 免疫)
+│   │   ├── message_queue.py        # MessageQueue 动态干预队列 (Steer & Follow-up)
+│   │   ├── task_store.py           # TaskStore 任务状态机与 DAG 依赖图
+│   │   ├── background.py           # BackgroundRunner 进程树清理引擎
+│   │   ├── session/                # 树状分支持久化会话系统
+│   │   ├── context.py              # ContextManager 四层压缩管线 (L3->L1->L2->L4)
+│   │   └── skills.py               # Skills 声明式管理与提示词注入
+│   │
+│   └── my_coding_agent/            # 3. 业务工具与 stdio RPC 服务端 (纯无头架构)
+│       ├── agent.py                # CodingAgent 门面 (Dual API: run & run_stream)
+│       ├── tools/                  # 6 大编码工具 (read/write/edit/bash/grep/find)
+│       ├── mutation_queue.py       # FileMutationQueue 细粒度单文件并发互斥锁
+│       ├── permissions.py          # PermissionGate 业务权限审查门禁 (Accept-on-Diff)
+│       ├── mcp.py                  # Turnkey MCP 客户端自动加载与回收
+│       ├── file_reference.py       # @ 文件引用解析与快照直通注入
+│       └── rpc_server.py           # stdio JSON-RPC 2.0 服务端门面
+│
+├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 跑完全部)
+│   ├── llm/                        # LLM 层单元测试 (76 tests)
+│   ├── core/                       # 框架内核单元测试 (337 tests)
+│   └── coding/                     # 业务与工具测试 (162 tests)
+│
+├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
+│   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
+│   ├── tsconfig.json
+│   ├── bin/
+│   │   └── my-agent.js             # CLI 启动命令入口
+│   ├── src/
+│   │   ├── app.ts                  # TuiMainScreen 状态机与组件树组装
+│   │   ├── client.ts               # PythonKernelClient (管理 uv run python 子进程)
+│   │   ├── components/             # Pi 原厂 UI 组件 (assistant-message, tool-execution, footer...)
+│   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
+│   └── test/                       # 前端 9 个自动化与端到端测试用例
+│
+├── docs/                           # 统一设计文档中心
+├── package.json                    # 根目录 npm 工作区配置与一键启动脚本
+├── REFERENCES.md                   # 架构设计参考溯源与工程复盘
+└── README.md                       # 快速开始与全景总览
 ```
 
 ---
@@ -661,6 +672,95 @@ my-pi-agent/
 - 阶段 19：事件与拦截解耦正交重塑（已完成，纯函数微内核、强类型路由与 TurnEnd 闭合，389 测试全绿）
 - 阶段 16：事件管道 A——只读轻量事件订阅管道（`agent.subscribe` + `_notify` 异常隔离广播与 `unsubscribe()` 注销句柄，已完成）
 - 阶段 20：工业级七阶段工具流水线（截断防御、流式进度、批次熔断提前退出，410 测试全绿，已完成）
-- 阶段 6：动态工具（未做）
-- coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
-- coding agent 进阶（`my_coding_agent`）——CLI 交互入口、权限门控、AGENTS.md 注入、plan 模式交互层
+
+---
+
+### 阶段 21：CodingAgent 产品层落地与 6 大核心文件工具（2026-09-12）
+
+**目标**：构建生产级无头编码助手 `my_coding_agent`，落地 6 大安全文件工具（`read`, `write`, `edit`, `bash`, `grep`, `find`）、`FileMutationQueue` 细粒度并发写锁、`<project_context>` 自动发现与 Dual API（`run` / `run_stream`）。
+
+- **改了什么**：
+  - `tools/base.py`：实现 `resolve_path` 兼容性路径解析与 `_safe_path` 沙箱防御，定义 `DEFAULT_IGNORE_DIRS`；
+  - `tools/read.py`：实现带行号、行/字节双重截断保护的读取工具；
+  - `tools/write.py`：由 `FileMutationQueue` 细粒度文件锁保护的原子文件写入；
+  - `tools/edit.py`：实现 Multi-Edit 与 Unified Diff 变更回显；
+  - `tools/bash.py`：跨平台进程树安全执行与超时截断；
+  - `tools/grep.py` 与 `tools/find.py`：原生跨平台正则内容与路径匹配；
+  - `mutation_queue.py`：基于 `@asynccontextmanager` 的文件级并发互斥锁；
+  - `prompt.py`：专业编码提示词装配与 `AGENTS.md` / `CLAUDE.md` 项目上下文发现；
+  - `agent.py`：`CodingAgent` 统一组装门面，提供 `run()` 与 `run_stream()` 双 API。
+- **验证**：单包 20 项新增单元与 E2E 场景测试全绿，全库 430 项测试 100% 绿灯全通。
+
+---
+
+### 阶段 22：Phase 3A Antigravity OAuth 鉴权与配额自省（2026-09-12）
+
+**目标**：对标 `pi-antigravity`，实现零硬编码密钥的 Google Cloud Code Assist OAuth 凭据自动解析与刷新，接入配额监控与多模型支持。
+
+- **改了什么**：
+  - `my_agent_llm/auth/antigravity.py`：实现 `AntigravityAuthResolver`，严格动态自省 `~/.pi/agent/auth.json` 提取 `access_token`、`refresh_token`、`project_id`，过期时通过 Google OAuth 端点自动静默刷新；
+  - `my_agent_llm/providers/antigravity.py`：实现 `AntigravityProvider`，自动注入 `Authorization`、`x-goog-user-project` 与 `User-Agent`；
+  - `my_agent_llm/auth/quota.py`：实现用户调用配额查询器 `AntigravityQuotaViewer`。
+- **验证**：全套 OAuth 解析、Token 刷新与 Provider 请求头注入测试通过，全量 505 项测试全绿。
+
+---
+
+### 阶段 23：Phase 3B Accept-on-Diff 权限审查门禁与词级 Diff 增强（2026-09-12）
+
+**目标**：对标 Pig-Mono 与 Pi，实现高危操作（写文件、命令执行）前的安全审查门禁与行内反色精细高亮。
+
+- **改了什么**：
+  - `my_coding_agent/permissions.py`：实现 `PermissionGate`，基于 `ToolCallHook` 介入写操作审查，支持 `review`、`autonomous`、`strict`、`yolo` 4 种安全模式；
+  - 词级反色差异加亮算法：字符/单词级精细 Diff 算法，直观一眼看出修改细节。
+- **验证**：多轮审查与自动放行 E2E 测试全绿，全量 535 项测试全绿。
+
+---
+
+### 阶段 24：Phase 3C 提示词 `@` 文件引用快速补全与工作区 Turnkey MCP（2026-09-12）
+
+**目标**：对标 Pig-Mono 与 Claude Code，实现提问中键入 `@file` 自动展开代码快照，大模型首轮免调 `read` 直接分析；工作区 `.mcp.json` 自动感知挂载与安全回收。
+
+- **改了什么**：
+  - `my_coding_agent/file_reference.py`：实现 `FileReferenceParser`，正则 `@([\w\-./]+\.\w+)` 匹配文件、校验边界与 2000 行/50KB 双重截断，将代码块以 `<referenced_file>` 注入提问末尾；
+  - `my_coding_agent/agent.py`：`CodingAgent` 启动时自动通过 `MCPClientManager.from_config_file()` 扫描当前工作区 `.mcp.json`，将外部工具标记 `is_mcp=True` 动态注入注册表；在 `close_mcp()` 中同时销毁子进程并从 `registry` 反注册，彻底杜绝陈旧 Schema 残留。
+- **验证**：多轮端到端直通与 MCP 挂载测试全绿，全量 565 项测试全绿。
+
+---
+
+### 阶段 25：Phase 3D 终端状态底栏 (Footer) 与流式动态转向 (LiveInputListener)（2026-09-13）
+
+**目标**：对标 Pi `footer.ts` 与 Steering 机制，提供紧凑仪表盘底栏与非阻塞键盘监听。
+
+- **改了什么**：
+  - 终端状态底栏：自动探测 Git 分支、折叠路径为 `~/...`、从会话树祖先链深度聚合实际 `total_tokens`、统计上一轮执行耗时；
+  - 键盘监听器 `LiveInputListener`：Windows `msvcrt` 与 POSIX `termios` 跨平台支持，ANSI 序列防抖，`Esc` 键瞬时掐断当前生成轮次，直接打字回车即时向 `MessageQueue` 注入 `Steering` 转向纠偏指令；
+  - `CodingAgent` 暴露 `steer()`, `follow_up()`, `abort()` 门面，通过 `main_loop.call_soon_threadsafe` 保障跨线程安全。
+- **验证**：多线程打断与 Steering 状态机测试全绿，全量 580 项测试全绿。
+
+---
+
+### 阶段 26：基于 Pi 原厂 `@earendil-works/pi-tui` 的双核表现层落地（2026-09-13）
+
+**目标**：彻底告别传统 Python 终端界面的粗糙与割裂，直接借力 Mario Zechner 调教的 Pi 原厂 TUI 引擎与成熟组件。
+
+- **改了什么**：
+  - `src/my_coding_agent/rpc_server.py`：实现 stdio JSON-RPC 2.0 服务端，将内部 `AgentEvent` 序列化为同构 JSON Lines，重构 Windows 异步 I/O 防崩溃；
+  - `tui/src/client.ts`：实现 `PythonKernelClient` 跨进程管理 Python 内核，双向管道流式传输；
+  - 移植 Pi 官方组件体系：`AssistantMessageComponent`（流式 Markdown 与思考块折叠）、`ToolExecutionComponent`（圆角细线卡片与点阵动效）、`UserMessageComponent`、`FooterComponent`、`dark.json` 24-bit TrueColor 调色盘；
+  - 消除屏幕闪烁：基于 `TuiMainScreen` 差量重绘与 CSI 2026 同步垂直刷新屏障。
+- **验证**：自动化测试覆盖组件渲染、RPC 协议收发与真实 Python 子进程端到端会话。
+
+---
+
+### 阶段 27：Tau 式单工程多包拓扑大一统重构（2026-09-13）
+
+**目标**：对标 HuggingFace 官方 Tau 架构，彻底消除“伪多包”虚拟环境分裂与跨包导包黑魔法，实现单行 `uv run pytest` 跑完全库测试。
+
+- **改了什么**：
+  - 根目录建立全局唯一的 `pyproject.toml`、`.venv` 与 `uv.lock`；
+  - 统合 Python 源码至根目录 `src/`（`my_agent_llm`, `my_agent_core`, `my_coding_agent`）；
+  - 统合测试集至根目录 `tests/`（`tests/llm`, `tests/core`, `tests/coding`）；
+  - 将前端交互层独立归位至顶级 `tui/`，根目录 `package.json` 配置 npm workspaces 支持一键 `npm start`；
+  - 在 `tui` 中接入 `CombinedAutocompleteProvider`，原生支持 `@` 工作区文件路径联想与 `/` 斜杠命令浮窗；
+  - 智能零配置凭据探测：未传 `-m` 参数时自动从 `auth.json` 挂载 `gemini-3.8-flash`。
+- **验证**：**全库 584 个测试全部 100% 绿灯全通**（Python 575 + TypeScript 9），零破坏性回归，代码已完整推送至 GitHub。

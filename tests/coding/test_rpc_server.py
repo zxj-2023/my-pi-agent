@@ -17,7 +17,8 @@ from my_agent_core.events import (
     TurnStart,
 )
 from my_agent_llm.models import Message, Response, StreamChunk
-from my_coding_agent import CodingAgent, RpcServer, serialize_event
+from my_coding_agent import CodingAgent
+from my_coding_agent.rpc_server import RpcServer, serialize_event
 
 
 class FakeLLM:
