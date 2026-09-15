@@ -1,4 +1,9 @@
-import { ProcessTerminal, type Terminal, TuiAltScreen, TuiMainScreen } from "@earendil-works/pi-tui";
+import {
+  ProcessTerminal,
+  type Terminal,
+  TuiAltScreen,
+  TuiMainScreen,
+} from "@earendil-works/pi-tui";
 
 export interface InteractiveTuiOptions {
   readonly tuiMode?: "regular" | "fullscreen";
@@ -7,7 +12,9 @@ export interface InteractiveTuiOptions {
   readonly terminal?: Terminal;
 }
 
-export function createInteractiveTui(options: InteractiveTuiOptions = {}): TuiMainScreen | TuiAltScreen {
+export function createInteractiveTui(
+  options: InteractiveTuiOptions = {},
+): TuiMainScreen | TuiAltScreen {
   const terminal = options.terminal ?? new ProcessTerminal();
   const showCursor = options.showHardwareCursor ?? false;
   const logDir = options.logDirectory ?? "";
