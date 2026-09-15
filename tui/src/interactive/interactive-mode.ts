@@ -190,7 +190,6 @@ export class InteractiveMode {
       showHardwareCursor: options.showHardwareCursor ?? false,
       logDirectory: options.logDirectory || "",
     }) as TuiMainScreen;
-    this.ui.setClearOnShrink(true);
 
     // 2. 初始化核心布局容器
     this.documentContainer = new Container();
@@ -465,7 +464,9 @@ export class InteractiveMode {
 
   public async handleUserInput(input: string): Promise<void> {
     if (this.isStreaming) {
-      this.appendErrorMessage("当前智能体正在执行中，请等待完成或按 Esc 中断后再提交。");
+      this.appendErrorMessage(
+        "当前智能体正在执行中，请等待完成或按 Esc 中断后再提交。",
+      );
       return;
     }
 
@@ -937,227 +938,231 @@ export class InteractiveMode {
 
     try {
       switch (cmd) {
-      case "clear": {
-        if (this.isStreaming) {
-          this.appendErrorMessage("当前智能体正在执行中，无法清空屏幕会话。");
-          return;
+        case "clear": {
+          if (this.isStreaming) {
+            this.appendErrorMessage("当前智能体正在执行中，无法清空屏幕会话。");
+            return;
+          }
+          this.chatContainer.clear();
+          this.ui.requestRender();
+          break;
         }
-        this.chatContainer.clear();
-        this.ui.requestRender();
-        break;
-      }
-      case "help": {
-        this.appendSystemNotice(
-          "可用命令列表：\n" +
-            BUILTIN_SLASH_COMMANDS.map(
-              (c) => `  /${c.name.padEnd(12)} - ${c.description}`,
-            ).join("\n"),
-        );
-        break;
-      }
-      case "model": {
-        if (args) {
-          this.currentModelName = args;
-          this.footer.update({ modelName: args });
-          await this.bridge.switchModel(args);
-          this.appendSystemNotice(`✓ 已切换至模型: ${args}`);
-        } else {
-          this.showModelSelector();
-        }
-        break;
-      }
-      case "session": {
-        if (args) {
-          const res: any = await this.bridge.resumeSession(args);
-          this.renderSessionHistory(
-            res?.messages || [],
-            `✓ 已成功恢复历史会话 [${args}]`,
-          );
-        } else {
+        case "help": {
           this.appendSystemNotice(
-            "✓ 会话状态存储模式：集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。",
+            "可用命令列表：\n" +
+              BUILTIN_SLASH_COMMANDS.map(
+                (c) => `  /${c.name.padEnd(12)} - ${c.description}`,
+              ).join("\n"),
           );
+          break;
         }
-        break;
-      }
-      case "resume": {
-        if (args) {
-          try {
+        case "model": {
+          if (args) {
+            this.currentModelName = args;
+            this.footer.update({ modelName: args });
+            await this.bridge.switchModel(args);
+            this.appendSystemNotice(`✓ 已切换至模型: ${args}`);
+          } else {
+            this.showModelSelector();
+          }
+          break;
+        }
+        case "session": {
+          if (args) {
             const res: any = await this.bridge.resumeSession(args);
-            if (res?.session_name || res?.session_id) {
-              this.footer.update({
-                sessionName: res.session_name || res.session_id,
-              });
-            }
             this.renderSessionHistory(
               res?.messages || [],
               `✓ 已成功恢复历史会话 [${args}]`,
             );
-          } catch (err: any) {
-            this.appendErrorMessage(
-              `恢复会话失败: ${err.message || String(err)}`,
+          } else {
+            this.appendSystemNotice(
+              "✓ 会话状态存储模式：集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。",
             );
           }
-        } else {
-          this.showSessionSelector();
-        }
-        break;
-      }
-      case "thinking": {
-        if (args) {
-          this.currentThinkingLevel = args;
-          this.footer.update({ thinkingLevel: args });
-          await this.bridge.setThinking(args);
-          this.appendSystemNotice(`✓ 思考预算已更新为: ${args}`);
-        } else {
-          this.showThinkingSelector();
-        }
-        break;
-      }
-      case "login": {
-        if (args) {
-          const parts = args.split(" ");
-          const provider = parts[0] || "";
-          const key = parts.slice(1).join(" ");
-          const client = (this.bridge as any).client;
-          const res =
-            (await client?.sendRequest?.("login", { provider, key })) ||
-            (await client?.request?.("login", { provider, key })) ||
-            (await this.bridge.login(provider, key));
-          this.appendSystemNotice(
-            res?.message || `✓ 成功保存 ${provider.toUpperCase()}_API_KEY`,
-          );
-        } else {
-          this.showLoginSelector();
-        }
-        break;
-      }
-      case "logout": {
-        if (args) {
-          const client = (this.bridge as any).client;
-          const res: any =
-            (await client?.sendRequest?.("auth_logout", { provider: args })) ||
-            (await this.bridge.logout(args));
-          this.appendSystemNotice(
-            `✓ 已成功清除 ${res?.provider || args} 的认证凭据。`,
-          );
-        } else {
-          this.showLogoutSelector();
-        }
-        break;
-      }
-      case "theme": {
-        this.showThemeSelector();
-        break;
-      }
-      case "tree": {
-        this.showTreeSelector();
-        break;
-      }
-      case "settings": {
-        this.showSettingsSelector();
-        break;
-      }
-      case "new": {
-        const client = (this.bridge as any).client;
-        const res: any =
-          (await client?.sendRequest?.("session_new", {})) ||
-          (await client?.request?.("session_new", {})) ||
-          (await this.bridge.newSession());
-        this.chatContainer.clear();
-        const sid = res?.session_id || res?.new_session_id || res?.id || "";
-        this.appendSystemNotice(`✓ 已成功结束旧会话并开启新会话: ${sid}`);
-        break;
-      }
-      case "name": {
-        if (!args) {
-          this.appendSystemNotice("用法：/name <会话名称>");
           break;
         }
-        const res: any =
-          (await (this.bridge as any).sessionName?.(args)) ??
-          (await (this.bridge.client as any).sendRequest?.("session_name", {
-            name: args,
-          }));
-        this.appendSystemNotice(`✓ 会话名称已更新: ${res?.name || args}`);
-        break;
-      }
-      case "compact": {
-        const client = (this.bridge as any).client;
-        const res: any =
-          (await client?.sendRequest?.("session_compact", {
-            instructions: args,
-          })) ||
-          (await client?.request?.("session_compact", {
-            instructions: args,
-          })) ||
-          (await (this.bridge as any).compact?.(args));
-        this.appendSystemNotice(
-          `✓ 上下文压缩完成: ${res?.tokens_before ?? 0} -> ${res?.tokens_after ?? 0} tokens${res?.summary ? ` (${res.summary})` : ""}`,
-        );
-        break;
-      }
-      case "clone": {
-        const res: any = await ((this.bridge as any).cloneSession?.() ??
-          (this.bridge.client as any).sendRequest?.("session_clone"));
-        this.appendSystemNotice(
-          `✓ 已克隆当前会话: ${res?.new_session_id || ""}`,
-        );
-        break;
-      }
-      case "fork": {
-        if (args) {
+        case "resume": {
+          if (args) {
+            try {
+              const res: any = await this.bridge.resumeSession(args);
+              if (res?.session_name || res?.session_id) {
+                this.footer.update({
+                  sessionName: res.session_name || res.session_id,
+                });
+              }
+              this.renderSessionHistory(
+                res?.messages || [],
+                `✓ 已成功恢复历史会话 [${args}]`,
+              );
+            } catch (err: any) {
+              this.appendErrorMessage(
+                `恢复会话失败: ${err.message || String(err)}`,
+              );
+            }
+          } else {
+            this.showSessionSelector();
+          }
+          break;
+        }
+        case "thinking": {
+          if (args) {
+            this.currentThinkingLevel = args;
+            this.footer.update({ thinkingLevel: args });
+            await this.bridge.setThinking(args);
+            this.appendSystemNotice(`✓ 思考预算已更新为: ${args}`);
+          } else {
+            this.showThinkingSelector();
+          }
+          break;
+        }
+        case "login": {
+          if (args) {
+            const parts = args.split(" ");
+            const provider = parts[0] || "";
+            const key = parts.slice(1).join(" ");
+            const client = (this.bridge as any).client;
+            const res =
+              (await client?.sendRequest?.("login", { provider, key })) ||
+              (await client?.request?.("login", { provider, key })) ||
+              (await this.bridge.login(provider, key));
+            this.appendSystemNotice(
+              res?.message || `✓ 成功保存 ${provider.toUpperCase()}_API_KEY`,
+            );
+          } else {
+            this.showLoginSelector();
+          }
+          break;
+        }
+        case "logout": {
+          if (args) {
+            const client = (this.bridge as any).client;
+            const res: any =
+              (await client?.sendRequest?.("auth_logout", {
+                provider: args,
+              })) || (await this.bridge.logout(args));
+            this.appendSystemNotice(
+              `✓ 已成功清除 ${res?.provider || args} 的认证凭据。`,
+            );
+          } else {
+            this.showLogoutSelector();
+          }
+          break;
+        }
+        case "theme": {
+          this.showThemeSelector();
+          break;
+        }
+        case "tree": {
+          this.showTreeSelector();
+          break;
+        }
+        case "settings": {
+          this.showSettingsSelector();
+          break;
+        }
+        case "new": {
           const client = (this.bridge as any).client;
           const res: any =
-            (await client?.sendRequest?.("session_fork", { node_id: args })) ||
-            (await (this.bridge as any).forkSession?.(args));
+            (await client?.sendRequest?.("session_new", {})) ||
+            (await client?.request?.("session_new", {})) ||
+            (await this.bridge.newSession());
+          this.chatContainer.clear();
+          const sid = res?.session_id || res?.new_session_id || res?.id || "";
+          this.appendSystemNotice(`✓ 已成功结束旧会话并开启新会话: ${sid}`);
+          break;
+        }
+        case "name": {
+          if (!args) {
+            this.appendSystemNotice("用法：/name <会话名称>");
+            break;
+          }
+          const res: any =
+            (await (this.bridge as any).sessionName?.(args)) ??
+            (await (this.bridge.client as any).sendRequest?.("session_name", {
+              name: args,
+            }));
+          this.appendSystemNotice(`✓ 会话名称已更新: ${res?.name || args}`);
+          break;
+        }
+        case "compact": {
+          const client = (this.bridge as any).client;
+          const res: any =
+            (await client?.sendRequest?.("session_compact", {
+              instructions: args,
+            })) ||
+            (await client?.request?.("session_compact", {
+              instructions: args,
+            })) ||
+            (await (this.bridge as any).compact?.(args));
           this.appendSystemNotice(
-            `✓ 已成功从节点 ${args} 分叉开辟新会话: ${res?.new_session_id || ""}`,
+            `✓ 上下文压缩完成: ${res?.tokens_before ?? 0} -> ${res?.tokens_after ?? 0} tokens${res?.summary ? ` (${res.summary})` : ""}`,
           );
-        } else {
-          this.showForkSelector();
+          break;
         }
-        break;
-      }
-      case "reload": {
-        const res: any = await ((this.bridge as any).reloadResources?.() ??
-          (this.bridge.client as any).sendRequest?.("resource_reload"));
-        this.appendSystemNotice(`✓ 资源重载完成: ${res?.summary || ""}`);
-        break;
-      }
-      case "trust": {
-        const res: any =
-          (await (this.bridge as any).setTrust?.(args === "true")) ??
-          (await (this.bridge.client as any).sendRequest?.("trust_set", {
-            trusted: args === "true",
-          }));
-        this.appendSystemNotice(
-          `✓ 项目信任状态已设置为: ${res?.decision || (args === "true" ? "trusted" : "untrusted")} (${res?.path || this.workspace})`,
-        );
-        break;
-      }
-      case "quota": {
-        this.appendSystemNotice("当前配额状态：正常");
-        break;
-      }
-      case "steer": {
-        if (args) {
-          await this.bridge.steer(args);
-          this.appendSystemNotice(`[Steer 提示已注入]: ${args}`);
+        case "clone": {
+          const res: any = await ((this.bridge as any).cloneSession?.() ??
+            (this.bridge.client as any).sendRequest?.("session_clone"));
+          this.appendSystemNotice(
+            `✓ 已克隆当前会话: ${res?.new_session_id || ""}`,
+          );
+          break;
         }
-        break;
-      }
-      case "followup": {
-        if (args) {
-          await this.bridge.followUp(args);
-          this.appendSystemNotice(`[Followup 任务已排队]: ${args}`);
+        case "fork": {
+          if (args) {
+            const client = (this.bridge as any).client;
+            const res: any =
+              (await client?.sendRequest?.("session_fork", {
+                node_id: args,
+              })) || (await (this.bridge as any).forkSession?.(args));
+            this.appendSystemNotice(
+              `✓ 已成功从节点 ${args} 分叉开辟新会话: ${res?.new_session_id || ""}`,
+            );
+          } else {
+            this.showForkSelector();
+          }
+          break;
         }
-        break;
+        case "reload": {
+          const res: any = await ((this.bridge as any).reloadResources?.() ??
+            (this.bridge.client as any).sendRequest?.("resource_reload"));
+          this.appendSystemNotice(`✓ 资源重载完成: ${res?.summary || ""}`);
+          break;
+        }
+        case "trust": {
+          const res: any =
+            (await (this.bridge as any).setTrust?.(args === "true")) ??
+            (await (this.bridge.client as any).sendRequest?.("trust_set", {
+              trusted: args === "true",
+            }));
+          this.appendSystemNotice(
+            `✓ 项目信任状态已设置为: ${res?.decision || (args === "true" ? "trusted" : "untrusted")} (${res?.path || this.workspace})`,
+          );
+          break;
+        }
+        case "quota": {
+          this.appendSystemNotice("当前配额状态：正常");
+          break;
+        }
+        case "steer": {
+          if (args) {
+            await this.bridge.steer(args);
+            this.appendSystemNotice(`[Steer 提示已注入]: ${args}`);
+          }
+          break;
+        }
+        case "followup": {
+          if (args) {
+            await this.bridge.followUp(args);
+            this.appendSystemNotice(`[Followup 任务已排队]: ${args}`);
+          }
+          break;
+        }
+        default: {
+          this.appendErrorMessage(
+            `未知命令 /${cmd}，输入 /help 查看可用命令。`,
+          );
+        }
       }
-      default: {
-        this.appendErrorMessage(`未知命令 /${cmd}，输入 /help 查看可用命令。`);
-      }
-    }
     } catch (err: any) {
       this.appendErrorMessage(
         `执行命令 /${cmd} 失败: ${err.message || String(err)}`,
