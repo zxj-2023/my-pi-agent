@@ -531,11 +531,8 @@ export class InteractiveMode {
           tool.toggleExpanded();
         }
         this.ui.requestRender();
-      } else if (matchesKey(data, "ctrl+m")) {
+      } else if (matchesKey(data, "ctrl+l")) {
         this.showModelSelector();
-        return undefined;
-      } else if (matchesKey(data, "ctrl+r")) {
-        this.showSessionSelector();
         return undefined;
       }
       return undefined;
@@ -599,8 +596,10 @@ export class InteractiveMode {
     this.showSelector((done) => {
       const selector = new ModelSelectorComponent(
         this.currentModelName,
-        async (_all: boolean) => {
-          const res = await this.bridge.listModels();
+        async (all: boolean) => {
+          const res = await this.bridge.listModels(
+            all ? { scope: "all" } : { scope: "configured" },
+          );
           return ((res as any)?.models || []).map((m: any) => ({
             id: m.id || m.name,
             name: m.name || m.id,
@@ -624,6 +623,10 @@ export class InteractiveMode {
           }
         },
         () => done(),
+        undefined,
+        undefined,
+        undefined,
+        () => this.ui.requestRender(),
       );
       return { component: selector, focus: selector };
     });

@@ -94,8 +94,10 @@ export class KernelBridge {
     return this.call<RpcResponseData>("followup", { prompt: text });
   }
 
-  public async listModels(): Promise<RpcResponseData> {
-    return this.call<RpcResponseData>("models_list", {});
+  public async listModels(
+    options: Record<string, unknown> = {},
+  ): Promise<RpcResponseData> {
+    return this.call<RpcResponseData>("models_list", options);
   }
 
   public async switchModel(
