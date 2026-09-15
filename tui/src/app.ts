@@ -20,6 +20,10 @@ import { FooterComponent } from "./components/footer.js";
 import { HeaderComponent } from "./components/header.js";
 import { LoginSelectorComponent } from "./components/login-selector.js";
 import {
+  type LogoutProviderItem,
+  LogoutSelectorComponent,
+} from "./components/logout-selector.js";
+import {
   type ModelItem,
   ModelSelectorComponent,
 } from "./components/model-selector.js";
@@ -27,9 +31,19 @@ import {
   type SessionItem,
   SessionSelectorComponent,
 } from "./components/session-selector.js";
+import { SettingsSelectorComponent } from "./components/settings-selector.js";
+import { ThemeSelectorComponent } from "./components/theme-selector.js";
 import { ThinkingSelectorComponent } from "./components/thinking-selector.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
+import {
+  type TreeNode,
+  TreeSelectorComponent,
+} from "./components/tree-selector.js";
 import { UserMessageComponent } from "./components/user-message.js";
+import {
+  type UserMessageItem,
+  UserMessageSelectorComponent,
+} from "./components/user-message-selector.js";
 import { AgentEvent } from "./protocol.js";
 import { theme } from "./theme/theme.js";
 
@@ -102,6 +116,11 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
     name: "settings",
     description: "查看当前生效的全局与项目级配置",
     argumentHint: "[key] [value]",
+  },
+  {
+    name: "theme",
+    description: "切换或实时预览终端色彩主题 (dark / light)",
+    argumentHint: "[name]",
   },
   {
     name: "reload",
@@ -516,6 +535,10 @@ export class AgentApp {
     }
 
     if (cmd === "/tree") {
+      if (!argsText) {
+        this.showTreeSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
@@ -562,43 +585,28 @@ export class AgentApp {
     }
 
     if (cmd === "/fork") {
+      if (!argsText) {
+        this.showForkSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
       try {
-        let targetEntryId = argsText;
-        if (!targetEntryId) {
-          const treeRes = await this.client.sendRequest<{
-            status: string;
-            nodes: Array<{ id: string; role: string; is_active_path: boolean }>;
-          }>("session_tree");
-          const userNodes = (treeRes.nodes || []).filter(
-            (n) => n.is_active_path && n.role === "user",
-          );
-          if (userNodes.length > 0) {
-            targetEntryId = userNodes[userNodes.length - 1].id;
-          }
-        }
-
-        if (targetEntryId) {
-          const res = await this.client.sendRequest<{
-            status: string;
-            new_session_id: string;
-            session_file: string;
-            prompt_text: string;
-          }>("session_fork", { entry_id: targetEntryId });
-          infoComp.appendTextDelta(
-            `✓ 已成功从节点 \`${targetEntryId.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``,
-          );
-          if (res.prompt_text) {
-            this.editor.setText(res.prompt_text);
-          }
-        } else {
-          infoComp.appendTextDelta(
-            "⚠ 请指定要分叉的 entry_id (例如 `/fork <entry_id>`)，可使用 `/tree` 查看节点列表。",
-          );
+        const targetEntryId = argsText;
+        const res = await this.client.sendRequest<{
+          status: string;
+          new_session_id: string;
+          session_file: string;
+          prompt_text: string;
+        }>("session_fork", { entry_id: targetEntryId });
+        infoComp.appendTextDelta(
+          `✓ 已成功从节点 \`${targetEntryId.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``,
+        );
+        if (res.prompt_text) {
+          this.editor.setText(res.prompt_text);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -661,35 +669,33 @@ export class AgentApp {
     }
 
     if (cmd === "/logout") {
+      if (!argsText) {
+        this.showLogoutSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
-      if (argsText) {
-        try {
-          const res = await this.client.sendRequest<{
-            status: string;
-            provider: string;
-            removed: boolean;
-          }>("auth_logout", { provider: argsText });
-          if (res.removed) {
-            infoComp.appendTextDelta(
-              `✓ 已成功清除 \`${res.provider}\` 的认证凭据。`,
-            );
-          } else {
-            infoComp.appendTextDelta(
-              `ℹ 未找到 \`${res.provider}\` 的已存凭据。`,
-            );
-          }
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          infoComp.appendTextDelta(`✗ 注销凭据失败: ${msg}`);
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          provider: string;
+          removed: boolean;
+        }>("auth_logout", { provider: argsText });
+        if (res.removed) {
+          infoComp.appendTextDelta(
+            `✓ 已成功清除 \`${res.provider}\` 的认证凭据。`,
+          );
+        } else {
+          infoComp.appendTextDelta(
+            `ℹ 未找到 \`${res.provider}\` 的已存凭据。`,
+          );
         }
-      } else {
-        infoComp.appendTextDelta(
-          "⚠ 请指定要注销凭据的 Provider，例如：`/logout deepseek` 或 `/logout openai`",
-        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 注销凭据失败: ${msg}`);
       }
       infoComp.finalize();
       this.tui.requestRender();
@@ -901,6 +907,10 @@ export class AgentApp {
     }
 
     if (cmd === "/settings") {
+      if (!argsText) {
+        this.showSettingsSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
@@ -916,6 +926,11 @@ export class AgentApp {
       );
       infoComp.finalize();
       this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/theme") {
+      this.showThemeSelector();
       return true;
     }
 
@@ -1322,6 +1337,258 @@ export class AgentApp {
         () => this.tui.requestRender(),
       );
       return { component: selector, focus: selector.searchInput };
+    });
+  }
+
+  public showTreeSelector(): void {
+    this.showSelector((done) => {
+      const selector = new TreeSelectorComponent(
+        async () => {
+          try {
+            const res = await this.client.sendRequest<{
+              status: string;
+              nodes: TreeNode[];
+            }>("session_tree");
+            return res.nodes || [];
+          } catch {
+            return [];
+          }
+        },
+        async (node) => {
+          done();
+          try {
+            const res = await this.client.sendRequest<{
+              status: string;
+              editor_text?: string;
+            }>("session_branch", { target_id: node.id });
+            if (res.editor_text) {
+              this.editor.setText(res.editor_text);
+            }
+            const info = new AssistantMessageComponent();
+            info.appendTextDelta(
+              `✓ 已成功切换至节点分支: \`${node.id.slice(0, 8)}\``,
+            );
+            info.finalize();
+            this.chatContainer.addChild(info);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const errComp = new AssistantMessageComponent();
+            errComp.appendTextDelta(`✗ 切换分支失败: ${msg}`);
+            errComp.finalize();
+            this.chatContainer.addChild(errComp);
+          }
+          this.tui.requestRender();
+        },
+        () => done(),
+        undefined,
+        () => this.tui.requestRender(),
+      );
+      return { component: selector, focus: selector };
+    });
+  }
+
+  public showSettingsSelector(): void {
+    this.showSelector((done) => {
+      let currentSettings: Record<string, unknown> = {
+        auto_compact: true,
+        default_model: this.options.model || "default",
+        default_thinking_level: this.options.thinking || "off",
+        default_permission_mode: this.options.mode || "review",
+        theme: "dark",
+      };
+
+      const selector = new SettingsSelectorComponent(
+        currentSettings,
+        async (key, val) => {
+          try {
+            await this.client.sendRequest("settings_set", { [key]: val });
+            if (key === "default_model" && typeof val === "string") {
+              this.options.model = val;
+              this.footer.update({ modelName: val });
+            } else if (
+              key === "default_thinking_level" &&
+              typeof val === "string"
+            ) {
+              this.options.thinking = val;
+              this.footer.update({ thinkingLevel: val });
+            }
+          } catch {
+            // ignore save errors
+          }
+        },
+        () => done(),
+      );
+
+      void this.client
+        .sendRequest<{ status: string; settings: Record<string, unknown> }>(
+          "settings_get",
+        )
+        .then((res) => {
+          if (res?.settings) {
+            currentSettings = res.settings;
+            selector.updateList();
+            this.tui.requestRender();
+          }
+        })
+        .catch(() => {});
+
+      return { component: selector, focus: selector };
+    });
+  }
+
+  public showForkSelector(): void {
+    this.showSelector((done) => {
+      let selector: UserMessageSelectorComponent;
+
+      const onSelectMessage = async (msg: UserMessageItem) => {
+        done();
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            new_session_id: string;
+            prompt_text?: string;
+          }>("session_fork", { entry_id: msg.id });
+          if (res.prompt_text) {
+            this.editor.setText(res.prompt_text);
+          }
+          const info = new AssistantMessageComponent();
+          info.appendTextDelta(
+            `✓ 已成功从节点 \`${msg.id.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``,
+          );
+          info.finalize();
+          this.chatContainer.addChild(info);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const errComp = new AssistantMessageComponent();
+          errComp.appendTextDelta(`✗ 分叉会话失败: ${errMsg}`);
+          errComp.finalize();
+          this.chatContainer.addChild(errComp);
+        }
+        this.tui.requestRender();
+      };
+
+      selector = new UserMessageSelectorComponent(
+        [],
+        onSelectMessage,
+        () => done(),
+      );
+
+      void this.client
+        .sendRequest<{ status: string; nodes: TreeNode[] }>("session_tree")
+        .then((res) => {
+          const userItems: UserMessageItem[] = (res.nodes || [])
+            .filter((n) => n.role === "user")
+            .map((n) => ({ id: n.id, text: n.preview }));
+          this.editorContainer.clear();
+          selector = new UserMessageSelectorComponent(
+            userItems,
+            onSelectMessage,
+            () => done(),
+          );
+          this.editorContainer.addChild(selector);
+          this.tui.setFocus(selector);
+          this.tui.requestRender();
+        })
+        .catch(() => {});
+
+      return { component: selector, focus: selector };
+    });
+  }
+
+  public showLogoutSelector(): void {
+    this.showSelector((done) => {
+      let selector: LogoutSelectorComponent;
+
+      const onSelectProvider = async (providerId: string) => {
+        done();
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            provider: string;
+            removed: boolean;
+          }>("auth_logout", { provider: providerId });
+          const info = new AssistantMessageComponent();
+          if (res.removed) {
+            info.appendTextDelta(
+              `✓ 已成功清除 \`${res.provider}\` 的认证凭据。`,
+            );
+          } else {
+            info.appendTextDelta(
+              `ℹ 未找到 \`${res.provider}\` 的已存凭据。`,
+            );
+          }
+          info.finalize();
+          this.chatContainer.addChild(info);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const errComp = new AssistantMessageComponent();
+          errComp.appendTextDelta(`✗ 注销凭据失败: ${errMsg}`);
+          errComp.finalize();
+          this.chatContainer.addChild(errComp);
+        }
+        this.tui.requestRender();
+      };
+
+      selector = new LogoutSelectorComponent([], onSelectProvider, () =>
+        done(),
+      );
+
+      void this.client
+        .sendRequest<{ status: string; configured_providers: string[] }>(
+          "models_list",
+          { scope: "configured" },
+        )
+        .then((res) => {
+          const items: LogoutProviderItem[] = (
+            res.configured_providers || []
+          ).map((p) => ({
+            id: p,
+            label: p.toUpperCase(),
+            description: "Stored in ~/.my-pi-agent/auth.json",
+          }));
+          this.editorContainer.clear();
+          selector = new LogoutSelectorComponent(items, onSelectProvider, () =>
+            done(),
+          );
+          this.editorContainer.addChild(selector);
+          this.tui.setFocus(selector);
+          this.tui.requestRender();
+        })
+        .catch(() => {});
+
+      return { component: selector, focus: selector };
+    });
+  }
+
+  public showThemeSelector(): void {
+    this.showSelector((done) => {
+      const currentTheme = "dark";
+      const selector = new ThemeSelectorComponent(
+        currentTheme,
+        ["dark", "light"],
+        async (themeName) => {
+          done();
+          try {
+            await this.client.sendRequest("settings_set", {
+              theme: themeName,
+            });
+            const info = new AssistantMessageComponent();
+            info.appendTextDelta(`✓ 主题已切换为: \`${themeName}\``);
+            info.finalize();
+            this.chatContainer.addChild(info);
+          } catch {
+            // ignore
+          }
+          this.tui.requestRender();
+        },
+        () => {
+          done();
+        },
+        (_previewTheme) => {
+          this.tui.requestRender();
+        },
+      );
+      return { component: selector, focus: selector };
     });
   }
 

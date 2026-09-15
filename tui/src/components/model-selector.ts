@@ -236,9 +236,7 @@ export class ModelSelectorComponent extends Container {
         : "";
       const defaultBadge = isDefault ? theme.fg("muted", " · default") : "";
       const unconfBadge =
-        item.is_configured === false
-          ? theme.fg("dim", " (unconfigured)")
-          : "";
+        item.is_configured === false ? theme.fg("dim", " (unconfigured)") : "";
 
       const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${ctxBadge}${unconfBadge}${defaultBadge}`;
       this.listContainer.addChild(new Text(line, 0, 0));

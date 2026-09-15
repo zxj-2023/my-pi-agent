@@ -1421,16 +1421,16 @@ class RpcServer:
             prov = item["provider"]
             is_configured = prov in configured_providers
             if scope == "all" or is_configured:
-                models.append({
-                    **item,
-                    "is_configured": is_configured,
-                })
+                models.append(
+                    {
+                        **item,
+                        "is_configured": is_configured,
+                    }
+                )
 
         curr = "default"
         if self.agent:
-            curr = getattr(self.agent, "model", None) or getattr(
-                getattr(self.agent, "agent", None), "model", "default"
-            )
+            curr = getattr(self.agent, "model", None) or getattr(getattr(self.agent, "agent", None), "model", "default")
         return self.send_response(
             req_id,
             result={
@@ -1536,6 +1536,59 @@ class RpcServer:
             },
         )
 
+    def _handle_settings_get(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        paths = self.paths or AgentPaths()
+        ws = Path(self.agent.workspace if self.agent else ".").resolve()
+        if self.settings is None:
+            self.settings = load_settings(paths, cwd=ws)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "settings": self.settings.model_dump(),
+                "paths": {
+                    "global_settings": str(paths.settings_path),
+                    "project_settings": str(paths.project_settings_path(ws)),
+                },
+            },
+        )
+
+    def _handle_settings_set(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        paths = self.paths or AgentPaths()
+        ws = Path(self.agent.workspace if self.agent else ".").resolve()
+        if self.settings is None:
+            self.settings = load_settings(paths, cwd=ws)
+
+        scope = params.get("scope", "global")
+        target_path = paths.project_settings_path(ws) if scope == "project" else paths.settings_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        updated_fields: dict[str, Any] = {}
+        for key in [
+            "default_model",
+            "default_provider",
+            "default_thinking_level",
+            "default_permission_mode",
+            "theme",
+            "auto_compact",
+        ]:
+            if key in params:
+                val = params[key]
+                setattr(self.settings, key, val)
+                updated_fields[key] = val
+
+        save_settings(self.settings, target_path)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "updated": updated_fields,
+                "settings": self.settings.model_dump(),
+            },
+        )
+
     def _handle_trust_set(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         paths = self.paths or AgentPaths()
         paths.home.mkdir(parents=True, exist_ok=True)
@@ -1635,6 +1688,10 @@ class RpcServer:
                 return self._handle_auth_logout(req_id, params)
             elif method == "resource_reload":
                 return self._handle_resource_reload(req_id, params)
+            elif method == "settings_get":
+                return self._handle_settings_get(req_id, params)
+            elif method == "settings_set":
+                return self._handle_settings_set(req_id, params)
             elif method == "trust_set":
                 return self._handle_trust_set(req_id, params)
             elif method == "shutdown":

@@ -209,6 +209,39 @@ async def test_resource_reload_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.anyio
+async def test_settings_get_and_set_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+
+    # 1. settings_get
+    resp_get = await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "settings_get", "params": {}})
+    assert resp_get["result"]["status"] == "ok"
+    assert "default_model" in resp_get["result"]["settings"]
+    assert "paths" in resp_get["result"]
+
+    # 2. settings_set
+    resp_set = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "settings_set",
+            "params": {"default_model": "deepseek-chat", "default_thinking_level": "medium", "theme": "dark"},
+        }
+    )
+    assert resp_set["result"]["status"] == "ok"
+    assert resp_set["result"]["updated"]["default_model"] == "deepseek-chat"
+    assert resp_set["result"]["updated"]["default_thinking_level"] == "medium"
+    assert resp_set["result"]["updated"]["theme"] == "dark"
+
+
+@pytest.mark.anyio
 async def test_trust_set_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     custom_home = tmp_path / "home"
     monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))

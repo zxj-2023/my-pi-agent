@@ -152,8 +152,9 @@ test("AgentApp handles slash commands (/clear, /help, /steer, /followup) locally
   assert.ok(sessionText.includes("工作区零污染"));
 
   await app.handleUserSubmit("/settings");
-  const settingsText = app.chatContainer.children.at(-1).render(120).join("\n");
-  assert.ok(settingsText.includes("settings.json"));
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
 
   await app.handleUserSubmit("/login");
   assert.ok(app["activeSelectorComponent"]);
@@ -285,7 +286,12 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
       return {
         status: "ok",
         models: [
-          { id: "deepseek-chat", provider: "deepseek", name: "DeepSeek V3", contextWindow: 64000 },
+          {
+            id: "deepseek-chat",
+            provider: "deepseek",
+            name: "DeepSeek V3",
+            contextWindow: 64000,
+          },
         ],
       };
     }
@@ -345,11 +351,11 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
   assert.ok(compactText.includes("3500"));
   assert.ok(compactText.includes("压缩完成测试摘要"));
 
-  // 6. /tree
+  // 6. /tree (无参 -> 调起 TreeSelector)
   await app.handleUserSubmit("/tree");
-  const treeText = app.chatContainer.children.at(-1).render(120).join("\n");
-  assert.ok(treeText.includes("DAG 树"));
-  assert.ok(treeText.includes("user prompt 1"));
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
 
   // 7. /fork
   await app.handleUserSubmit("/fork n1");
@@ -389,6 +395,30 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
 
   // 14. /model (无参 -> 调起 ModelSelector)
   await app.handleUserSubmit("/model");
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
+
+  // 15. /settings (无参 -> 调起 SettingsSelector)
+  await app.handleUserSubmit("/settings");
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
+
+  // 16. /fork (无参 -> 调起 UserMessageSelector)
+  await app.handleUserSubmit("/fork");
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
+
+  // 17. /logout (无参 -> 调起 LogoutSelector)
+  await app.handleUserSubmit("/logout");
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
+
+  // 18. /theme (无参 -> 调起 ThemeSelector)
+  await app.handleUserSubmit("/theme");
   assert.ok(app["activeSelectorComponent"]);
   app["activeSelectorComponent"].handleInput("\x1b");
   assert.equal(app["activeSelectorComponent"], undefined);
