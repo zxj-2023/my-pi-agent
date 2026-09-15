@@ -93,12 +93,30 @@ export class AgentApp {
   }
 
   public async start(): Promise<void> {
-    await this.client.start();
+    const initResult: any = await this.client.start();
     await this.interactiveMode.init();
     this.interactiveMode.start();
-    if (this.options.prompt) {
+
+    if (initResult?.session_name || initResult?.session_id) {
+      this.footer.update({
+        sessionName: initResult.session_name || initResult.session_id,
+      });
+    }
+
+    if (initResult?.messages && initResult.messages.length > 0) {
+      this.interactiveMode.renderSessionHistory(initResult.messages);
+    }
+
+    if (this.options.resume === true) {
+      await this.interactiveMode.handleSlashCommand("/resume");
+    } else if (typeof this.options.resume === "string" && this.options.resume) {
+      await this.interactiveMode.handleSlashCommand(
+        `/resume ${this.options.resume}`,
+      );
+    } else if (this.options.prompt) {
       await this.interactiveMode.handleUserInput(this.options.prompt);
     }
+    this.tui.requestRender();
   }
 
   public async stop(): Promise<void> {

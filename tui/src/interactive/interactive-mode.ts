@@ -650,8 +650,22 @@ export class InteractiveMode {
         async (session: SessionItem) => {
           done();
           if (session) {
-            await this.bridge.resumeSession(session.id);
-            this.appendSystemNotice(`✓ 已成功恢复会话: ${session.id}`);
+            try {
+              const res: any = await this.bridge.resumeSession(session.id);
+              if (res?.session_name || res?.session_id) {
+                this.footer.update({
+                  sessionName: res.session_name || res.session_id,
+                });
+              }
+              this.renderSessionHistory(
+                res?.messages || [],
+                `✓ 已成功恢复会话: \`${res?.session_id || session.id}\``,
+              );
+            } catch (err: any) {
+              this.appendErrorMessage(
+                `恢复会话失败: ${err.message || String(err)}`,
+              );
+            }
           }
         },
         () => done(),
@@ -840,11 +854,22 @@ export class InteractiveMode {
       }
       case "resume": {
         if (args) {
-          const res: any = await this.bridge.resumeSession(args);
-          this.renderSessionHistory(
-            res?.messages || [],
-            `✓ 已成功恢复历史会话 [${args}]`,
-          );
+          try {
+            const res: any = await this.bridge.resumeSession(args);
+            if (res?.session_name || res?.session_id) {
+              this.footer.update({
+                sessionName: res.session_name || res.session_id,
+              });
+            }
+            this.renderSessionHistory(
+              res?.messages || [],
+              `✓ 已成功恢复历史会话 [${args}]`,
+            );
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `恢复会话失败: ${err.message || String(err)}`,
+            );
+          }
         } else {
           this.showSessionSelector();
         }
