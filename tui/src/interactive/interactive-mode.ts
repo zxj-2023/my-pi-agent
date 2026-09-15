@@ -904,7 +904,7 @@ export class InteractiveMode {
   }
 
   public async showForkSelector(): Promise<void> {
-    let userMessages: UserMessageItem[] = [];
+    const userMessages: UserMessageItem[] = [];
     try {
       const res: any = await this.bridge.getTree();
       const tree: TreeNode[] = (res?.tree || res?.nodes || []) as TreeNode[];
@@ -1035,8 +1035,12 @@ export class InteractiveMode {
         case "model": {
           if (args) {
             // 检查是否为已知模型的完全匹配 (对齐 Pi 原厂 handleModelCommand)
-            const allModelsRes: any = await this.bridge.listModels({ scope: "all" });
-            const models: ModelItem[] = ((allModelsRes as any)?.models || []).map((m: any) => ({
+            const allModelsRes: any = await this.bridge.listModels({
+              scope: "all",
+            });
+            const models: ModelItem[] = (
+              (allModelsRes as any)?.models || []
+            ).map((m: any) => ({
               id: m.id || m.name,
               provider: m.provider || "default",
             }));
@@ -1243,9 +1247,7 @@ export class InteractiveMode {
           if (newId) {
             this.footer.update({ sessionName: newId });
           }
-          this.appendSystemNotice(
-            `✓ 已克隆当前会话开辟全新探索副本: ${newId}`,
-          );
+          this.appendSystemNotice(`✓ 已克隆当前会话开辟全新探索副本: ${newId}`);
           break;
         }
         case "fork": {
@@ -1323,7 +1325,9 @@ export class InteractiveMode {
           } catch {
             // ignore clipboard error
           }
-          this.appendSystemNotice("✓ 已将最后一条智能体回答内容复制到系统剪贴板。");
+          this.appendSystemNotice(
+            "✓ 已将最后一条智能体回答内容复制到系统剪贴板。",
+          );
           break;
         }
         case "hotkeys": {

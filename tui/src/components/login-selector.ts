@@ -37,7 +37,7 @@ export const SUPPORTED_LOGIN_PROVIDERS: ProviderOption[] = [
   {
     id: "antigravity",
     label: "Antigravity",
-    description: "Google OAuth / Access Token (gemini-2.5/3.8)",
+    description: "绑定本地已有的 pi-antigravity 认证凭据 (免网页登录)",
   },
   {
     id: "custom",
@@ -102,6 +102,11 @@ export class LoginSelectorComponent extends Container {
     list.onSelect = (item) => {
       const found = this.providers.find((p) => p.id === item.value);
       if (found) {
+        if (found.id === "antigravity") {
+          // Antigravity 免 Web 登录：直接读取并绑定本地 pi-antigravity 认证凭据
+          this.onSubmit("antigravity", "");
+          return;
+        }
         this.selectedProvider = found;
         this.phase = "enter_key";
         this.rebuildUI();

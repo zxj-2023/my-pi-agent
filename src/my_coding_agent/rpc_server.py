@@ -510,6 +510,78 @@ class RpcServer:
     def _handle_login(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         provider = params.get("provider", "").lower().strip()
         key = params.get("key", "").strip()
+
+        paths = self.paths or AgentPaths()
+        paths.ensure_directories()
+        self.paths = paths
+        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+        self.auth_mgr = auth_mgr
+
+        # 1. 特殊处理 antigravity：自动关联本地 pi-antigravity 的 auth.json，免 Web 登录
+        if provider == "antigravity":
+            home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~").expanduser()
+            pi_auth_candidates = [
+                home / ".pi" / "agent" / "auth.json",
+                home / ".pi" / "auth.json",
+            ]
+            synced_cred: dict[str, Any] | None = None
+            source_file: Path | None = None
+            for p in pi_auth_candidates:
+                if p.exists():
+                    try:
+                        data = json.loads(p.read_text(encoding="utf-8"))
+                        if isinstance(data, dict):
+                            entry = data.get("antigravity") or data.get("google-antigravity")
+                            if entry and isinstance(entry, dict):
+                                synced_cred = entry
+                                source_file = p
+                                break
+                    except Exception:
+                        continue
+
+            if synced_cred:
+                target_auth = paths.auth_path
+                target_auth.parent.mkdir(parents=True, exist_ok=True)
+                current_data: dict[str, Any] = {}
+                if target_auth.exists():
+                    try:
+                        current_data = json.loads(target_auth.read_text(encoding="utf-8"))
+                    except Exception:
+                        current_data = {}
+                current_data["antigravity"] = synced_cred
+                target_auth.write_text(json.dumps(current_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+                access_tok = synced_cred.get("access") or synced_cred.get("access_token")
+                if access_tok:
+                    os.environ["ANTIGRAVITY_ACCESS_TOKEN"] = str(access_tok)
+                email_info = f" (Google 账号: {synced_cred.get('email')})" if synced_cred.get("email") else ""
+                return self.send_response(
+                    req_id,
+                    result={
+                        "status": "ok",
+                        "message": f"✓ 已成功同步并绑定 pi-antigravity 认证凭据 ({source_file}{email_info})，无需网页登录！",
+                    },
+                )
+            elif key:
+                os.environ["ANTIGRAVITY_ACCESS_TOKEN"] = key
+                auth_mgr.set_api_key(provider="antigravity", key=key)
+                return self.send_response(
+                    req_id,
+                    result={
+                        "status": "ok",
+                        "message": "✓ 已成功绑定 Antigravity 凭据至凭据中心！",
+                    },
+                )
+            else:
+                return self.send_response(
+                    req_id,
+                    result={
+                        "status": "error",
+                        "message": "未在 ~/.pi/agent/auth.json 中检测到已存的 pi-antigravity 凭据。请确保已在 Pi 中使用过 antigravity 或提供 Access Token。",
+                    },
+                )
+
+        # 2. 其它提供商（如 deepseek, openai, anthropic）：配置 API Key
         if not provider or not key:
             return self.send_response(
                 req_id,
@@ -519,21 +591,15 @@ class RpcServer:
                 },
             )
 
-        key_name = "ANTIGRAVITY_ACCESS_TOKEN" if provider == "antigravity" else f"{provider.upper()}_API_KEY"
+        key_name = f"{provider.upper()}_API_KEY"
         os.environ[key_name] = key
-
-        paths = self.paths or AgentPaths()
-        paths.ensure_directories()
-        self.paths = paths
-        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
-        self.auth_mgr = auth_mgr
         auth_mgr.set_api_key(provider=provider, key=key)
 
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
-                "message": f"已成功绑定 {provider} 凭据至全局凭据中心 (~/.my-pi-agent/auth.json)！",
+                "message": f"✓ 已成功绑定 {provider} API Key 至全局凭据中心 (~/.my-pi-agent/auth.json)！",
             },
         )
 

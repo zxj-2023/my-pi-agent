@@ -61,3 +61,26 @@ test("LoginSelectorComponent transitions to phase 2 and submits key", () => {
   assert.equal(submittedProvider, "deepseek");
   assert.equal(submittedKey, "sk-test-deepseek-123");
 });
+
+test("LoginSelectorComponent directly binds Antigravity without entering phase 2", () => {
+  let submittedProvider = null;
+  let submittedKey = null;
+
+  const selector = new LoginSelectorComponent(
+    (prov, key) => {
+      submittedProvider = prov;
+      submittedKey = key;
+    },
+    () => {},
+  );
+
+  // Type antigravity in search and select
+  for (const ch of "antigravity") {
+    selector.handleInput(ch);
+  }
+  selector.handleInput("\r");
+
+  // Should directly submit without prompting for key
+  assert.equal(submittedProvider, "antigravity");
+  assert.equal(submittedKey, "");
+});

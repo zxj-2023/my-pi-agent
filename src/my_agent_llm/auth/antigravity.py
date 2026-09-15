@@ -41,10 +41,14 @@ class AntigravityAuthResolver:
         workspace: Path | None = None,
     ) -> None:
         home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~").expanduser()
-        # 自身凭据路径：项目工作区 .my_agent/auth.json 或用户级 ~/.my_agent/credentials.json
-        # 绝不默认越界探测外部宿主 ~/.pi 目录！
         self.workspace_auth_path = (Path(workspace).resolve() / ".my_agent" / "auth.json") if workspace else None
-        self.pi_auth_path = Path(pi_auth_path).resolve() if pi_auth_path is not None else None
+        if pi_auth_path is not None:
+            self.pi_auth_path = Path(pi_auth_path).resolve()
+        elif "MY_AGENT_HOME" not in os.environ:
+            default_pi_auth = home / ".pi" / "agent" / "auth.json"
+            self.pi_auth_path = default_pi_auth if default_pi_auth.exists() else None
+        else:
+            self.pi_auth_path = None
 
         if credentials_path is not None:
             self.credentials_path = Path(credentials_path).resolve()
@@ -63,14 +67,14 @@ class AntigravityAuthResolver:
                 client_secret=os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"),
             )
 
-        # 2. 依次读取自身工作区与 ~/.my_agent 凭据
+        # 2. 依次读取凭据文件
         candidate_paths: list[Path] = []
+        if self.pi_auth_path:
+            candidate_paths.append(self.pi_auth_path)
         if self.workspace_auth_path:
             candidate_paths.append(self.workspace_auth_path)
         if self.credentials_path:
             candidate_paths.append(self.credentials_path)
-        if self.pi_auth_path:
-            candidate_paths.append(self.pi_auth_path)
 
         for target_path in candidate_paths:
             if target_path and target_path.exists():
