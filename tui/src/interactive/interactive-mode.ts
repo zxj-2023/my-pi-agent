@@ -222,16 +222,24 @@ export class InteractiveMode {
     this.defaultEditor = this.createEditor();
     this.editorContainer.addChild(this.defaultEditor);
 
-    // 5. 挂载 ChatViewport 视口
-    const viewport = createChatViewport({
-      document: this.documentContainer,
-      pendingMessages: this.pendingMessagesContainer,
-      status: this.statusContainer,
-      editor: this.editorContainer,
-      footer: this.footer,
-    });
-    this.transcriptScrollView = viewport.transcript;
-    this.ui.addChild(viewport.root);
+    // 5. 挂载视口与组件 (对齐 Pi 原厂 mountInteractiveTui 架构规范)
+    if (options.tuiMode === "fullscreen") {
+      const viewport = createChatViewport({
+        document: this.documentContainer,
+        pendingMessages: this.pendingMessagesContainer,
+        status: this.statusContainer,
+        editor: this.editorContainer,
+        footer: this.footer,
+      });
+      this.transcriptScrollView = viewport.transcript;
+      this.ui.addChild(viewport.root);
+    } else {
+      this.ui.addChild(this.documentContainer);
+      this.ui.addChild(this.pendingMessagesContainer);
+      this.ui.addChild(this.statusContainer);
+      this.ui.addChild(this.editorContainer);
+      this.ui.addChild(this.footer);
+    }
     this.ui.setFocus(this.defaultEditor);
   }
 
