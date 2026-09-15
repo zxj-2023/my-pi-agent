@@ -207,9 +207,7 @@ test("InteractiveMode renders session history with structured array content safe
   mode.renderSessionHistory([
     {
       role: "user",
-      content: [
-        { type: "text", text: "Hello from structured user message" },
-      ],
+      content: [{ type: "text", text: "Hello from structured user message" }],
     },
     {
       role: "assistant",
@@ -239,7 +237,9 @@ test("InteractiveMode guards against concurrent submission and session commands 
   // 破坏性命令被拦截
   await mode.handleSlashCommand("/new");
   const renderedAfterNew = mode.ui.render(80).join("\n");
-  assert.ok(renderedAfterNew.includes("当前智能体正在执行中，无法执行 /new 操作"));
+  assert.ok(
+    renderedAfterNew.includes("当前智能体正在执行中，无法执行 /new 操作"),
+  );
 });
 
 test("isEnterKey matches return, enter, carriage returns, and CRLF across platforms", () => {

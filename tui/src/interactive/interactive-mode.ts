@@ -1258,9 +1258,9 @@ export class InteractiveMode {
                     typeof b === "string" ? b : b?.text || b?.content || "",
                   )
                   .join("")
-              : msg.content != null
-                ? String(msg.content)
-                : "";
+              : msg.content == null
+                ? ""
+                : String(msg.content);
         if (assistantText) {
           assistantComp.setContent(assistantText);
         }
