@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InteractiveMode } from "../dist/interactive/interactive-mode.js";
 import { KernelBridge } from "../dist/bridge/kernel-bridge.js";
+import { isEnterKey } from "../dist/components/keys.js";
 
 function createMockBridge() {
   const listeners = [];
@@ -138,4 +139,114 @@ test("InteractiveMode handles slash commands (/clear, /help, /model, /thinking)"
   assert.equal(calls[1].method, "thinking_set");
 
   await mode.handleSlashCommand("/clear");
+});
+
+test("InteractiveMode streaming prevents quadratic text and thinking duplication", () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  mode.handleAgentEvent({ type: "agent_start" });
+  mode.handleAgentEvent({
+    type: "message_start",
+    message: { role: "assistant", content: [] },
+  });
+
+  // 模拟流式第 1 个 chunk (思考过程)
+  mode.handleAgentEvent({
+    type: "message_update",
+    message: {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "Step 1" }],
+    },
+  });
+
+  // 模拟流式第 2 个 chunk (思考累计完成)
+  mode.handleAgentEvent({
+    type: "message_update",
+    message: {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "Step 1 & Step 2" }],
+    },
+  });
+
+  // 模拟流式第 3 个 chunk (正文开始输出，同时带有累计思考)
+  mode.handleAgentEvent({
+    type: "message_update",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "Step 1 & Step 2" },
+        { type: "text", text: "Hello" },
+      ],
+    },
+  });
+
+  // 模拟流式第 4 个 chunk (正文累加)
+  mode.handleAgentEvent({
+    type: "message_update",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "Step 1 & Step 2" },
+        { type: "text", text: "Hello world" },
+      ],
+    },
+  });
+
+  const assistant = mode.currentStreamingAssistant;
+  assert.ok(assistant);
+  assert.equal(assistant["contentText"], "Hello world");
+  assert.equal(assistant["thinkingText"], "Step 1 & Step 2");
+});
+
+test("InteractiveMode renders session history with structured array content safely", () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  // 用户与助手消息均包含结构化块数组
+  mode.renderSessionHistory([
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Hello from structured user message" },
+      ],
+    },
+    {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "Thinking about structured response" },
+        { type: "text", text: "Structured assistant response text" },
+      ],
+    },
+  ]);
+
+  const rendered = mode.ui.render(80).join("\n");
+  assert.ok(rendered.includes("Hello from structured user message"));
+  assert.ok(rendered.includes("Structured assistant response text"));
+});
+
+test("InteractiveMode guards against concurrent submission and session commands during streaming", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  mode.isStreaming = true;
+
+  // 提交输入时被拦截
+  await mode.handleUserInput("Test input while streaming");
+  const rendered = mode.ui.render(80).join("\n");
+  assert.ok(rendered.includes("当前智能体正在执行中"));
+
+  // 破坏性命令被拦截
+  await mode.handleSlashCommand("/new");
+  const renderedAfterNew = mode.ui.render(80).join("\n");
+  assert.ok(renderedAfterNew.includes("当前智能体正在执行中，无法执行 /new 操作"));
+});
+
+test("isEnterKey matches return, enter, carriage returns, and CRLF across platforms", () => {
+  assert.equal(isEnterKey("\r"), true);
+  assert.equal(isEnterKey("\n"), true);
+  assert.equal(isEnterKey("\r\n"), true);
+  assert.equal(isEnterKey("a"), false);
+  assert.equal(isEnterKey("\t"), false);
+  assert.equal(isEnterKey("\x1b"), false);
 });

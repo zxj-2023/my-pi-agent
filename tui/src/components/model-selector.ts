@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
+import { isEnterKey } from "./keys.js";
 
 export interface ModelItem {
   id: string;
@@ -286,10 +287,10 @@ export class ModelSelectorComponent extends Container {
           ? 0
           : this.selectedIndex + 1;
       this.updateList();
-    } else if (matchesKey(data, "return")) {
+    } else if (isEnterKey(data)) {
       const selected = this.filteredModels[this.selectedIndex];
       if (selected) this.onSelect(selected);
-    } else if (matchesKey(data, "escape")) {
+    } else if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
       this.onCancel();
     } else if (matchesKey(data, "ctrl+s") && this.onSelectAsDefault) {
       const selected = this.filteredModels[this.selectedIndex];

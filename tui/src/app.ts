@@ -54,6 +54,19 @@ export class AgentApp {
     this.client = new PythonKernelClient(options);
     this.bridge = new KernelBridge(this.client);
     this.interactiveMode = new InteractiveMode(this.bridge, options);
+
+    this.interactiveMode.onExit = async () => {
+      await this.client.shutdown();
+    };
+
+    const cleanupTerminal = () => {
+      try {
+        this.interactiveMode.ui.stop();
+      } catch (err) {
+        void err;
+      }
+    };
+    process.once("exit", cleanupTerminal);
   }
 
   public get tui(): TuiMainScreen {

@@ -24,6 +24,13 @@ export class AssistantMessageComponent extends Container {
     this.updateThinkingDisplay();
   }
 
+  public setReasoning(fullThinking: string): void {
+    if (this.thinkingText !== fullThinking) {
+      this.thinkingText = fullThinking;
+      this.updateThinkingDisplay();
+    }
+  }
+
   public appendTextDelta(delta: string): void {
     if (!this.isFinalized && this.thinkingText && this.isThinkingExpanded) {
       // 当正文开始输出时，将思考区块默认折叠以保持界面清爽整洁
@@ -32,6 +39,17 @@ export class AssistantMessageComponent extends Container {
     }
     this.contentText += delta;
     this.updateContentDisplay();
+  }
+
+  public setContent(fullContent: string): void {
+    if (!this.isFinalized && this.thinkingText && this.isThinkingExpanded) {
+      this.isThinkingExpanded = false;
+      this.updateThinkingDisplay();
+    }
+    if (this.contentText !== fullContent) {
+      this.contentText = fullContent;
+      this.updateContentDisplay();
+    }
   }
 
   public toggleThinking(): void {

@@ -164,6 +164,7 @@ export class InteractiveMode {
   public activeSelectorComponent?: any;
 
   public currentStreamingAssistant?: AssistantMessageComponent;
+  public latestAssistantMessage?: AssistantMessageComponent;
   public activeToolCalls = new Map<string, ToolExecutionComponent>();
   public toolStartTimes = new Map<string, number>();
   public transcriptScrollView?: any;
@@ -172,6 +173,7 @@ export class InteractiveMode {
   public currentThinkingLevel = "off";
   public currentModelName = "default";
   public workspace: string;
+  public onExit?: () => Promise<void> | void;
   private unsubscribeBridge?: () => void;
 
   constructor(
@@ -188,6 +190,7 @@ export class InteractiveMode {
       showHardwareCursor: options.showHardwareCursor ?? false,
       logDirectory: options.logDirectory || "",
     }) as TuiMainScreen;
+    this.ui.setClearOnShrink(true);
 
     // 2. 初始化核心布局容器
     this.documentContainer = new Container();
@@ -232,7 +235,11 @@ export class InteractiveMode {
         footer: this.footer,
       });
       this.transcriptScrollView = viewport.transcript;
-      this.ui.addChild(viewport.root);
+      if (typeof (this.ui as any).setLayoutRoot === "function") {
+        (this.ui as any).setLayoutRoot(viewport.root);
+      } else {
+        this.ui.addChild(viewport.root);
+      }
     } else {
       this.ui.addChild(this.documentContainer);
       this.ui.addChild(this.pendingMessagesContainer);
@@ -307,20 +314,27 @@ export class InteractiveMode {
       case "message_update": {
         if (!this.currentStreamingAssistant) {
           this.currentStreamingAssistant = new AssistantMessageComponent();
+          this.latestAssistantMessage = this.currentStreamingAssistant;
           this.chatContainer.addChild(this.currentStreamingAssistant);
           this.chatContainer.addChild(new Spacer(1));
         }
 
-        // 解析 message.content 中的 thinking 与 text 块
+        // 解析 message.content 中的 thinking 与 text 块 (使用全量快照，杜绝二次方爆炸)
         if (Array.isArray(event.message?.content)) {
+          let thinkingText = "";
+          let contentText = "";
           for (const block of event.message.content) {
             if (block.type === "thinking" && block.thinking) {
-              this.currentStreamingAssistant.appendReasoningDelta(
-                block.thinking,
-              );
+              thinkingText += block.thinking;
             } else if (block.type === "text" && block.text) {
-              this.currentStreamingAssistant.appendTextDelta(block.text);
+              contentText += block.text;
             }
+          }
+          if (thinkingText) {
+            this.currentStreamingAssistant.setReasoning(thinkingText);
+          }
+          if (contentText) {
+            this.currentStreamingAssistant.setContent(contentText);
           }
         }
         break;
@@ -329,6 +343,7 @@ export class InteractiveMode {
       case "message_end": {
         if (this.currentStreamingAssistant) {
           this.currentStreamingAssistant.finalize();
+          this.latestAssistantMessage = this.currentStreamingAssistant;
           this.currentStreamingAssistant = undefined;
         }
         break;
@@ -449,6 +464,11 @@ export class InteractiveMode {
   }
 
   public async handleUserInput(input: string): Promise<void> {
+    if (this.isStreaming) {
+      this.appendErrorMessage("当前智能体正在执行中，请等待完成或按 Esc 中断后再提交。");
+      return;
+    }
+
     // 1. 处理技能或提示词模板宏扩展
     if (
       input.startsWith("/") &&
@@ -502,6 +522,23 @@ export class InteractiveMode {
       await this.bridge.prompt(input);
     } catch (err: any) {
       this.appendErrorMessage(`请求失败: ${err.message || String(err)}`);
+      this.isStreaming = false;
+      this.isWorking = false;
+      this.clearStatusDisplay();
+      this.footer.update({ isBusy: false });
+    }
+  }
+
+  public async handleExit(): Promise<void> {
+    try {
+      if (this.onExit) {
+        await this.onExit();
+      }
+    } catch {
+      // 忽略退出清理异常，确保正常终止进程
+    } finally {
+      this.stop();
+      process.exit(0);
     }
   }
 
@@ -521,29 +558,51 @@ export class InteractiveMode {
       if (matchesKey(data, "ctrl+c")) {
         if (this.isStreaming) {
           void this.bridge.abort();
+          this.isStreaming = false;
+          this.isWorking = false;
+          this.clearStatusDisplay();
+          this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
           this.ui.requestRender();
-        } else {
-          void this.stop();
-          process.exit(0);
+          return { consume: true };
+        }
+        if (this.defaultEditor.getText().length > 0) {
+          this.defaultEditor.setText("");
+          this.ui.requestRender();
+          return { consume: true };
+        }
+        void this.handleExit();
+        return { consume: true };
+      } else if (matchesKey(data, "ctrl+d")) {
+        if (this.defaultEditor.getText().length === 0 && !this.isStreaming) {
+          void this.handleExit();
+          return { consume: true };
         }
       } else if (matchesKey(data, "escape")) {
         if (this.isStreaming) {
           void this.bridge.abort();
+          this.isStreaming = false;
+          this.isWorking = false;
+          this.clearStatusDisplay();
+          this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
           this.ui.requestRender();
+          return { consume: true };
         }
       } else if (matchesKey(data, "ctrl+o")) {
-        if (this.currentStreamingAssistant) {
-          this.currentStreamingAssistant.toggleThinking();
+        const targetAssistant =
+          this.currentStreamingAssistant || this.latestAssistantMessage;
+        if (targetAssistant) {
+          targetAssistant.toggleThinking();
         }
         for (const tool of this.activeToolCalls.values()) {
           tool.toggleExpanded();
         }
         this.ui.requestRender();
+        return { consume: true };
       } else if (matchesKey(data, "ctrl+l")) {
         this.showModelSelector();
-        return undefined;
+        return { consume: true };
       }
       return undefined;
     });
@@ -621,15 +680,21 @@ export class InteractiveMode {
         async (selected: ModelItem) => {
           done();
           if (selected) {
-            this.currentModelName = selected.id;
-            this.footer.update({
-              modelName: selected.id,
-              providerName: selected.provider,
-            });
-            await this.bridge.switchModel(selected.id, selected.provider);
-            this.appendSystemNotice(
-              `✓ 已成功切换至模型: ${selected.id} (${selected.provider})`,
-            );
+            try {
+              this.currentModelName = selected.id;
+              this.footer.update({
+                modelName: selected.id,
+                providerName: selected.provider,
+              });
+              await this.bridge.switchModel(selected.id, selected.provider);
+              this.appendSystemNotice(
+                `✓ 已成功切换至模型: ${selected.id} (${selected.provider})`,
+              );
+            } catch (err: any) {
+              this.appendErrorMessage(
+                `切换模型失败: ${err.message || String(err)}`,
+              );
+            }
           }
         },
         () => done(),
@@ -700,10 +765,16 @@ export class InteractiveMode {
         async (level: string) => {
           done();
           if (level) {
-            this.currentThinkingLevel = level;
-            this.footer.update({ thinkingLevel: level });
-            await this.bridge.setThinking(level);
-            this.appendSystemNotice(`✓ 思考预算等级已调整为: ${level}`);
+            try {
+              this.currentThinkingLevel = level;
+              this.footer.update({ thinkingLevel: level });
+              await this.bridge.setThinking(level);
+              this.appendSystemNotice(`✓ 思考预算等级已调整为: ${level}`);
+            } catch (err: any) {
+              this.appendErrorMessage(
+                `设置思考预算失败: ${err.message || String(err)}`,
+              );
+            }
           }
         },
         () => done(),
@@ -717,8 +788,14 @@ export class InteractiveMode {
       const selector = new LoginSelectorComponent(
         async (provider: string, key: string) => {
           done();
-          await this.bridge.login(provider, key);
-          this.appendSystemNotice(`✓ 已成功为 ${provider} 绑定 API 密钥。`);
+          try {
+            await this.bridge.login(provider, key);
+            this.appendSystemNotice(`✓ 已成功为 ${provider} 绑定 API 密钥。`);
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `绑定 API 密钥失败: ${err.message || String(err)}`,
+            );
+          }
         },
         () => done(),
       );
@@ -746,8 +823,14 @@ export class InteractiveMode {
         defaultProviders,
         async (providerId: string) => {
           done();
-          await this.bridge.logout(providerId);
-          this.appendSystemNotice(`✓ 已成功注销 ${providerId} 的凭据。`);
+          try {
+            await this.bridge.logout(providerId);
+            this.appendSystemNotice(`✓ 已成功注销 ${providerId} 的凭据。`);
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `注销凭据失败: ${err.message || String(err)}`,
+            );
+          }
         },
         () => done(),
       );
@@ -779,8 +862,14 @@ export class InteractiveMode {
         },
         async (node: TreeNode) => {
           done();
-          await this.bridge.branchSession(node.id);
-          this.appendSystemNotice(`✓ 已切换至分支节点: ${node.id}`);
+          try {
+            await this.bridge.branchSession(node.id);
+            this.appendSystemNotice(`✓ 已切换至分支节点: ${node.id}`);
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `切换分支失败: ${err.message || String(err)}`,
+            );
+          }
         },
         () => done(),
         undefined,
@@ -807,7 +896,13 @@ export class InteractiveMode {
       const selector = new SettingsSelectorComponent(
         {},
         async (key: string, value: unknown) => {
-          await this.bridge.setSetting(key, value);
+          try {
+            await this.bridge.setSetting(key, value);
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `修改配置失败: ${err.message || String(err)}`,
+            );
+          }
         },
         () => done(),
       );
@@ -824,7 +919,24 @@ export class InteractiveMode {
     const cmd = (parts[0] || "").toLowerCase();
     const args = parts.slice(1).join(" ").trim();
 
-    switch (cmd) {
+    if (
+      this.isStreaming &&
+      [
+        "clear",
+        "new",
+        "resume",
+        "session",
+        "compact",
+        "clone",
+        "fork",
+      ].includes(cmd)
+    ) {
+      this.appendErrorMessage(`当前智能体正在执行中，无法执行 /${cmd} 操作。`);
+      return;
+    }
+
+    try {
+      switch (cmd) {
       case "clear": {
         if (this.isStreaming) {
           this.appendErrorMessage("当前智能体正在执行中，无法清空屏幕会话。");
@@ -958,6 +1070,10 @@ export class InteractiveMode {
         break;
       }
       case "name": {
+        if (!args) {
+          this.appendSystemNotice("用法：/name <会话名称>");
+          break;
+        }
         const res: any =
           (await (this.bridge as any).sessionName?.(args)) ??
           (await (this.bridge.client as any).sendRequest?.("session_name", {
@@ -1042,6 +1158,11 @@ export class InteractiveMode {
         this.appendErrorMessage(`未知命令 /${cmd}，输入 /help 查看可用命令。`);
       }
     }
+    } catch (err: any) {
+      this.appendErrorMessage(
+        `执行命令 /${cmd} 失败: ${err.message || String(err)}`,
+      );
+    }
   }
 
   private async handleShellMacro(input: string): Promise<void> {
@@ -1105,16 +1226,38 @@ export class InteractiveMode {
 
     for (const msg of messages) {
       if (msg.role === "user") {
-        this.chatContainer.addChild(new UserMessageComponent(msg.content));
+        const userText =
+          typeof msg.content === "string"
+            ? msg.content
+            : Array.isArray(msg.content)
+              ? msg.content
+                  .map((b: any) =>
+                    typeof b === "string" ? b : b?.text || b?.content || "",
+                  )
+                  .join("")
+              : String(msg.content ?? "");
+        this.chatContainer.addChild(new UserMessageComponent(userText));
       } else if (msg.role === "assistant") {
         const assistantComp = new AssistantMessageComponent();
         const thinking =
           msg.metadata?.thinking || msg.metadata?.reasoning_content;
         if (thinking) {
-          assistantComp.appendReasoningDelta(String(thinking));
+          assistantComp.setReasoning(String(thinking));
         }
-        if (msg.content) {
-          assistantComp.appendTextDelta(msg.content);
+        const assistantText =
+          typeof msg.content === "string"
+            ? msg.content
+            : Array.isArray(msg.content)
+              ? msg.content
+                  .map((b: any) =>
+                    typeof b === "string" ? b : b?.text || b?.content || "",
+                  )
+                  .join("")
+              : msg.content != null
+                ? String(msg.content)
+                : "";
+        if (assistantText) {
+          assistantComp.setContent(assistantText);
         }
         assistantComp.finalize();
         this.chatContainer.addChild(assistantComp);

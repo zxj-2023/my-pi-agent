@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
+import { isEnterKey } from "./keys.js";
 
 export interface SessionItem {
   id: string;
@@ -239,17 +240,11 @@ export class SessionSelectorComponent extends Container {
       if (this.requestRender) this.requestRender();
       return;
     }
-    if (matchesKey(data, "escape")) {
+    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
       this.onCancel();
       return;
     }
-    if (
-      matchesKey(data, "return") ||
-      matchesKey(data, "enter") ||
-      data === "\r" ||
-      data === "\n" ||
-      data === "\r\n"
-    ) {
+    if (isEnterKey(data)) {
       const selected =
         this.filteredSessions[this.selectedIndex] || this.filteredSessions[0];
       if (selected) {

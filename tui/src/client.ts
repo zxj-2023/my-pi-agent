@@ -102,6 +102,10 @@ export class PythonKernelClient extends EventEmitter {
       );
     }
 
+    this.child.stdin.on("error", (err: Error) => {
+      this.emit("error", err);
+    });
+
     this.rl = readline.createInterface({
       input: this.child.stdout,
       terminal: false,
@@ -265,11 +269,23 @@ export class PythonKernelClient extends EventEmitter {
 
   public async prompt(
     text: string,
-    onEvent?: (event: AgentEvent) => void,
+    onEventOrOptions?: ((event: AgentEvent) => void) | Record<string, unknown>,
   ): Promise<void> {
-    this.activeEventCallback = onEvent || null;
+    if (typeof onEventOrOptions === "function") {
+      this.activeEventCallback = onEventOrOptions;
+    } else {
+      this.activeEventCallback = null;
+    }
+    const params: Record<string, unknown> = { text };
+    if (
+      onEventOrOptions &&
+      typeof onEventOrOptions === "object" &&
+      typeof onEventOrOptions !== "function"
+    ) {
+      Object.assign(params, onEventOrOptions);
+    }
     try {
-      await this.sendRequest("prompt", { text });
+      await this.sendRequest("prompt", params);
     } finally {
       this.activeEventCallback = null;
     }

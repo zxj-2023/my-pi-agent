@@ -81,7 +81,7 @@ export class KernelBridge {
     if (typeof (this.client as any).steer === "function") {
       return (this.client as any).steer(text);
     }
-    return this.call<RpcResponseData>("steer", { prompt: text });
+    return this.call<RpcResponseData>("steer", { message: text });
   }
 
   public async followUp(text: string): Promise<RpcResponseData> {
@@ -91,7 +91,7 @@ export class KernelBridge {
     if (typeof (this.client as any).followUp === "function") {
       return (this.client as any).followUp(text);
     }
-    return this.call<RpcResponseData>("followup", { prompt: text });
+    return this.call<RpcResponseData>("followup", { message: text });
   }
 
   public async listModels(

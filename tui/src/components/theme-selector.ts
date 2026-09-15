@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
+import { isEnterKey } from "./keys.js";
 
 const THEME_LAYOUT_OPTIONS = {
   minPrimaryColumnWidth: 12,
@@ -96,13 +97,22 @@ export class ThemeSelectorComponent extends Container {
   }
 
   public handleInput(data: string): void {
+    if (matchesKey(data, "ctrl+c")) {
+      this.onCancel();
+      return;
+    }
+
     if (
       matchesKey(data, "up") ||
       matchesKey(data, "down") ||
-      matchesKey(data, "return") ||
+      isEnterKey(data) ||
       matchesKey(data, "escape")
     ) {
-      this.selectList.handleInput(data);
+      if (isEnterKey(data)) {
+        this.selectList.handleInput("\r");
+      } else {
+        this.selectList.handleInput(data);
+      }
     }
   }
 }

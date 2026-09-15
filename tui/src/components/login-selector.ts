@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 import { DynamicBorder } from "./dynamic-border.js";
+import { isEnterKey } from "./keys.js";
 
 export interface ProviderOption {
   id: string;
@@ -128,6 +129,8 @@ export class LoginSelectorComponent extends Container {
     this.addChild(new Spacer(1));
 
     if (this.phase === "select_provider") {
+      this.searchInput.focused = this._focused;
+      this.keyInput.focused = false;
       this.addChild(
         new Text(theme.bold("Login / Bind Provider Credentials"), 0, 0),
       );
@@ -154,6 +157,8 @@ export class LoginSelectorComponent extends Container {
         new Text(theme.fg("dim", "  Enter to select · Escape to cancel"), 0, 0),
       );
     } else {
+      this.keyInput.focused = this._focused;
+      this.searchInput.focused = false;
       this.addChild(
         new Text(
           theme.bold(`Enter API Key for ${this.selectedProvider.label}`),
@@ -190,14 +195,23 @@ export class LoginSelectorComponent extends Container {
   }
 
   public handleInput(data: string): void {
+    if (matchesKey(data, "ctrl+c")) {
+      this.onCancel();
+      return;
+    }
+
     if (this.phase === "select_provider") {
       if (
         matchesKey(data, "up") ||
         matchesKey(data, "down") ||
-        matchesKey(data, "return") ||
+        isEnterKey(data) ||
         matchesKey(data, "escape")
       ) {
-        this.selectList.handleInput(data);
+        if (isEnterKey(data)) {
+          this.selectList.handleInput("\r");
+        } else {
+          this.selectList.handleInput(data);
+        }
         return;
       }
       this.searchInput.handleInput(data);
@@ -208,7 +222,7 @@ export class LoginSelectorComponent extends Container {
         this.rebuildUI();
         return;
       }
-      if (matchesKey(data, "return")) {
+      if (isEnterKey(data)) {
         const key = this.keyInput.getValue().trim();
         if (key) {
           this.onSubmit(this.selectedProvider.id, key);
