@@ -822,28 +822,28 @@ export class InteractiveMode {
         break;
       }
       case "session": {
-        if (!args) {
-          this.appendSystemNotice(
-            "✓ 会话状态存储模式：集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。",
-          );
-        } else {
+        if (args) {
           const res: any = await this.bridge.resumeSession(args);
           this.renderSessionHistory(
             res?.messages || [],
             `✓ 已成功恢复历史会话 [${args}]`,
+          );
+        } else {
+          this.appendSystemNotice(
+            "✓ 会话状态存储模式：集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。",
           );
         }
         break;
       }
       case "resume": {
-        if (!args) {
-          this.showSessionSelector();
-        } else {
+        if (args) {
           const res: any = await this.bridge.resumeSession(args);
           this.renderSessionHistory(
             res?.messages || [],
             `✓ 已成功恢复历史会话 [${args}]`,
           );
+        } else {
+          this.showSessionSelector();
         }
         break;
       }
@@ -946,9 +946,7 @@ export class InteractiveMode {
         break;
       }
       case "fork": {
-        if (!args) {
-          this.showForkSelector();
-        } else {
+        if (args) {
           const client = (this.bridge as any).client;
           const res: any =
             (await client?.sendRequest?.("session_fork", { node_id: args })) ||
@@ -956,6 +954,8 @@ export class InteractiveMode {
           this.appendSystemNotice(
             `✓ 已成功从节点 ${args} 分叉开辟新会话: ${res?.new_session_id || ""}`,
           );
+        } else {
+          this.showForkSelector();
         }
         break;
       }
