@@ -10,7 +10,7 @@ import time
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
 from my_agent_llm.models import Message
@@ -39,8 +39,17 @@ class SessionInfoEntry(BaseSessionEntry):
     type: Literal["session_info", "sessionInfo"] = "session_info"
     cwd: str | None = None
     title: str | None = None
+    name: str | None = None
     created_at: float | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _sync_title_name(self) -> SessionInfoEntry:
+        if self.name and not self.title:
+            self.title = self.name
+        elif self.title and not self.name:
+            self.name = self.title
+        return self
 
 
 class MessageEntry(BaseSessionEntry):
@@ -73,9 +82,7 @@ class ModelChangeEntry(BaseSessionEntry):
 class ThinkingLevelChangeEntry(BaseSessionEntry):
     """记录推理思考等级调整。"""
 
-    type: Literal["thinking_level_change", "thinkingLevelChange"] = (
-        "thinking_level_change"
-    )
+    type: Literal["thinking_level_change", "thinkingLevelChange"] = "thinking_level_change"
     thinking_level: str
 
 

@@ -651,7 +651,7 @@ my-pi-agent/
 
 ---
 
-## 未来路线（v1 路线图，见 `packages/my-agent-core/README.md`）
+## 核心演化历程总览（已全部完成落地）
 
 - 阶段 2：单层 `Agent` 类 + 事件（已完成）
 - 阶段 3：session 管理（已完成）

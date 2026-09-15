@@ -1,4 +1,6 @@
 {
+  "venvPath": ".",
+  "venv": ".venv",
   "extraPaths": [
     "src"
   ],
@@ -10,9 +12,6 @@
   "reportUnknownVariableType": "none",
   "reportUnknownParameterType": "none",
   "reportMissingParameterType": "none",
-  "reportUnannotatedClassAttribute": "none",
-  "reportAny": "none",
-  "reportExplicitAny": "none",
   "reportUnnecessaryTypeIgnoreComment": "none",
   "reportCallIssue": "none",
   "reportArgumentType": "none"

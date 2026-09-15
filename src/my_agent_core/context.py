@@ -322,7 +322,13 @@ class ContextManager:
         self._ratio = None
         self.pending_compaction = None
 
-    async def force_compact(self, messages: list[Message]) -> list[Message]:
+    async def compact(self, messages: list[Message] | None = None, instructions: str | None = None) -> list[Message]:
+        """对标 Pi manual compact API：执行强制摘要并可传入额外聚焦指令。"""
+        if messages is None:
+            messages = []
+        return await self.force_compact(messages, instructions=instructions)
+
+    async def force_compact(self, messages: list[Message], instructions: str | None = None) -> list[Message]:
         """无条件执行一次摘要（手动 compact 用），不管阈值。清缓存后基于完整历史重摘要。
 
         对话过短（正常切点逻辑找不到 cut）时仍强制：摘要全部非 system 消息，不保留尾部。
@@ -336,7 +342,7 @@ class ContextManager:
             if len(messages) <= start:
                 return list(messages)  # 空 / 仅 system → 无可摘要
             cut = len(messages)  # 强制：全部非 system 消息进摘要，不保留尾部
-        return await self._summarize_from_cut(messages, cut)
+        return await self._summarize_from_cut(messages, cut, instructions=instructions)
 
     # ── 内部 ──
 
@@ -369,14 +375,16 @@ class ContextManager:
             return list(messages)  # 找不到 user 切点 → 不压缩
         return await self._summarize_from_cut(messages, cut)
 
-    async def _summarize_from_cut(self, messages: list[Message], cut: int) -> list[Message]:
+    async def _summarize_from_cut(
+        self, messages: list[Message], cut: int, instructions: str | None = None
+    ) -> list[Message]:
         """按既定 cut 执行摘要：调 LLM → 写缓存 → 构造视图。降级失败返回原视图。"""
         tokens_before = estimate_tokens(messages, self._ratio)
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
         summarized = messages[len(system_msg) : cut]  # 摘要输入不含 system（persona 保持原样）
         retained = messages[cut:]
         try:
-            summary, usage, model = await self._call_summarizer(summarized)
+            summary, usage, model = await self._call_summarizer(summarized, instructions=instructions)
         except Exception:
             return list(messages)  # 降级：不压缩
         if not summary.strip():
@@ -417,12 +425,18 @@ class ContextManager:
             return None
         return cut
 
-    async def _call_summarizer(self, messages: list[Message]) -> tuple[str, dict[str, Any] | None, str | None]:
+    async def _call_summarizer(
+        self, messages: list[Message], instructions: str | None = None
+    ) -> tuple[str, dict[str, Any] | None, str | None]:
         """调 self.llm 做摘要调用（tools=[]）→ (摘要, usage, model)。迭代：附旧摘要 + 文件足迹。"""
         conversation = _serialize_messages(messages)
-        user_content = SUMMARIZATION_PROMPT_TEMPLATE.format(
-            previous_summary=self._summary or "(none)",
-            conversation=conversation,
+        prompt_instructions = f"\n\nUser instructions for summarization:\n{instructions}" if instructions else ""
+        user_content = (
+            SUMMARIZATION_PROMPT_TEMPLATE.format(
+                previous_summary=self._summary or "(none)",
+                conversation=conversation,
+            )
+            + prompt_instructions
         )
         msgs = [
             Message(role="system", content=SUMMARIZATION_SYSTEM_PROMPT),

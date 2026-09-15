@@ -35,9 +35,7 @@ class SessionTree:
         self.current_id: str | None = None
         self.root_id: str | None = None
 
-    def add_entry(
-        self, role: str, content: str, parent_id: str | None = None, **metadata: Any
-    ) -> MessageEntry:
+    def add_entry(self, role: str, content: str, parent_id: str | None = None, **metadata: Any) -> MessageEntry:
         """追加到 current 下（或指定 parent）。首个 entry 成为根。"""
         if parent_id is None:
             parent_id = self.current_id
@@ -81,9 +79,7 @@ class SessionTree:
     def from_jsonl_iter(cls, lines: Iterable[str]) -> SessionTree:
         """从迭代器恢复树。中途某行损坏抛 ValueError（带行号），尾行由 load 处理。"""
         tree = cls()
-        for idx, line in enumerate(
-            lines, start=2
-        ):  # start=2 因为 line 1 是 session_info
+        for idx, line in enumerate(lines, start=2):  # start=2 因为 line 1 是 session_info
             line = line.strip()
             if not line:
                 continue
@@ -104,9 +100,7 @@ class Session:
     文件第 1 行是 SessionInfoEntry，后续每行是一个多态 SessionEntry。
     """
 
-    def __init__(
-        self, *, path: Path, cwd: str | None = None, metadata: dict | None = None
-    ):
+    def __init__(self, *, path: Path, cwd: str | None = None, metadata: dict | None = None):
         """新建会话（纯对话，不含 system）。不立即写文件。"""
         self.path = Path(path)
         self.id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
@@ -114,9 +108,7 @@ class Session:
         self.cwd = cwd or str(Path.cwd())
         self.tree = SessionTree()
         self.compaction_floor: str | None = None
-        self.metadata = (
-            metadata or {}
-        )  # 额外元数据（子代理：agent_type/parent_session_id），进 SessionInfoEntry
+        self.metadata = metadata or {}  # 额外元数据（子代理：agent_type/parent_session_id），进 SessionInfoEntry
         self._storage: Any | None = None
 
     @classmethod
@@ -135,14 +127,10 @@ class Session:
         try:
             first_entry = entry_from_json_line(lines[0])
         except Exception as exc:
-            raise ValueError(
-                f"Session file {path}: invalid header/info: {exc}"
-            ) from exc
+            raise ValueError(f"Session file {path}: invalid header/info: {exc}") from exc
 
         if not isinstance(first_entry, SessionInfoEntry):
-            raise ValueError(
-                f"Session file {path}: line 1 must be a valid SessionInfoEntry"
-            )
+            raise ValueError(f"Session file {path}: line 1 must be a valid SessionInfoEntry")
 
         tree_lines = lines[1:]
         if tree_lines and tree_lines[-1].strip():
@@ -153,6 +141,16 @@ class Session:
 
         tree = SessionTree.from_jsonl_iter(tree_lines)
         meta = dict(first_entry.metadata)
+        if getattr(first_entry, "name", None):
+            meta["name"] = first_entry.name
+        if getattr(first_entry, "title", None):
+            meta["title"] = first_entry.title
+        for e in tree.entries.values():
+            if isinstance(e, SessionInfoEntry):
+                sub_name = getattr(e, "name", None) or getattr(e, "title", None)
+                if sub_name:
+                    meta["name"] = sub_name
+                    meta["title"] = sub_name
 
         # 优先恢复 current_id / root_id
         cur = meta.get("current_id")
@@ -171,16 +169,10 @@ class Session:
         )
         session.tree = tree
         session.compaction_floor = meta.get("compaction_floor")
-        session.metadata = {
-            k: v
-            for k, v in meta.items()
-            if k not in ("current_id", "root_id", "compaction_floor")
-        }
+        session.metadata = {k: v for k, v in meta.items() if k not in ("current_id", "root_id", "compaction_floor")}
         return session
 
-    def add_message(
-        self, role: str, content: str, parent_id: str | None = None, **metadata: Any
-    ) -> MessageEntry:
+    def add_message(self, role: str, content: str, parent_id: str | None = None, **metadata: Any) -> MessageEntry:
         """加到树 + save()。"""
         entry = self.tree.add_entry(role, content, parent_id, **metadata)
         self.save()
@@ -248,14 +240,11 @@ class Session:
         cache_entries = [
             e
             for e in self.tree.entries.values()
-            if isinstance(e, CompactionEntry)
-            or getattr(e, "type", None) == "compaction"
+            if isinstance(e, CompactionEntry) or getattr(e, "type", None) == "compaction"
         ]
         if not cache_entries:
             return None
-        latest = max(
-            cache_entries, key=lambda e: len(self.tree.get_path_to_entry(e.id))
-        )
+        latest = max(cache_entries, key=lambda e: len(self.tree.get_path_to_entry(e.id)))
         md = getattr(latest, "metadata", {}) or {}
         try:
             covered_count = int(md.get("covered_count", 0))
@@ -305,9 +294,12 @@ class Session:
         except Exception:
             created_at_val = None
 
+        name_val = meta.get("name") or meta.get("title")
         info_entry = SessionInfoEntry(
             id=self.id,
             cwd=self.cwd,
+            title=name_val,
+            name=name_val,
             created_at=created_at_val,
             metadata=meta,
         )
@@ -333,6 +325,34 @@ class Session:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
             raise
+
+    def append_entry(self, entry: SessionEntry) -> None:
+        """追加一条任意多态 SessionEntry 并原子持久化。"""
+        if isinstance(entry, SessionInfoEntry):
+            name_val = getattr(entry, "name", None) or getattr(entry, "title", None)
+            if name_val:
+                self.metadata["name"] = name_val
+                self.metadata["title"] = name_val
+            if entry.cwd:
+                self.cwd = entry.cwd
+        self.tree.entries[entry.id] = entry
+        if self.tree.root_id is None:
+            self.tree.root_id = entry.id
+        self.tree.current_id = entry.id
+        self.save()
+
+    @property
+    def store(self):
+        """兼容层：暴露包含 append_entry 的 storage/store 接口。"""
+
+        class _SessionStoreProxy:
+            def __init__(self, session: Session):
+                self._session = session
+
+            def append_entry(self, entry: SessionEntry) -> None:
+                self._session.append_entry(entry)
+
+        return _SessionStoreProxy(self)
 
     def reset(self) -> None:
         """清空树 + 原子重写（纯对话，不含 system）。唯一破坏性操作。"""

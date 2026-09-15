@@ -49,7 +49,7 @@ class CodingAgent:
         self._loop: asyncio.AbstractEventLoop | None = None
 
         if isinstance(session, (str, Path)):
-            session = Session(path=Path(session))
+            session = Session(path=Path(session), cwd=str(self.workspace))
 
         # 1. 自动生成或应用系统提示词
         effective_prompt = system_prompt if system_prompt is not None else build_default_coding_prompt(self.workspace)
@@ -150,9 +150,9 @@ class CodingAgent:
         """异步上下文管理器出口：优雅回收 MCP 资源。"""
         await self.close_mcp()
 
-    async def compact(self):
+    async def compact(self, instructions: str | None = None):
         """手动触发智能上下文压缩。"""
-        return await self.agent.compact()
+        return await self.agent.compact(instructions=instructions)
 
     async def run(self, user_input: str) -> str:
         """批处理高阶入口：聚合最终助手文本"""

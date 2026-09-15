@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from "node:child_process";
+import { ChildProcess, spawn, spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as readline from "node:readline";
@@ -15,6 +15,12 @@ export interface PythonKernelClientOptions {
   model?: string;
   mode?: string;
   pythonExecutable?: string;
+  continueSession?: boolean;
+  resume?: string | boolean;
+  sessionName?: string;
+  thinking?: string;
+  noSession?: boolean;
+  newSession?: boolean;
 }
 
 export class PythonKernelClient extends EventEmitter {
@@ -40,24 +46,17 @@ export class PythonKernelClient extends EventEmitter {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(__dirname, "../..");
 
-    const args = [
-      "run",
-      "python",
-      "-m",
-      "my_coding_agent.rpc_server",
-      "-w",
-      workspace,
-    ];
-    if (this.options.model) {
-      args.push("-m", this.options.model);
-    }
-
-    const cmd = this.options.pythonExecutable || "uv";
+    const { cmd, args } = this.resolvePythonCommand(workspace);
 
     this.child = spawn(cmd, args, {
       stdio: ["pipe", "pipe", "inherit"],
       cwd: repoRoot,
       windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: "utf-8",
+        PYTHONUTF8: "1",
+      },
     });
 
     if (!this.child.stdout || !this.child.stdin) {
@@ -90,6 +89,14 @@ export class PythonKernelClient extends EventEmitter {
 
     this.child.on("error", (err: Error) => {
       this.emit("error", err);
+      for (const { reject } of this.pendingRequests.values()) {
+        reject(
+          new Error(
+            `无法启动 Python 内核 (${cmd}): ${err.message}。请确保已安装 uv (https://astral.sh/uv) 或 Python 3.11+。`,
+          ),
+        );
+      }
+      this.pendingRequests.clear();
     });
 
     // 初始化内核
@@ -97,7 +104,60 @@ export class PythonKernelClient extends EventEmitter {
       workspace,
       model: this.options.model,
       mode: this.options.mode || "review",
+      continue_session: this.options.continueSession,
+      resume: this.options.resume,
+      name: this.options.sessionName,
+      thinking: this.options.thinking,
+      no_session: this.options.noSession,
     });
+  }
+
+  private resolvePythonCommand(workspace: string): {
+    cmd: string;
+    args: string[];
+  } {
+    const rpcArgs = ["-m", "my_coding_agent.rpc_server", "-w", workspace];
+    if (this.options.model) {
+      rpcArgs.push("-m", this.options.model);
+    }
+
+    // 1. 优先使用外部显式传入的 Python 解释器
+    if (this.options.pythonExecutable) {
+      return { cmd: this.options.pythonExecutable, args: rpcArgs };
+    }
+
+    // 2. 探测系统 uv 极速包管理器
+    try {
+      const probeUv = spawnSync("uv", ["--version"], { stdio: "ignore" });
+      if (probeUv.status === 0) {
+        return { cmd: "uv", args: ["run", "python", ...rpcArgs] };
+      }
+    } catch {
+      // uv 未安装
+    }
+
+    // 3. 探测系统 python3
+    try {
+      const probePy3 = spawnSync("python3", ["--version"], { stdio: "ignore" });
+      if (probePy3.status === 0) {
+        return { cmd: "python3", args: rpcArgs };
+      }
+    } catch {
+      // python3 未安装
+    }
+
+    // 4. 探测系统 python
+    try {
+      const probePy = spawnSync("python", ["--version"], { stdio: "ignore" });
+      if (probePy.status === 0) {
+        return { cmd: "python", args: rpcArgs };
+      }
+    } catch {
+      // python 未安装
+    }
+
+    // 5. 兜底回退为 uv，并将在子进程启动失败时触发友好报错
+    return { cmd: "uv", args: ["run", "python", ...rpcArgs] };
   }
 
   private handleLine(line: string): void {

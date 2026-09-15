@@ -300,10 +300,12 @@ my-pi-agent/
   - 提供 4 增量 CRUD 工具族（`task_create`, `task_update`, `task_get`, `task_list`）与 `todo_write` 便捷工具；
   - `BeforeModelCall` 自动 `<TASK_BOARD>` 上下文看板投影（Session 零污染）；
   - `BackgroundRunner` 异步调度与进程树递归强杀孤儿进程防御。
-- [ ] **Coding Agent CLI 交互层（`packages/my-coding-agent`）**：
-  - 基于 `prompt_toolkit` 与 `rich` 的现代化终端交互 REPL；
-  - 权限确认门控（落地于 `ToolExecutionStart` 拦截点）；
-  - Plan 模式（只读调研 ➔ 方案批准 ➔ 执行落地）与 `AGENTS.md` 提示词自动注入。
+- [x] **基于 Pi 原厂 `@earendil-works/pi-tui` 的双核表现层（`tui/` 与 `src/my_coding_agent`）**：
+  - 基于 `TuiMainScreen` 差量重绘器与 CSI 2026 同步屏障的高质感终端交互层；
+  - 流式 Markdown 增量渲染、动态思考折叠块、圆角边框工具卡片、`@` 路径联想与 `/` 斜杠命令气泡；
+  - 无状态 stdio JSON-RPC 2.0 双向流通信与跨进程生命周期安全绑定；
+  - `Accept-on-Diff` 权限审查门禁与词级差异高亮；
+  - `<project_context>` 自动发现与 `AGENTS.md` 规范注入。
 - [ ] **底层可靠性与网络弹性**：
   - 流式中断与 429 / 5xx 指数退避重试；
   - 大模型 `stop_reason` 细粒度归一化处理。

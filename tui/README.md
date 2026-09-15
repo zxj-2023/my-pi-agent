@@ -1,4 +1,4 @@
-# packages/my-agent-tui
+# my-agent-tui
 
 `my-pi-agent` 的高质感交互终端表现层（基于 `@earendil-works/pi-tui` 的 Node.js / TypeScript 前端 Shell）。
 
@@ -10,12 +10,17 @@
 - **动态思考折叠块 (Thinking Block)**：流式大模型思考过程展示，`Ctrl+O` 随时展开/折叠；
 - **就地更新工具卡片**：圆角细线卡片（`╭─ ⚙️ read ... ─╮`）、点阵 Spinner 微动效、执行完成变绿与耗时提示；
 - **富文本多行编辑器与 IME 光标锚定**：支持中文输入法硬件光标精准对齐，候选框永不乱跳；
-- **stdio JSON-RPC 双向流**：与 Python 无头业务内核 `my-coding-agent` 深度集成，支持 `Esc` 瞬时打断与键入即时转向。
+- **模糊补全气泡**：`@` 文件模糊补全与 `/` 斜杠命令提示浮窗；
+- **stdio JSON-RPC 双向流**：与 Python 无头业务内核 `my-coding-agent` 深度集成，支持 `Esc` 瞬时打断与动态即时转向。
 
 ## 启动与运行
 
 ```bash
-cd packages/my-agent-tui
+# 从仓库根目录一键启动 (推荐)
+npm start
+
+# 或在 tui/ 目录下独立执行
+cd tui
 npm install
 npm run build
 npm start

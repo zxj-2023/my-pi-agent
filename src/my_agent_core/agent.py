@@ -127,26 +127,16 @@ class Agent:
         self.message_queue = MessageQueue(
             steering_mode=steering_mode, followup_mode=followup_mode
         )  # 动态干预消息队列 (Pi-style steer & followup)
-        self.background_runner = BackgroundRunner(
-            self.message_queue
-        )  # 后台异步执行器与孤儿进程防御调度引擎
+        self.background_runner = BackgroundRunner(self.message_queue)  # 后台异步执行器与孤儿进程防御调度引擎
 
         self._register_tools(tools)  # ① 工具注册统一（用户 + 内置 task + 内置 memory）
-        self.extension_manager = ExtensionManager(
-            self, extension_dirs
-        )  # extension 装配
+        self.extension_manager = ExtensionManager(self, extension_dirs)  # extension 装配
         self._extensions_loaded = False
-        self.messages = self._init_messages(
-            session, system_prompt
-        )  # ② 拼 system + 恢复
-        self._init_context(
-            session, context_budget, keep_recent_tokens
-        )  # ③ context 装配
+        self.messages = self._init_messages(session, system_prompt)  # ② 拼 system + 恢复
+        self._init_context(session, context_budget, keep_recent_tokens)  # ③ context 装配
         self._register_hooks(hooks)  # ④ hooks 批量注册
 
-    def _init_task_store(
-        self, task_store: TaskStore | Path | str | None | Literal[False]
-    ) -> TaskStore | None:
+    def _init_task_store(self, task_store: TaskStore | Path | str | None | Literal[False]) -> TaskStore | None:
         """解析 task_store 三态并初始化 TaskStore：
         False → 显式禁用；
         TaskStore 实例 → 直接复用；
@@ -164,9 +154,7 @@ class Agent:
             return TaskStore(Path.cwd())
         return None
 
-    def _init_memory_store(
-        self, memory_dir: str | Path | None | Literal[False]
-    ) -> MemoryStore | None:
+    def _init_memory_store(self, memory_dir: str | Path | None | Literal[False]) -> MemoryStore | None:
         """解析 memory_dir 三态并初始化 MemoryStore：
         False → 显式禁用；
         None → 探测 <cwd>/.my_agent_core/memory（存在才启用）；
@@ -191,33 +179,21 @@ class Agent:
             self.registry.register(t)
         if self.subagent_manager:
             if self.registry.get("task") is not None:
-                raise ValueError(
-                    "Tool name 'task' conflicts with the built-in subagent delegation tool"
-                )
+                raise ValueError("Tool name 'task' conflicts with the built-in subagent delegation tool")
             self.registry.register(make_task_tool(self.subagent_manager, self))
         if self.memory_store:
             if self.registry.get("memory") is not None:
-                raise ValueError(
-                    "Tool name 'memory' conflicts with the built-in memory tool"
-                )
+                raise ValueError("Tool name 'memory' conflicts with the built-in memory tool")
             self.registry.register(make_memory_tool(self.memory_store))
         if self.task_store:
             for task_tool in make_task_tools(self.task_store):
                 if self.registry.get(task_tool.name) is not None:
-                    raise ValueError(
-                        f"Tool name '{task_tool.name}' conflicts with built-in task tool"
-                    )
+                    raise ValueError(f"Tool name '{task_tool.name}' conflicts with built-in task tool")
                 self.registry.register(task_tool)
 
-    def _init_messages(
-        self, session: Session, system_prompt: str | None
-    ) -> list[Message]:
+    def _init_messages(self, session: Session, system_prompt: str | None) -> list[Message]:
         """拼 system（Agent 配置）+ 恢复 session 纯对话，合成初始 messages。"""
-        mem_prompt = (
-            self.memory_store.format_all_for_system_prompt()
-            if self.memory_store
-            else None
-        )
+        mem_prompt = self.memory_store.format_all_for_system_prompt() if self.memory_store else None
         parts = [
             p
             for p in (
@@ -249,24 +225,21 @@ class Agent:
         )
         self._ctx_bridge.restore_cache(self._ctx)
 
-    def _register_hooks(
-        self, hooks: list[tuple[type, Callable[..., Any]]] | None
-    ) -> None:
+    def _register_hooks(self, hooks: list[tuple[type, Callable[..., Any]]] | None) -> None:
         """构造时批量注册 hooks / 决策回调（对称 _register_tools）。"""
         if self.task_store:
             guard = TaskGuardHook(self.task_store, self.steer)
-            self.subscribe(
-                lambda ev: (
-                    guard.on_agent_start(ev) if isinstance(ev, AgentStart) else None
-                )
-            )
-            self.subscribe(
-                lambda ev: guard.on_turn_end(ev) if isinstance(ev, TurnEnd) else None
-            )
+            self.subscribe(lambda ev: guard.on_agent_start(ev) if isinstance(ev, AgentStart) else None)
+            self.subscribe(lambda ev: guard.on_turn_end(ev) if isinstance(ev, TurnEnd) else None)
         for target, callback in hooks or []:
             self.hooks.register(target, callback)
 
     # ── 公共 API ────────────────────────────────────────────
+
+    @property
+    def context_manager(self) -> ContextManager:
+        """底层上下文管理器。"""
+        return self._ctx
 
     @property
     def skills(self) -> list[Skill]:
@@ -326,16 +299,10 @@ class Agent:
             self._extensions_loaded = True
 
         # ── Hook 1: UserInputHook 拦截与改写（在进入 Session 和消息历史之前触发）
-        user_input_decision = await self.hooks.emit(
-            UserInputHook(input_text=user_input)
-        )
+        user_input_decision = await self.hooks.emit(UserInputHook(input_text=user_input))
         if isinstance(user_input_decision, HookResult):
             if user_input_decision.block:
-                reason = (
-                    f": {user_input_decision.reason}"
-                    if user_input_decision.reason
-                    else ""
-                )
+                reason = f": {user_input_decision.reason}" if user_input_decision.reason else ""
                 end_ev = AgentEnd(
                     messages=list(self.messages),
                     final_text=f"(blocked{reason})",
@@ -361,9 +328,7 @@ class Agent:
             system_prompt = system_msgs[0].content
 
         # ── Hook 2: AgentStartHook 拦截启动或动态重写 system_prompt
-        start_decision = await self.hooks.emit(
-            AgentStartHook(system_prompt=system_prompt)
-        )
+        start_decision = await self.hooks.emit(AgentStartHook(system_prompt=system_prompt))
         if isinstance(start_decision, HookResult):
             if start_decision.block:
                 reason = f": {start_decision.reason}" if start_decision.reason else ""
@@ -381,9 +346,7 @@ class Agent:
                 if self.messages and self.messages[0].role == "system":
                     self.messages[0] = Message(role="system", content=system_prompt)
                 elif system_prompt:
-                    self.messages.insert(
-                        0, Message(role="system", content=system_prompt)
-                    )
+                    self.messages.insert(0, Message(role="system", content=system_prompt))
 
         # 委托核心 ReAct 纯函数微内核驱动事件流
         loop_gen = run_agent_loop(
@@ -410,18 +373,10 @@ class Agent:
                 is_cancelled_partial_text = (
                     msg.role == "assistant"
                     and not (msg.metadata and msg.metadata.get("tool_calls"))
-                    and (
-                        bool(
-                            msg.metadata
-                            and msg.metadata.get("stop_reason") == "cancelled"
-                        )
-                        or self._aborted
-                    )
+                    and (bool(msg.metadata and msg.metadata.get("stop_reason") == "cancelled") or self._aborted)
                 )
                 if msg.role != "system" and not is_cancelled_partial_text:
-                    self.session.add_message(
-                        msg.role, msg.content, **(msg.metadata or {})
-                    )
+                    self.session.add_message(msg.role, msg.content, **(msg.metadata or {}))
             elif isinstance(event, ContextCompacted):
                 self._ctx_bridge.write_compaction(self._ctx)
 
@@ -458,9 +413,9 @@ class Agent:
         self.messages = self._init_messages(self.session, self._system_prompt)
         self._ctx.reset()
 
-    async def compact(self) -> None:
+    async def compact(self, instructions: str | None = None) -> None:
         """手动触发压缩：无条件执行一次 L4 摘要（写缓存 + 事件），不动 messages。"""
-        await self._ctx.force_compact(self.messages)
+        await self._ctx.compact(self.messages, instructions=instructions)
         await self._handle_compaction()
 
     # ── 内部实现 ─────────────────────────────────────────────

@@ -38,14 +38,13 @@ class AntigravityAuthResolver:
         self,
         pi_auth_path: Path | None = None,
         credentials_path: Path | None = None,
+        workspace: Path | None = None,
     ) -> None:
-        home = Path(
-            os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~"
-        ).expanduser()
-        if pi_auth_path is not None:
-            self.pi_auth_path = Path(pi_auth_path).resolve()
-        else:
-            self.pi_auth_path = home / ".pi" / "agent" / "auth.json"
+        home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~").expanduser()
+        # 自身凭据路径：项目工作区 .my_agent/auth.json 或用户级 ~/.my_agent/credentials.json
+        # 绝不默认越界探测外部宿主 ~/.pi 目录！
+        self.workspace_auth_path = (Path(workspace).resolve() / ".my_agent" / "auth.json") if workspace else None
+        self.pi_auth_path = Path(pi_auth_path).resolve() if pi_auth_path is not None else None
 
         if credentials_path is not None:
             self.credentials_path = Path(credentials_path).resolve()
@@ -53,11 +52,9 @@ class AntigravityAuthResolver:
             self.credentials_path = home / ".my_agent" / "credentials.json"
 
     def resolve_credentials_raw(self) -> AntigravityCredentials | None:
-        """从 auth.json（对标 pi-antigravity）或环境变量动态获取凭据，零硬编码。"""
+        """从工作区/项目凭据或环境变量动态获取凭据，零硬编码，隔离外部环境。"""
         # 1. 环境变量优先
-        env_token = os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get(
-            "ANTIGRAVITY_API_KEY"
-        )
+        env_token = os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("ANTIGRAVITY_API_KEY")
         if env_token:
             return AntigravityCredentials(
                 access_token=env_token,
@@ -66,8 +63,16 @@ class AntigravityAuthResolver:
                 client_secret=os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"),
             )
 
-        # 2. 依次读取 ~/.pi/agent/auth.json 与 ~/.my_agent/credentials.json
-        for target_path in (self.pi_auth_path, self.credentials_path):
+        # 2. 依次读取自身工作区与 ~/.my_agent 凭据
+        candidate_paths: list[Path] = []
+        if self.workspace_auth_path:
+            candidate_paths.append(self.workspace_auth_path)
+        if self.credentials_path:
+            candidate_paths.append(self.credentials_path)
+        if self.pi_auth_path:
+            candidate_paths.append(self.pi_auth_path)
+
+        for target_path in candidate_paths:
             if target_path and target_path.exists():
                 try:
                     text_content = target_path.read_text(encoding="utf-8")
@@ -79,31 +84,24 @@ class AntigravityAuthResolver:
                     if entry and isinstance(entry, dict):
                         access_token = entry.get("access") or entry.get("access_token")
                         if access_token:
-                            expires_raw = entry.get("expires") or entry.get(
-                                "expires_at", 0
-                            )
+                            expires_raw = entry.get("expires") or entry.get("expires_at", 0)
                             try:
                                 exp_val = int(expires_raw)
                             except (ValueError, TypeError):
                                 exp_val = 0
                             return AntigravityCredentials(
                                 access_token=access_token,
-                                refresh_token=entry.get("refresh")
-                                or entry.get("refresh_token"),
+                                refresh_token=entry.get("refresh") or entry.get("refresh_token"),
                                 expires_at=exp_val,
-                                project_id=entry.get("projectId")
-                                or entry.get("project_id", "aicode-consumers"),
+                                project_id=entry.get("projectId") or entry.get("project_id", "aicode-consumers"),
                                 email=entry.get("email"),
                                 auth_file_path=target_path,
-                                client_id=entry.get("client_id")
-                                or os.environ.get("GOOGLE_OAUTH_CLIENT_ID"),
+                                client_id=entry.get("client_id") or os.environ.get("GOOGLE_OAUTH_CLIENT_ID"),
                                 client_secret=entry.get("client_secret")
                                 or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET"),
                             )
                 except Exception as exc:
-                    logger.debug(
-                        "Failed to read credentials from %s: %s", target_path, exc
-                    )
+                    logger.debug("Failed to read credentials from %s: %s", target_path, exc)
                     continue
 
         return None
@@ -126,18 +124,12 @@ class AntigravityAuthResolver:
     def refresh(self, creds: AntigravityCredentials) -> AntigravityCredentials:
         """向 Google OAuth 端点发起刷新请求换取新 token 并持久化写回。"""
         if not creds.refresh_token:
-            raise RuntimeError(
-                "Cannot refresh Antigravity token: missing refresh_token."
-            )
+            raise RuntimeError("Cannot refresh Antigravity token: missing refresh_token.")
 
         client_id = creds.client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
-        client_secret = creds.client_secret or os.environ.get(
-            "GOOGLE_OAUTH_CLIENT_SECRET"
-        )
+        client_secret = creds.client_secret or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
         if not client_id or not client_secret:
-            raise RuntimeError(
-                "Cannot refresh Antigravity token: missing client_id/client_secret in auth.json or env."
-            )
+            raise RuntimeError("Cannot refresh Antigravity token: missing client_id/client_secret in auth.json or env.")
 
         payload = {
             "client_id": client_id,
@@ -147,17 +139,13 @@ class AntigravityAuthResolver:
         }
         res = httpx.post(GOOGLE_OAUTH_TOKEN_URL, data=payload, timeout=15.0)
         if res.status_code != 200:
-            raise RuntimeError(
-                f"Failed to refresh Antigravity token: {res.status_code} {res.text}"
-            )
+            raise RuntimeError(f"Failed to refresh Antigravity token: {res.status_code} {res.text}")
 
         data = res.json()
         new_access = data["access_token"]
         expires_in = data.get("expires_in", 3600)
         try:
-            new_expires_at = (
-                int(time.time() * 1000) + (expires_in * 1000) - (300 * 1000)
-            )
+            new_expires_at = int(time.time() * 1000) + (expires_in * 1000) - (300 * 1000)
         except Exception:
             new_expires_at = 0
 
@@ -180,18 +168,11 @@ class AntigravityAuthResolver:
                 target_key = (
                     "antigravity"
                     if "antigravity" in raw_data
-                    else (
-                        "google-antigravity"
-                        if "google-antigravity" in raw_data
-                        else "antigravity"
-                    )
+                    else ("google-antigravity" if "google-antigravity" in raw_data else "antigravity")
                 )
                 if target_key not in raw_data:
                     raw_data[target_key] = {}
-                if (
-                    "access" in raw_data[target_key]
-                    or "access_token" not in raw_data[target_key]
-                ):
+                if "access" in raw_data[target_key] or "access_token" not in raw_data[target_key]:
                     raw_data[target_key]["access"] = new_access
                 if "access_token" in raw_data[target_key]:
                     raw_data[target_key]["access_token"] = new_access
@@ -217,15 +198,8 @@ class AntigravityAuthResolver:
                 f"No Antigravity credentials found. Please ensure {self.pi_auth_path} exists or set ANTIGRAVITY_ACCESS_TOKEN."
             )
         client_id = creds.client_id or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
-        client_secret = creds.client_secret or os.environ.get(
-            "GOOGLE_OAUTH_CLIENT_SECRET"
-        )
-        if (
-            self.is_expired(creds)
-            and creds.refresh_token
-            and client_id
-            and client_secret
-        ):
+        client_secret = creds.client_secret or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+        if self.is_expired(creds) and creds.refresh_token and client_id and client_secret:
             with contextlib.suppress(Exception):
                 creds = self.refresh(creds)
         return creds

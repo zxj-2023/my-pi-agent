@@ -137,10 +137,14 @@ class MCPClientManager:
         servers = data.get("mcpServers", {})
         configs = []
         for name, srv in servers.items():
+            cmd = srv.get("command", "")
+            if not cmd:
+                # 当前仅支持 stdio 命令行进程类型，跳过非 command 类型（如 http/sse）
+                continue
             configs.append(
                 MCPServerConfig(
                     name=name,
-                    command=srv.get("command", ""),
+                    command=cmd,
                     args=srv.get("args", []),
                     env=srv.get("env"),
                 )

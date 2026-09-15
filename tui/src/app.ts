@@ -16,6 +16,7 @@ import {
 import { PythonKernelClient } from "./client.js";
 import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { FooterComponent } from "./components/footer.js";
+import { HeaderComponent } from "./components/header.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
 import { UserMessageComponent } from "./components/user-message.js";
 import { AgentEvent } from "./protocol.js";
@@ -25,17 +26,81 @@ export interface AppOptions {
   workspace?: string;
   model?: string;
   mode?: string;
+  continueSession?: boolean;
+  resume?: string | boolean;
+  sessionName?: string;
+  thinking?: string;
+  noSession?: boolean;
+  newSession?: boolean;
+  prompt?: string;
+  pythonExecutable?: string;
 }
 
 export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   { name: "help", description: "查看所有可用命令与快捷键说明" },
   { name: "clear", description: "清空当前终端屏幕会话" },
+  { name: "new", description: "结束当前会话，开启全新的空白会话" },
+  {
+    name: "resume",
+    description: "列出、搜索或恢复指定历史会话",
+    argumentHint: "[session_id]",
+  },
+  {
+    name: "name",
+    description: "查看或设置当前会话的显示名称",
+    argumentHint: "[title]",
+  },
+  {
+    name: "compact",
+    description: "触发上下文 L4 级 LLM 摘要压缩",
+    argumentHint: "[instructions]",
+  },
+  { name: "tree", description: "展示当前会话 DAG 树，支持分支漫游与回退" },
+  {
+    name: "fork",
+    description: "从指定历史提问分叉派生为独立新会话",
+    argumentHint: "[entry_id]",
+  },
+  { name: "clone", description: "将当前活跃分支完整克隆为新会话" },
   {
     name: "model",
     description: "切换生效的大语言模型 (如 deepseek-chat, gemini-3.8-flash)",
-    argumentHint: "<model>",
+    argumentHint: "[model]",
+  },
+  {
+    name: "thinking",
+    description: "调节思考预算等级 (off/minimal/low/medium/high/max)",
+    argumentHint: "[level]",
+  },
+  {
+    name: "login",
+    description: "查看凭据配置指南或快速绑定 API Key",
+    argumentHint: "[provider] [key]",
+  },
+  {
+    name: "logout",
+    description: "注销或清除指定 Provider 的已存凭据",
+    argumentHint: "<provider>",
   },
   { name: "quota", description: "查询当前用户的模型调用配额与余量" },
+  {
+    name: "session",
+    description: "查看当前会话信息与全局集中存储路径",
+  },
+  {
+    name: "settings",
+    description: "查看当前生效的全局与项目级配置",
+    argumentHint: "[key] [value]",
+  },
+  {
+    name: "reload",
+    description: "热重载 Skills、Prompts、Extensions 与 AGENTS.md",
+  },
+  {
+    name: "trust",
+    description: "查看或设置当前项目的信任状态",
+    argumentHint: "[status]",
+  },
   {
     name: "steer",
     description: "即时注入转向指令 (在下一个执行节点纠偏)",
@@ -44,6 +109,16 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   { name: "followup", description: "追加排队追问任务", argumentHint: "<task>" },
   { name: "exit", description: "安全退出交互终端并清理子进程" },
 ];
+
+export function isBuiltinSlashCommand(cmd: string): boolean {
+  const c = cmd.startsWith("/")
+    ? cmd.slice(1).toLowerCase()
+    : cmd.toLowerCase();
+  return (
+    c === "quit" ||
+    BUILTIN_SLASH_COMMANDS.some((item) => item.name.toLowerCase() === c)
+  );
+}
 
 function findFdPath(): string | undefined {
   const home = os.homedir();
@@ -72,6 +147,7 @@ function findFdPath(): string | undefined {
 
 export class AgentApp {
   private tui: TUI;
+  private header: HeaderComponent;
   private chatContainer: Container;
   private footer: FooterComponent;
   private editor: Editor;
@@ -90,6 +166,13 @@ export class AgentApp {
       workspace: options.workspace,
       model: options.model,
       mode: options.mode,
+      continueSession: options.continueSession,
+      resume: options.resume,
+      sessionName: options.sessionName,
+      thinking: options.thinking,
+      noSession: options.noSession,
+      newSession: options.newSession,
+      pythonExecutable: options.pythonExecutable,
     });
 
     this.chatContainer = new Container();
@@ -97,6 +180,8 @@ export class AgentApp {
     this.footer = new FooterComponent({
       workspace: options.workspace || process.cwd(),
       modelName: options.model || "default",
+      sessionName: options.sessionName,
+      thinkingLevel: options.thinking || "off",
     });
 
     const editorTheme: EditorTheme = {
@@ -122,9 +207,12 @@ export class AgentApp {
     );
     this.editor.setAutocompleteProvider(autocompleteProvider);
 
+    this.header = new HeaderComponent();
+
+    this.tui.addChild(this.header);
     this.tui.addChild(this.chatContainer);
-    this.tui.addChild(this.footer);
     this.tui.addChild(this.editor);
+    this.tui.addChild(this.footer);
     this.tui.setFocus(this.editor);
 
     this.setupListeners();
@@ -137,14 +225,25 @@ export class AgentApp {
       if (!trimmed) {
         return;
       }
-      this.handleUserSubmit(trimmed);
+      void this.handleUserSubmit(trimmed).catch(() => {
+        // 异常已在 handleUserSubmit 内部统一捕获并在 UI 气泡渲染
+      });
+    };
+
+    // 监听输入框文本变化 (检测以 ! 开头切换为 Bash Mode 变色)
+    this.editor.onChange = (text: string) => {
+      if (text.startsWith("!")) {
+        this.editor.borderColor = (str: string) => theme.fg("warning", str);
+      } else {
+        this.editor.borderColor = (str: string) => theme.fg("borderMuted", str);
+      }
+      this.tui.requestRender();
     };
 
     // 2. 全局键盘热键监听 (Ctrl+C, Esc, Ctrl+O)
     this.tui.addInputListener((data: string) => {
       if (matchesKey(data, "ctrl+c")) {
-        this.stop();
-        process.exit(0);
+        void this.stop().finally(() => process.exit(0));
       } else if (matchesKey(data, "escape")) {
         if (this.isBusy) {
           this.client.abort();
@@ -170,34 +269,96 @@ export class AgentApp {
     });
   }
 
+  private resetEditorBorder(): void {
+    this.editor.borderColor = (str: string) => theme.fg("borderMuted", str);
+  }
+
+  private finalizeActiveTools(reason = "执行中断"): void {
+    for (const [id, toolComp] of this.activeTools.entries()) {
+      if (!toolComp.finished) {
+        const startTime = this.toolStartTimes.get(id) || Date.now();
+        const elapsed = (Date.now() - startTime) / 1000;
+        toolComp.updateResult(reason, true, elapsed);
+      }
+    }
+    this.toolStartTimes.clear();
+  }
+
   private async handleSlashCommand(text: string): Promise<boolean> {
-    if (text === "/exit" || text === "/quit") {
+    const [rawCmd, ...argParts] = text.split(/\s+/);
+    const cmd = rawCmd.toLowerCase();
+    const argsText = argParts.join(" ").trim();
+
+    if (cmd === "/exit" || cmd === "/quit") {
       await this.stop();
       process.exit(0);
     }
 
-    if (text === "/clear") {
+    if (cmd === "/clear") {
+      if (this.isBusy) {
+        this.chatContainer.addChild(new UserMessageComponent(text));
+        this.editor.setText("");
+        this.resetEditorBorder();
+        const infoComp = new AssistantMessageComponent();
+        this.chatContainer.addChild(infoComp);
+        infoComp.appendTextDelta(
+          "⚠ 当前任务正在执行中，请先按 Esc 打断当前执行后再清空会话。",
+        );
+        infoComp.finalize();
+        this.tui.requestRender();
+        return true;
+      }
       this.chatContainer.clear();
       this.activeTools.clear();
       this.toolStartTimes.clear();
       this.currentAssistantComp = null;
       this.editor.setText("");
+      this.resetEditorBorder();
       this.tui.requestRender();
       return true;
     }
 
-    if (text === "/help") {
-      this.chatContainer.addChild(new UserMessageComponent("/help"));
+    if (cmd === "/help") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
+      this.resetEditorBorder();
       const helpComp = new AssistantMessageComponent();
       this.chatContainer.addChild(helpComp);
       const helpText = [
-        "**可用斜杠命令与快捷键说明**：",
-        "- `/clear`：清空当前终端屏幕会话",
-        "- `/help`：查看命令与快捷键帮助",
-        "- `/steer <instruction>`：即时注入转向指令 (在下一个执行节点纠偏)",
+        "**会话生命周期与分支命令**：",
+        "- `/new`：开启全新的空白会话 (延期落盘)",
+        "- `/resume [id]`：列出历史会话或恢复指定会话",
+        "- `/name [title]`：查看或重命名当前会话",
+        "- `/compact [prompt]`：触发上下文 L4 级 LLM 摘要压缩",
+        "- `/tree`：展示当前会话 DAG 树拓扑与活跃分支",
+        "- `/fork [entry_id]`：从历史提问分叉派生为独立新会话",
+        "- `/clone`：将当前活跃分支完整克隆为新会话",
+        "",
+        "**模型与凭据控制**：",
+        "- `/model [name]`：查看或切换大语言模型",
+        "- `/thinking [level]`：调节思考深度 (off/minimal/low/medium/high/max)",
+        "- `/login [provider] [key]`：绑定 Provider API Key 凭证",
+        "- `/logout <provider>`：注销指定 Provider 的凭据",
+        "- `/quota`：查询模型调用配额与余量",
+        "",
+        "**系统环境与安全**：",
+        "- `/session`：查看当前会话信息与全局集中存储路径",
+        "- `/settings`：查看全局与项目级配置项",
+        "- `/reload`：热重载 Skills、Prompts、Extensions 与 AGENTS.md",
+        "- `/trust [status]`：设置或查看当前项目信任状态",
+        "",
+        "**任务控制与交互**：",
+        "- `/steer <instruction>`：即时注入转向指令 (在下一个节点纠偏)",
         "- `/followup <task>`：追加排队追问任务",
+        "- `/clear`：清空当前终端屏幕会话",
+        "- `/help`：查看所有可用命令与快捷键说明",
         "- `/exit` 或 `/quit`：安全退出交互终端",
+        "",
+        "**输入行即时宏扩展**：",
+        "- `!command`：执行本地 Shell 命令，输出送入大模型上下文",
+        "- `!!command`：执行本地 Shell 命令，仅屏幕渲染，不入模型上下文",
+        "- `/skill:<name> [args]`：展开指定 Skill 的模板正文",
+        "- `/<template> [args]`：展开 prompts/ 目录下的模板并替换参数",
         "",
         "**常用快捷键**：",
         "- `Esc`：打断当前正在执行或生成的轮次 (Abort)",
@@ -211,16 +372,402 @@ export class AgentApp {
       return true;
     }
 
-    if (text.startsWith("/steer")) {
-      const instruction = text.slice(6).trim();
+    if (cmd === "/new") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          session_id: string;
+          session_file: string;
+        }>("session_new");
+        this.chatContainer.clear();
+        this.activeTools.clear();
+        this.toolStartTimes.clear();
+        this.currentAssistantComp = null;
+        this.isBusy = false;
+        this.footer.update({ isBusy: false });
+        const newComp = new AssistantMessageComponent();
+        this.chatContainer.addChild(newComp);
+        newComp.appendTextDelta(
+          `✓ 已开启全新空白会话 (ID: \`${res.session_id}\`)`,
+        );
+        newComp.finalize();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 开启新会话失败: ${msg}`);
+        infoComp.finalize();
+      }
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/resume") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        if (argsText) {
+          const res = await this.client.sendRequest<{
+            status: string;
+            session_id: string;
+            message_count?: number;
+          }>("session_resume", { session_id: argsText });
+          infoComp.appendTextDelta(`✓ 已成功恢复会话: \`${res.session_id}\``);
+        } else {
+          const res = await this.client.sendRequest<{
+            status: string;
+            sessions: Array<{
+              id: string;
+              name: string;
+              modified: number;
+              message_count: number;
+              path: string;
+            }>;
+          }>("session_list");
+          if (!res.sessions || res.sessions.length === 0) {
+            infoComp.appendTextDelta("ℹ 暂无历史会话记录。");
+          } else {
+            const lines = [
+              "**历史会话列表** (可使用 `/resume <id>` 恢复指定会话):",
+            ];
+            for (const s of res.sessions.slice(0, 15)) {
+              const d = new Date(s.modified * 1000);
+              const timeStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+              const countStr = `${s.message_count || 0} 条消息`;
+              lines.push(
+                `- \`${s.id}\` **${s.name || "未命名会话"}** (${countStr}, ${timeStr})`,
+              );
+            }
+            if (res.sessions.length > 15) {
+              lines.push(
+                `_仅显示前 15 项，共 ${res.sessions.length} 个历史会话_`,
+              );
+            }
+            infoComp.appendTextDelta(lines.join("\n"));
+          }
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 恢复会话失败: ${msg}`);
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/name") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (argsText) {
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            name: string;
+          }>("session_name", { name: argsText });
+          infoComp.appendTextDelta(`✓ 会话已重命名为: *${res.name}*`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 重命名会话失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          "⚠ 请输入会话名称，例如：`/name 优化登录逻辑`",
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/compact") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        const params = argsText ? { instructions: argsText } : {};
+        const res = await this.client.sendRequest<{
+          status: string;
+          tokens_before: number;
+          tokens_after: number;
+          summary?: string;
+        }>("session_compact", params);
+        const summaryText = res.summary
+          ? `\n\n**压缩摘要**:\n${res.summary}`
+          : "";
+        infoComp.appendTextDelta(
+          `✓ 上下文压缩完成 (Tokens: ${res.tokens_before} → ${res.tokens_after})${summaryText}`,
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 上下文压缩失败: ${msg}`);
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/tree") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          nodes: Array<{
+            id: string;
+            parent_id: string | null;
+            role: string;
+            preview: string;
+            is_leaf: boolean;
+            is_active_path: boolean;
+          }>;
+          active_leaf_id: string | null;
+          root_id: string | null;
+        }>("session_tree");
+        if (!res.nodes || res.nodes.length === 0) {
+          infoComp.appendTextDelta("ℹ 当前会话树为空。");
+        } else {
+          const lines = ["**会话 DAG 树** (星号标记当前活跃路径):"];
+          for (const node of res.nodes) {
+            const marker = node.is_active_path ? "*" : " ";
+            const leafMarker =
+              node.id === res.active_leaf_id ? " [ACTIVE LEAF]" : "";
+            const preview = (node.preview || "")
+              .replace(/\n/g, " ")
+              .slice(0, 60);
+            lines.push(
+              `${marker} [${node.role}] \`${node.id.slice(0, 8)}\` ${preview}${leafMarker}`,
+            );
+          }
+          infoComp.appendTextDelta(lines.join("\n"));
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 获取会话树失败: ${msg}`);
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/fork") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        let targetEntryId = argsText;
+        if (!targetEntryId) {
+          const treeRes = await this.client.sendRequest<{
+            status: string;
+            nodes: Array<{ id: string; role: string; is_active_path: boolean }>;
+          }>("session_tree");
+          const userNodes = (treeRes.nodes || []).filter(
+            (n) => n.is_active_path && n.role === "user",
+          );
+          if (userNodes.length > 0) {
+            targetEntryId = userNodes[userNodes.length - 1].id;
+          }
+        }
+
+        if (targetEntryId) {
+          const res = await this.client.sendRequest<{
+            status: string;
+            new_session_id: string;
+            session_file: string;
+            prompt_text: string;
+          }>("session_fork", { entry_id: targetEntryId });
+          infoComp.appendTextDelta(
+            `✓ 已成功从节点 \`${targetEntryId.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``,
+          );
+          if (res.prompt_text) {
+            this.editor.setText(res.prompt_text);
+          }
+        } else {
+          infoComp.appendTextDelta(
+            "⚠ 请指定要分叉的 entry_id (例如 `/fork <entry_id>`)，可使用 `/tree` 查看节点列表。",
+          );
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 分叉会话失败: ${msg}`);
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/clone") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          new_session_id: string;
+          session_file: string;
+        }>("session_clone");
+        infoComp.appendTextDelta(
+          `✓ 已将当前活跃分支完整克隆为新会话: \`${res.new_session_id}\``,
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 克隆会话失败: ${msg}`);
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/thinking") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (argsText) {
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            level: string;
+          }>("thinking_set", { level: argsText.toLowerCase() });
+          this.options.thinking = res.level;
+          infoComp.appendTextDelta(`✓ 思考预算等级已调整为: \`${res.level}\``);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 设置思考深度失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          "ℹ 可选思考预算等级: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`。\n使用示例: `/thinking high`",
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/logout") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (argsText) {
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            provider: string;
+            removed: boolean;
+          }>("auth_logout", { provider: argsText });
+          if (res.removed) {
+            infoComp.appendTextDelta(
+              `✓ 已成功清除 \`${res.provider}\` 的认证凭据。`,
+            );
+          } else {
+            infoComp.appendTextDelta(
+              `ℹ 未找到 \`${res.provider}\` 的已存凭据。`,
+            );
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 注销凭据失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          "⚠ 请指定要注销凭据的 Provider，例如：`/logout deepseek` 或 `/logout openai`",
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/reload") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          summary: string;
+          skills_count?: number;
+          templates_count?: number;
+        }>("resource_reload");
+        infoComp.appendTextDelta(`✓ ${res.summary || "资源热重载完成"}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 热重载失败: ${msg}`);
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/trust") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (argsText) {
+        const lower = argsText.toLowerCase();
+        const trusted =
+          !lower.includes("false") &&
+          !lower.includes("untrust") &&
+          !lower.includes("no") &&
+          !lower.includes("off");
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            path: string;
+            trusted: boolean;
+            decision: string;
+          }>("trust_set", { trusted });
+          infoComp.appendTextDelta(
+            `✓ 项目信任状态已设置为: **${res.decision}** (\`${res.path}\`)`,
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 设置信任状态失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          "**项目信任设置**：\n- 使用 `/trust true` 信任当前工作区\n- 使用 `/trust false` 取消信任\n信任决策记录于 `~/.my-pi-agent/trust.json`。",
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/steer") {
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
-      if (instruction) {
+      if (argsText) {
         try {
-          await this.client.steer(instruction);
-          infoComp.appendTextDelta(`✓ 已成功注入转向指令: *${instruction}*`);
+          await this.client.steer(argsText);
+          infoComp.appendTextDelta(`✓ 已成功注入转向指令: *${argsText}*`);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           infoComp.appendTextDelta(`✗ 注入转向指令失败: ${msg}`);
@@ -235,16 +782,15 @@ export class AgentApp {
       return true;
     }
 
-    if (text.startsWith("/followup")) {
-      const followTask = text.slice(9).trim();
+    if (cmd === "/followup") {
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
-      if (followTask) {
+      if (argsText) {
         try {
-          await this.client.followup(followTask);
-          infoComp.appendTextDelta(`✓ 已成功追加追问任务: *${followTask}*`);
+          await this.client.followup(argsText);
+          infoComp.appendTextDelta(`✓ 已成功追加追问任务: *${argsText}*`);
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           infoComp.appendTextDelta(`✗ 追加追问任务失败: ${msg}`);
@@ -259,13 +805,144 @@ export class AgentApp {
       return true;
     }
 
-    if (text.startsWith("/")) {
+    if (cmd === "/model") {
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      if (argsText) {
+        try {
+          const res = await this.client.sendRequest<{
+            status: string;
+            model: string;
+            provider?: string;
+          }>("model_switch", { model: argsText });
+          this.options.model = res.model;
+          this.footer.update({ modelName: res.model });
+          infoComp.appendTextDelta(
+            `✓ 已切换生效模型为 \`${res.model}\`${res.provider ? ` (${res.provider})` : ""}`,
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 切换模型失败: ${msg}`);
+        }
+      } else {
+        infoComp.appendTextDelta(
+          `ℹ 当前生效模型: \`${this.options.model || "default"}\`\n使用 \`/model <name>\` 切换 (如 \`deepseek-chat\`, \`openai/gpt-4o\`, \`antigravity/gemini-3.8-flash\`)。`,
+        );
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/quota") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
       infoComp.appendTextDelta(
-        `⚠ 命令 \`${text.split(" ")[0]}\` 暂未在当前内核模式下启用，输入 \`/help\` 查看所有可用命令。`,
+        "✓ 当前模型配额可用。可在项目 .env 文件中维护各 Provider 的 API Key 凭证。",
+      );
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/login") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+
+      const [provider, ...keyParts] = argParts;
+      const key = keyParts.join(" ").trim();
+
+      if (!provider || !key) {
+        infoComp.appendTextDelta(
+          [
+            "**模型凭证登录与配置指引**：",
+            "1. **全局凭据中心**：",
+            "   `~/.my-pi-agent/auth.json`",
+            "2. **在终端中快速绑定 (自动写入全局凭据中心与工作区 `.env`)**：",
+            "   `/login deepseek sk-xxxxxx`",
+            "   `/login openai sk-xxxxxx`",
+            "3. **或直接编辑当前项目根目录 `.env` 文件**：",
+            "   - `OPENAI_API_KEY=sk-...` (支持搭配 `OPENAI_BASE_URL` 与 `OPENAI_MODEL`)",
+            "   - `DEEPSEEK_API_KEY=sk-...`",
+            "   - `ANTHROPIC_API_KEY=sk-...`",
+            "   - `ANTIGRAVITY_ACCESS_TOKEN=ya29....`",
+          ].join("\n"),
+        );
+      } else {
+        try {
+          const res = (await this.client.sendRequest("login", {
+            provider,
+            key,
+          })) as { status: string; message: string };
+          infoComp.appendTextDelta(`✓ ${res.message || "凭据已保存"}`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          infoComp.appendTextDelta(`✗ 保存凭据失败: ${msg}`);
+        }
+      }
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/session") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      const ws = this.options.workspace || process.cwd();
+      const model = this.options.model || "default";
+      infoComp.appendTextDelta(
+        [
+          "**当前会话状态信息**：",
+          `- **工作区目录 (Workspace)**: \`${ws}\``,
+          `- **当前模型 (Model)**: \`${model}\``,
+          "- **集中式存储位置**: `~/.my-pi-agent/sessions/<project-slug>-<hash>/`",
+          "- **工作区零污染**: 当前项目目录下绝不写入任何 `.jsonl` 临时会话文件。",
+        ].join("\n"),
+      );
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd === "/settings") {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      infoComp.appendTextDelta(
+        [
+          "**配置系统说明 (Settings)**：",
+          "- **全局配置**: `~/.my-pi-agent/settings.json`",
+          "- **项目配置**: `<workspace>/.my-pi-agent/settings.json` (自动与全局深合并)",
+          "- **特权安全**: `httpProxy` 与 `projectTrust` 仅限在全局配置中设定，防止恶意仓库越权。",
+        ].join("\n"),
+      );
+      infoComp.finalize();
+      this.tui.requestRender();
+      return true;
+    }
+
+    if (cmd.startsWith("/")) {
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+      const infoComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(infoComp);
+      infoComp.appendTextDelta(
+        `⚠ 命令 \`${cmd}\` 暂未在当前内核模式下启用，输入 \`/help\` 查看所有可用命令。`,
       );
       infoComp.finalize();
       this.tui.requestRender();
@@ -281,14 +958,120 @@ export class AgentApp {
       return;
     }
 
-    if (trimmed.startsWith("/")) {
+    // 1. Shell 宏即时执行 (!cmd 或 !!cmd)
+    if (trimmed.startsWith("!")) {
+      if (this.isBusy) {
+        this.chatContainer.addChild(new UserMessageComponent(text));
+        this.editor.setText("");
+        this.resetEditorBorder();
+        const infoComp = new AssistantMessageComponent();
+        this.chatContainer.addChild(infoComp);
+        infoComp.appendTextDelta(
+          "⚠ 当前任务正在执行中。若需纠偏请使用 `/steer <指令>`，追加排队任务请使用 `/followup <任务>`，或按 `Esc` 打断当前执行。",
+        );
+        infoComp.finalize();
+        this.tui.requestRender();
+        return;
+      }
+
+      const isSilent = trimmed.startsWith("!!");
+      const cmdToRun = isSilent
+        ? trimmed.slice(2).trim()
+        : trimmed.slice(1).trim();
+
+      this.chatContainer.addChild(new UserMessageComponent(text));
+      this.editor.setText("");
+      this.resetEditorBorder();
+
+      if (!cmdToRun) {
+        const infoComp = new AssistantMessageComponent();
+        this.chatContainer.addChild(infoComp);
+        infoComp.appendTextDelta(
+          "⚠ 请输入要执行的本地 Shell 命令，例如：`!git status` 或 `!!ls -la`",
+        );
+        infoComp.finalize();
+        this.tui.requestRender();
+        return;
+      }
+
+      const outComp = new AssistantMessageComponent();
+      this.chatContainer.addChild(outComp);
+      this.tui.requestRender();
+
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          output: string;
+          exit_code: number;
+        }>("shell_exec", {
+          command: cmdToRun,
+          exclude_from_context: isSilent,
+        });
+        const output = res.output
+          ? `\`\`\`text\n${res.output}\n\`\`\``
+          : "_无输出_";
+        const tag = isSilent ? "(静默执行，未加入上下文)" : "(已加入上下文)";
+        outComp.appendTextDelta(
+          `**$ ${cmdToRun}** ${tag} (Exit: ${res.exit_code ?? 0})\n${output}`,
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        outComp.appendTextDelta(`✗ 执行 Shell 命令失败: ${msg}`);
+      }
+      outComp.finalize();
+      this.tui.requestRender();
+      return;
+    }
+
+    // 2. 内置 Slash 命令优先分发
+    const [firstWord] = trimmed.split(/\s+/);
+    if (trimmed.startsWith("/") && isBuiltinSlashCommand(firstWord)) {
       await this.handleSlashCommand(trimmed);
       return;
     }
 
+    // 3. 宏展开 (/skill:<name> 或 /<template>)
+    let promptText = text;
+    if (trimmed.startsWith("/")) {
+      if (this.isBusy) {
+        this.chatContainer.addChild(new UserMessageComponent(text));
+        this.editor.setText("");
+        this.resetEditorBorder();
+        const infoComp = new AssistantMessageComponent();
+        this.chatContainer.addChild(infoComp);
+        infoComp.appendTextDelta(
+          "⚠ 当前任务正在执行中。若需纠偏请使用 `/steer <指令>`，追加排队任务请使用 `/followup <任务>`，或按 `Esc` 打断当前执行。",
+        );
+        infoComp.finalize();
+        this.tui.requestRender();
+        return;
+      }
+
+      try {
+        const expandRes = await this.client.sendRequest<{
+          status: string;
+          text: string;
+          expanded: boolean;
+        }>("macro_expand", { text: trimmed });
+
+        if (expandRes && expandRes.expanded) {
+          promptText = expandRes.text;
+        } else {
+          // 既非内置命令，也未匹配到任何 Skill 或 Prompt 模板
+          await this.handleSlashCommand(trimmed);
+          return;
+        }
+      } catch {
+        await this.handleSlashCommand(trimmed);
+        return;
+      }
+    }
+
+    // 4. 普通 Prompt 任务执行
     if (this.isBusy) {
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
+      this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
       infoComp.appendTextDelta(
@@ -302,6 +1085,7 @@ export class AgentApp {
     // 挂载用户消息气泡
     this.chatContainer.addChild(new UserMessageComponent(text));
     this.editor.setText("");
+    this.resetEditorBorder();
 
     // 实例化新的助手消息卡片
     const assistantComp = new AssistantMessageComponent();
@@ -316,7 +1100,7 @@ export class AgentApp {
     this.tui.requestRender();
 
     try {
-      await this.client.prompt(text, (event: AgentEvent) => {
+      await this.client.prompt(promptText, (event: AgentEvent) => {
         this.handleAgentEvent(event);
       });
     } catch (err: unknown) {
@@ -327,6 +1111,7 @@ export class AgentApp {
       if (this.currentAssistantComp) {
         this.currentAssistantComp.finalize();
       }
+      this.finalizeActiveTools();
       const elapsed = (Date.now() - this.turnStartTime) / 1000;
       this.footer.update({ isBusy: false, elapsedSeconds: elapsed });
       this.tui.requestRender();
@@ -370,6 +1155,7 @@ export class AgentApp {
       if (this.currentAssistantComp) {
         this.currentAssistantComp.finalize();
       }
+      this.finalizeActiveTools();
     }
 
     this.tui.requestRender();
@@ -378,6 +1164,13 @@ export class AgentApp {
   public async start(): Promise<void> {
     await this.client.start();
     this.tui.start();
+    if (this.options.resume === true) {
+      await this.handleSlashCommand("/resume");
+    } else if (typeof this.options.resume === "string" && this.options.resume) {
+      await this.handleSlashCommand(`/resume ${this.options.resume}`);
+    } else if (this.options.prompt) {
+      void this.handleUserSubmit(this.options.prompt);
+    }
     this.tui.requestRender();
   }
 

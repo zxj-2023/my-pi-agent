@@ -16,7 +16,11 @@ dependencies = [
     "python-dotenv>=1.0,<2.0",
     "pyyaml>=6.0",
     "mcp>=2.0.0,<2.1",
+    "filelock>=3.32.6",
 ]
+
+[project.scripts]
+my-pi-agent = "my_coding_agent.cli:main"
 
 [dependency-groups]
 dev = [

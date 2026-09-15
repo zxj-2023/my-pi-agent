@@ -6,10 +6,19 @@ import inspect
 import json
 import os
 import sys
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any, TextIO
 
 from dotenv import find_dotenv, load_dotenv
+
+if sys.platform == "win32":
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure_fn = getattr(stream, "reconfigure", None)
+        if callable(reconfigure_fn):
+            reconfigure_fn(encoding="utf-8", errors="replace")
 
 from my_agent_core.events import (
     AgentEnd,
@@ -26,9 +35,42 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
-from my_agent_llm import LLM, Config
+from my_agent_core.session import Session, SessionInfoEntry
+from my_agent_core.session.entries import (
+    BranchSummaryEntry,
+    CompactionEntry,
+    LabelEntry,
+    LeafEntry,
+    MessageEntry,
+    ModelChangeEntry,
+    ThinkingLevelChangeEntry,
+)
+from my_agent_core.session.tree import lowest_common_ancestor
+from my_agent_core.tool_history import repair_tool_history
+from my_agent_llm import LLM, Config, Message
+from my_agent_llm.auth.manager import AuthManager
+from my_agent_llm.auth.schema import ApiKeyCredential, OAuthCredential
 from my_coding_agent.agent import CodingAgent
+from my_coding_agent.macro import MacroEngine
+from my_coding_agent.paths import AgentPaths
 from my_coding_agent.permissions import PermissionGate
+from my_coding_agent.prompt import build_default_coding_prompt
+from my_coding_agent.settings import Settings, load_settings, save_settings
+from my_agent_core.skills import SkillManager
+
+
+def uuid7_str() -> str:
+    """生成符合 RFC 9562 规范的 UUIDv7 字符串（基于毫秒时间戳保序）。"""
+    timestamp_ms = int(time.time() * 1000)
+    rand = int.from_bytes(os.urandom(10), "big")
+    uuid_int = (
+        ((timestamp_ms & 0xFFFFFFFFFFFF) << 80)
+        | (0x7 << 76)
+        | (((rand >> 62) & 0x0FFF) << 64)
+        | (0x2 << 62)
+        | (rand & 0x3FFFFFFFFFFFFFFF)
+    )
+    return str(uuid.UUID(int=uuid_int))
 
 
 def serialize_event(event: Event) -> dict[str, Any]:
@@ -143,19 +185,36 @@ class RpcServer:
         stderr: TextIO | None = None,
         agent: CodingAgent | None = None,
         llm: Any | None = None,
+        paths: AgentPaths | None = None,
     ):
         self.stdin = stdin or sys.stdin
         self.stdout = stdout or sys.stdout
         self.stderr = stderr or sys.stderr
         self.agent = agent
         self.llm = llm
+        self.paths = paths
+        self.macro_engine: MacroEngine = MacroEngine(
+            workspace=agent.workspace if agent else None,
+            paths=paths,
+        )
+        self.auth_mgr: AuthManager | None = AuthManager(auth_path=paths.auth_path) if paths else None
+        self.settings: Settings | None = None
         self.is_shutting_down = False
+        self._write_lock = threading.Lock()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def emit_json(self, payload: dict[str, Any]) -> None:
         """向 stdout 写入单行 JSON 并强制 flush。"""
         line = json.dumps(payload, ensure_ascii=False)
-        self.stdout.write(line + "\n")
-        self.stdout.flush()
+        with self._write_lock:
+            try:
+                self.stdout.write(line + "\n")
+                self.stdout.flush()
+            except UnicodeEncodeError:
+                # 编码兜底：若当前宿主 stdout 不支持特定 Unicode 字符，使用 ASCII 转义输出
+                ascii_line = json.dumps(payload, ensure_ascii=True)
+                self.stdout.write(ascii_line + "\n")
+                self.stdout.flush()
 
     def send_notification(self, method: str, params: dict[str, Any]) -> None:
         """向客户端发送单向通知 (如 event)。"""
@@ -186,6 +245,1271 @@ class RpcServer:
         self.emit_json(resp)
         return resp
 
+    def _resolve_initial_llm(
+        self,
+        workspace_path: Path,
+        explicit_model: str | None,
+        settings: Settings,
+        auth_mgr: AuthManager,
+    ) -> LLM | None:
+        """根据启动参数、工作区配置与凭证中心探测构造底层 LLM 客户端。"""
+        model_name = explicit_model or settings.default_model
+        provider = None
+        if model_name and "/" in model_name:
+            provider, model_name = model_name.split("/", 1)
+        elif model_name and model_name.startswith("gemini-"):
+            provider = "antigravity"
+        elif model_name and ("deepseek" in model_name):
+            provider = (
+                "deepseek"
+                if (os.environ.get("DEEPSEEK_API_KEY") or auth_mgr.get_credential("deepseek"))
+                else ("openai" if explicit_model else None)
+            )
+        elif model_name and ("gpt-" in model_name or "o1" in model_name or "o3" in model_name):
+            provider = "openai"
+        elif model_name and ("claude-" in model_name):
+            provider = "anthropic"
+
+        api_key = None
+        base_url = None
+        if not provider:
+            if os.environ.get("OPENAI_API_KEY") or auth_mgr.get_credential("openai"):
+                provider = "openai"
+                model_name = explicit_model or os.environ.get("OPENAI_MODEL") or "gpt-4o"
+            elif os.environ.get("DEEPSEEK_API_KEY") or auth_mgr.get_credential("deepseek"):
+                provider = "deepseek"
+                model_name = explicit_model or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
+            elif os.environ.get("ANTHROPIC_API_KEY") or auth_mgr.get_credential("anthropic"):
+                provider = "anthropic"
+                model_name = explicit_model or os.environ.get("ANTHROPIC_MODEL") or "claude-3-5-sonnet-20241022"
+            else:
+                from my_agent_llm.auth.antigravity import AntigravityAuthResolver
+
+                resolver = AntigravityAuthResolver(workspace=workspace_path)
+                if resolver.resolve_credentials() is not None or auth_mgr.get_credential("antigravity") is not None:
+                    provider = "antigravity"
+                    model_name = explicit_model or "gemini-3.8-flash"
+                else:
+                    provider = settings.default_provider or "openai"
+                    model_name = explicit_model or "gpt-4o"
+
+        if provider:
+            api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+            base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
+            if provider == "openai":
+                api_key = api_key or os.environ.get("OPENAI_API_KEY")
+                base_url = base_url or os.environ.get("OPENAI_BASE_URL")
+            elif provider == "antigravity":
+                api_key = api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
+
+            if not api_key:
+                cred = auth_mgr.get_credential(provider)
+                if cred is not None:
+                    if isinstance(cred, ApiKeyCredential):
+                        api_key = cred.resolve_key()
+                        if not base_url and cred.base_url:
+                            base_url = cred.base_url
+                    elif isinstance(cred, OAuthCredential):
+                        api_key = cred.access
+
+            if not api_key and provider != "antigravity":
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not base_url and provider == "openai":
+                    base_url = os.environ.get("OPENAI_BASE_URL")
+
+        try:
+            return LLM(config=Config(provider=provider, model=model_name, api_key=api_key, base_url=base_url))
+        except Exception:
+            return None
+
+    async def _handle_initialize(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        workspace_path = Path(params.get("workspace", ".")).resolve()
+        paths = self.paths or AgentPaths()
+        paths.ensure_directories()
+        self.paths = paths
+        settings = load_settings(paths, cwd=workspace_path)
+        self.settings = settings
+        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+        self.auth_mgr = auth_mgr
+
+        explicit_model = params.get("model")
+        mode = params.get("mode", settings.default_permission_mode)
+
+        load_dotenv(workspace_path / ".env", override=False)
+        load_dotenv(find_dotenv(usecwd=True), override=False)
+
+        llm = self.llm
+        if llm is None:
+            llm = self._resolve_initial_llm(workspace_path, explicit_model, settings, auth_mgr)
+
+        session_file = paths.default_session_path(workspace_path)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+
+        target_session: Session | None = None
+        should_continue = bool(params.get("continue_session", False) or params.get("continue", False))
+        resume_param = params.get("resume")
+        if resume_param and isinstance(resume_param, str) and resume_param != "true":
+            s_dir = paths.project_session_dir(workspace_path)
+            for cand in [s_dir / f"{resume_param}.jsonl", s_dir / resume_param, Path(resume_param)]:
+                if cand.exists():
+                    try:
+                        target_session = Session.load(cand)
+                        break
+                    except Exception:
+                        continue
+        elif should_continue:
+            s_dir = paths.project_session_dir(workspace_path)
+            jsonl_files = sorted(s_dir.glob("*.jsonl"), key=lambda p: os.path.getmtime(p), reverse=True)
+            if jsonl_files:
+                try:
+                    target_session = Session.load(jsonl_files[0])
+                except Exception:
+                    target_session = None
+
+        if target_session is None:
+            target_session = Session(path=session_file, cwd=str(workspace_path))
+
+        if bool(params.get("no_session", False)):
+            target_session.save = lambda: None  # type: ignore[method-assign]
+
+        gate = PermissionGate(mode=mode) if mode else None
+        self.agent = CodingAgent(
+            workspace=workspace_path,
+            llm=llm,
+            session=target_session,
+            permission_gate=gate,
+        )
+
+        if initial_name := params.get("name"):
+            name_str = str(initial_name).strip()
+            if name_str:
+                self.agent.session.metadata["name"] = name_str
+                self.agent.session.metadata["title"] = name_str
+                info_entry = SessionInfoEntry(
+                    name=name_str,
+                    title=name_str,
+                    cwd=str(workspace_path),
+                    parent_id=self.agent.session.tree.current_id,
+                )
+                self.agent.session.store.append_entry(info_entry)
+
+        if initial_thinking := params.get("thinking"):
+            thinking_str = str(initial_thinking).strip().lower()
+            valid_levels = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+            if thinking_str in valid_levels:
+                setattr(self.agent, "thinking_level", thinking_str)
+                t_entry = ThinkingLevelChangeEntry(
+                    thinking_level=thinking_str,
+                    parent_id=self.agent.session.tree.current_id,
+                )
+                self.agent.session.append_entry(t_entry)
+
+        self.macro_engine = MacroEngine(workspace=workspace_path, paths=paths)
+
+        actual_model = getattr(getattr(self.agent.agent.llm, "config", None), "model", "default")
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "workspace": str(workspace_path),
+                "model": actual_model,
+            },
+        )
+
+    async def _handle_prompt(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        if getattr(self.agent.agent, "llm", None) is None:
+            return self.send_response(
+                req_id,
+                error={
+                    "code": -32002,
+                    "message": "未检测到有效模型凭据。请在当前项目 .env 文件中配置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY，或输入 /login 绑定 Key。",
+                },
+            )
+
+        text = params.get("text", "")
+        async for event in self.agent.run_stream(text):
+            serialized = serialize_event(event)
+            self.send_notification("event", serialized)
+
+        return self.send_response(req_id, result={"status": "completed"})
+
+    def _handle_login(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        provider = params.get("provider", "").lower().strip()
+        key = params.get("key", "").strip()
+        if not provider or not key:
+            return self.send_response(
+                req_id,
+                result={
+                    "status": "info",
+                    "message": "请使用: /login <provider> <key>，例如: /login deepseek sk-xxxx 或 /login openai sk-xxxx",
+                },
+            )
+
+        workspace_path = Path(self.agent.workspace if self.agent else ".").resolve()
+        env_file = workspace_path / ".env"
+        key_name = "ANTIGRAVITY_ACCESS_TOKEN" if provider == "antigravity" else f"{provider.upper()}_API_KEY"
+
+        lines = []
+        if env_file.exists():
+            lines = env_file.read_text(encoding="utf-8").splitlines()
+
+        updated = False
+        new_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith(f"{key_name}=") or stripped.startswith(f"export {key_name}="):
+                new_lines.append(f"{key_name}={key}")
+                updated = True
+            else:
+                new_lines.append(line)
+        if not updated:
+            new_lines.append(f"{key_name}={key}")
+
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        os.environ[key_name] = key
+
+        paths = self.paths or AgentPaths()
+        paths.ensure_directories()
+        self.paths = paths
+        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+        self.auth_mgr = auth_mgr
+        auth_mgr.set_api_key(provider=provider, key=key)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "message": f"成功保存 {key_name} 至项目 .env 文件！",
+            },
+        )
+
+    def _handle_steer(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        msg = params.get("message", "")
+        self.agent.steer(msg)
+        return self.send_response(req_id, result={"status": "ok"})
+
+    def _handle_followup(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        msg = params.get("message", "")
+        self.agent.follow_up(msg)
+        return self.send_response(req_id, result={"status": "ok"})
+
+    def _handle_abort(self, req_id: Any) -> dict[str, Any]:
+        if self.agent:
+            self.agent.abort()
+        return self.send_response(req_id, result={"status": "ok"})
+
+    def _handle_session_name(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        name = params.get("name", "").strip()
+        if not name:
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'name' parameter"},
+            )
+
+        entry = SessionInfoEntry(
+            name=name,
+            title=name,
+            cwd=str(self.agent.workspace),
+            parent_id=self.agent.session.tree.current_id,
+        )
+        self.agent.session.store.append_entry(entry)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "name": name,
+            },
+        )
+
+    def _handle_session_list(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        paths = self.paths or AgentPaths()
+        workspace_path = Path(self.agent.workspace if self.agent else params.get("workspace", ".")).resolve()
+        all_projects = bool(params.get("all_projects", False))
+
+        target_dirs: list[Path] = []
+        if all_projects:
+            if paths.sessions_dir.exists():
+                target_dirs = [d for d in paths.sessions_dir.iterdir() if d.is_dir()]
+        else:
+            proj_dir = paths.project_session_dir(workspace_path)
+            if proj_dir.exists():
+                target_dirs = [proj_dir]
+
+        sessions_meta: list[dict[str, Any]] = []
+        for s_dir in target_dirs:
+            for f in s_dir.glob("*.jsonl"):
+                try:
+                    with open(f, encoding="utf-8") as fh:
+                        line1 = fh.readline()
+                        if not line1:
+                            continue
+                        header = json.loads(line1)
+                        sid = header.get("id") or f.stem
+                        cwd_val = header.get("cwd", "")
+                        created_val = header.get("createdAt") or header.get("created_at") or os.path.getctime(f)
+                        s_name = (
+                            header.get("name")
+                            or header.get("title")
+                            or header.get("metadata", {}).get("name")
+                            or header.get("metadata", {}).get("title")
+                        )
+                        msg_count = 0
+                        for line in fh:
+                            line_str = line.strip()
+                            if not line_str:
+                                continue
+                            try:
+                                entry_data = json.loads(line_str)
+                                etype = entry_data.get("type")
+                                if etype == "message":
+                                    msg_count += 1
+                                elif etype in ("session_info", "sessionInfo"):
+                                    latest_name = entry_data.get("name") or entry_data.get("title")
+                                    if latest_name:
+                                        s_name = latest_name
+                            except Exception:
+                                continue
+
+                        modified_val = os.path.getmtime(f)
+                        sessions_meta.append(
+                            {
+                                "id": sid,
+                                "name": s_name or sid,
+                                "path": str(f.resolve()),
+                                "cwd": cwd_val,
+                                "modified": modified_val,
+                                "created_at": created_val,
+                                "message_count": msg_count,
+                            }
+                        )
+                except Exception:
+                    continue
+
+        sessions_meta.sort(key=lambda s: s.get("modified", 0), reverse=True)
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "sessions": sessions_meta,
+            },
+        )
+
+    def _handle_session_resume(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        session_id = params.get("session_id") or params.get("id") or params.get("path") or params.get("session_file")
+        if not session_id:
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing session_id parameter"},
+            )
+
+        paths = self.paths or AgentPaths()
+        workspace_path = Path(self.agent.workspace if self.agent else params.get("workspace", ".")).resolve()
+        session_dir = paths.project_session_dir(workspace_path)
+
+        target_file: Path | None = None
+        cand = Path(session_id)
+        if cand.is_file():
+            cand_resolved = cand.resolve()
+            if cand_resolved.is_relative_to(paths.sessions_dir) or cand_resolved.is_relative_to(workspace_path):
+                target_file = cand_resolved
+        elif "/" not in session_id and "\\" not in session_id and (session_dir / f"{session_id}.jsonl").is_file():
+            target_file = session_dir / f"{session_id}.jsonl"
+        elif "/" not in session_id and "\\" not in session_id and (session_dir / session_id).is_file():
+            target_file = session_dir / session_id
+        else:
+            matches: list[Path] = []
+            if session_dir.exists():
+                for f in session_dir.glob("*.jsonl"):
+                    try:
+                        with open(f, encoding="utf-8") as fh:
+                            first_line = fh.readline()
+                            if first_line:
+                                header = json.loads(first_line)
+                                fid = header.get("id", "")
+                                if (
+                                    fid == session_id
+                                    or fid.startswith(session_id)
+                                    or f.stem == session_id
+                                    or f.stem.startswith(session_id)
+                                ):
+                                    matches.append(f)
+                    except Exception:
+                        continue
+
+            if not matches and paths.sessions_dir.exists():
+                for s_dir in paths.sessions_dir.iterdir():
+                    if not s_dir.is_dir() or s_dir == session_dir:
+                        continue
+                    for f in s_dir.glob("*.jsonl"):
+                        try:
+                            with open(f, encoding="utf-8") as fh:
+                                first_line = fh.readline()
+                                if first_line:
+                                    header = json.loads(first_line)
+                                    fid = header.get("id", "")
+                                    if (
+                                        fid == session_id
+                                        or fid.startswith(session_id)
+                                        or f.stem == session_id
+                                        or f.stem.startswith(session_id)
+                                    ):
+                                        matches.append(f)
+                        except Exception:
+                            continue
+
+            if len(matches) == 1:
+                target_file = matches[0]
+            elif len(matches) > 1:
+                return self.send_response(
+                    req_id,
+                    error={
+                        "code": -32003,
+                        "message": f"Ambiguous session_id '{session_id}': {[m.name for m in matches]}",
+                    },
+                )
+
+        if target_file is None or not target_file.is_file():
+            return self.send_response(
+                req_id,
+                error={"code": -32004, "message": f"Session file not found for '{session_id}'"},
+            )
+
+        new_session = Session.load(target_file)
+        mode = getattr(self.settings, "default_permission_mode", None)
+        gate = self.agent.permission_gate if self.agent else (PermissionGate(mode=mode) if mode else None)
+        llm = self.agent.agent.llm if self.agent else self.llm
+        self.agent = CodingAgent(
+            workspace=workspace_path,
+            llm=llm,
+            session=new_session,
+            permission_gate=gate,
+        )
+
+        messages_repr = [
+            {"role": m.role, "content": m.content} for m in self.agent.agent.messages if m.role != "system"
+        ]
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "session_id": new_session.id,
+                "session_file": str(target_file),
+                "cwd": new_session.cwd,
+                "messages": messages_repr,
+            },
+        )
+
+    async def _handle_session_compact(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        self.agent.abort()
+        instructions = params.get("instructions")
+        await self.agent.compact(instructions=instructions)
+
+        info = self.agent.agent.context_manager.pending_compaction
+        tokens_before = info.tokens_before if info else 0
+        tokens_after = info.tokens_after if info else 0
+        summary = info.summary if info else ""
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "tokens_before": tokens_before,
+                "tokens_after": tokens_after,
+                "summary": summary,
+            },
+        )
+
+    def _handle_session_new(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        self.agent.abort()
+        workspace_path = Path(self.agent.workspace).resolve()
+        paths = self.paths or AgentPaths()
+        session_dir = paths.project_session_dir(workspace_path)
+        session_id = uuid7_str()
+        session_file = session_dir / f"{session_id}.jsonl"
+
+        new_session = Session(path=session_file, cwd=str(workspace_path))
+        new_session.id = session_id
+        mode = getattr(self.settings, "default_permission_mode", None)
+        gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
+
+        self.agent = CodingAgent(
+            workspace=workspace_path,
+            llm=self.agent.agent.llm,
+            session=new_session,
+            permission_gate=gate,
+        )
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "session_id": session_id,
+                "session_file": str(session_file),
+            },
+        )
+
+    def _handle_session_tree(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        session = self.agent.session
+        entries = list(session.tree.entries.values())
+        active_leaf_id = session.tree.current_id
+        root_id = session.tree.root_id
+
+        active_path_ids: set[str] = set()
+        if active_leaf_id and active_leaf_id in session.tree.entries:
+            active_path_ids = {e.id for e in session.tree.get_current_path()}
+
+        parent_ids = {e.parent_id for e in entries if e.parent_id is not None}
+
+        nodes: list[dict[str, Any]] = []
+        for entry in entries:
+            eid = entry.id
+            pid = entry.parent_id
+            etype = getattr(entry, "type", "message")
+            role = getattr(entry, "role", etype)
+
+            preview = ""
+            if isinstance(entry, MessageEntry):
+                msg = entry.message
+                content = msg.content or ""
+                if msg.metadata and msg.metadata.get("tool_calls"):
+                    tc_names = [
+                        tc.get("function", {}).get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
+                        for tc in msg.metadata.get("tool_calls", [])
+                    ]
+                    prefix = f"[Tool Call: {', '.join(filter(None, tc_names))}]"
+                    preview = f"{prefix} {content}".strip() if content else prefix
+                else:
+                    preview = content
+            elif isinstance(entry, CompactionEntry):
+                preview = entry.summary
+            elif isinstance(entry, BranchSummaryEntry):
+                preview = entry.summary
+            elif isinstance(entry, SessionInfoEntry):
+                preview = entry.name or entry.title or ""
+            elif isinstance(entry, ModelChangeEntry):
+                preview = f"Model: {entry.model}"
+            elif isinstance(entry, ThinkingLevelChangeEntry):
+                preview = f"Thinking: {entry.thinking_level}"
+            elif isinstance(entry, LabelEntry):
+                preview = f"Label: {entry.label}"
+            elif isinstance(entry, LeafEntry):
+                preview = f"Leaf: {entry.leaf_id}"
+            else:
+                preview = str(getattr(entry, "content", "") or getattr(entry, "summary", "") or "")
+
+            if len(preview) > 200:
+                preview = preview[:200] + "..."
+
+            nodes.append(
+                {
+                    "id": eid,
+                    "parent_id": pid,
+                    "role": role,
+                    "type": etype,
+                    "preview": preview,
+                    "is_leaf": eid not in parent_ids,
+                    "is_active": eid in active_path_ids,
+                    "timestamp": getattr(entry, "timestamp", 0.0),
+                }
+            )
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "nodes": nodes,
+                "active_leaf_id": active_leaf_id,
+                "root_id": root_id,
+            },
+        )
+
+    async def _handle_session_branch(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        target_id = params.get("target_id") or params.get("entry_id") or params.get("id")
+        if not target_id:
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'target_id' parameter"},
+            )
+
+        session = self.agent.session
+        if target_id not in session.tree.entries:
+            return self.send_response(
+                req_id,
+                error={"code": -32004, "message": f"Entry '{target_id}' not found in session"},
+            )
+
+        target_entry = session.tree.entries[target_id]
+        is_user = getattr(target_entry, "role", None) == "user" or (
+            isinstance(target_entry, MessageEntry) and target_entry.message.role == "user"
+        )
+
+        self.agent.abort()
+        old_leaf_id = session.tree.current_id
+        summarize = bool(params.get("summarize", False))
+        branch_summary_text = ""
+
+        if is_user:
+            new_leaf_id = target_entry.parent_id
+            editor_text = (
+                getattr(target_entry, "content", "")
+                or (target_entry.message.content if isinstance(target_entry, MessageEntry) else "")
+                or ""
+            )
+        else:
+            new_leaf_id = target_id
+            editor_text = ""
+
+        if new_leaf_id is not None and session.compaction_floor is not None:
+            if not session._after_floor(new_leaf_id):
+                return self.send_response(
+                    req_id,
+                    error={
+                        "code": -32005,
+                        "message": f"Cannot branch past compaction floor {session.compaction_floor}: entry {new_leaf_id} is prior to compacted history",
+                    },
+                )
+        elif new_leaf_id is None and session.compaction_floor is not None:
+            return self.send_response(
+                req_id,
+                error={
+                    "code": -32005,
+                    "message": f"Cannot branch past compaction floor {session.compaction_floor}: root is prior to compacted history",
+                },
+            )
+
+        if summarize and old_leaf_id and old_leaf_id != new_leaf_id:
+            old_path = session.tree.get_path_to_entry(old_leaf_id)
+            new_path_ids = (
+                {e.id for e in session.tree.get_path_to_entry(new_leaf_id)}
+                if new_leaf_id and new_leaf_id in session.tree.entries
+                else set()
+            )
+            abandoned_entries = [e for e in old_path if e.id not in new_path_ids]
+
+            if abandoned_entries:
+                lca = lowest_common_ancestor(session.tree.entries, old_leaf_id, new_leaf_id) if new_leaf_id else None
+                summary_prompt = (
+                    "Please concisely summarize the key decisions, code changes, and exploration from this abandoned conversation branch in 1-2 sentences:\n"
+                    + "\n".join(
+                        f"{getattr(e, 'role', 'entry')}: {getattr(e, 'content', '')}"
+                        for e in abandoned_entries
+                        if hasattr(e, "content") or hasattr(e, "message")
+                    )
+                )
+                try:
+                    llm = self.agent.agent.llm
+                    resp = await llm.achat([Message(role="user", content=summary_prompt)])
+                    branch_summary_text = getattr(resp, "content", "") or "Branch summary"
+                except Exception:
+                    branch_summary_text = "Branch exploration summary"
+
+                summary_entry = BranchSummaryEntry(
+                    parent_id=new_leaf_id,
+                    summary=branch_summary_text,
+                    details={
+                        "abandoned_from": old_leaf_id,
+                        "abandoned_count": len(abandoned_entries),
+                        "lca": lca,
+                    },
+                )
+                session.tree.entries[summary_entry.id] = summary_entry
+                session.tree.current_id = summary_entry.id
+                session.save()
+                new_leaf_id = summary_entry.id
+
+        if not (summarize and branch_summary_text):
+            if new_leaf_id is None:
+                session.tree.current_id = None
+                session.save()
+            else:
+                session.tree.current_id = new_leaf_id
+                session.save()
+
+        system = [m for m in self.agent.agent.messages if m.role == "system"]
+        restored = system + session.get_full_history_messages()
+        self.agent.agent.messages = list(repair_tool_history(restored).messages)
+
+        res_payload: dict[str, Any] = {
+            "status": "ok",
+            "leaf_id": new_leaf_id,
+            "editor_text": editor_text,
+        }
+        if branch_summary_text:
+            res_payload["branch_summary"] = branch_summary_text
+
+        return self.send_response(req_id, result=res_payload)
+
+    def _handle_session_fork(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        entry_id = params.get("entry_id") or params.get("id") or params.get("target_id")
+        if not entry_id:
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'entry_id' parameter"},
+            )
+
+        session = self.agent.session
+        if entry_id not in session.tree.entries:
+            return self.send_response(
+                req_id,
+                error={"code": -32004, "message": f"Entry '{entry_id}' not found in session"},
+            )
+
+        target_entry = session.tree.entries[entry_id]
+        prompt_text = (
+            getattr(target_entry, "content", "")
+            or (target_entry.message.content if isinstance(target_entry, MessageEntry) else "")
+            or ""
+        )
+
+        cutoff_id = target_entry.parent_id
+        path_entries = (
+            session.tree.get_path_to_entry(cutoff_id) if cutoff_id and cutoff_id in session.tree.entries else []
+        )
+
+        self.agent.abort()
+        workspace_path = Path(self.agent.workspace).resolve()
+        paths = self.paths or AgentPaths()
+        session_dir = paths.project_session_dir(workspace_path)
+        new_session_id = uuid7_str()
+        new_session_file = session_dir / f"{new_session_id}.jsonl"
+
+        new_session = Session(path=new_session_file, cwd=str(workspace_path))
+        new_session.id = new_session_id
+        new_session.metadata["parent_session_id"] = session.id
+        new_session.metadata["forked_from_entry_id"] = entry_id
+
+        for entry in path_entries:
+            if isinstance(entry, MessageEntry):
+                new_session.add_message(entry.role, entry.content, **(entry.metadata or {}))
+            elif isinstance(entry, CompactionEntry):
+                new_compaction = CompactionEntry(
+                    parent_id=new_session.tree.current_id,
+                    summary=entry.summary,
+                    replaces_entry_ids=list(entry.replaces_entry_ids),
+                    metadata=dict(entry.metadata),
+                )
+                new_session.append_entry(new_compaction)
+            elif isinstance(entry, BranchSummaryEntry):
+                new_bs = BranchSummaryEntry(
+                    parent_id=new_session.tree.current_id,
+                    summary=entry.summary,
+                    details=dict(entry.details),
+                )
+                new_session.append_entry(new_bs)
+            else:
+                copied = entry.model_copy(update={"parent_id": new_session.tree.current_id})
+                new_session.append_entry(copied)
+
+        new_session.save()
+
+        mode = getattr(self.settings, "default_permission_mode", None)
+        gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
+        self.agent = CodingAgent(
+            workspace=workspace_path,
+            llm=self.agent.agent.llm,
+            session=new_session,
+            permission_gate=gate,
+        )
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "new_session_id": new_session_id,
+                "session_file": str(new_session_file),
+                "prompt_text": prompt_text,
+            },
+        )
+
+    def _handle_session_clone(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        session = self.agent.session
+        active_leaf_id = session.tree.current_id
+        path_entries = session.tree.get_current_path() if active_leaf_id else []
+
+        self.agent.abort()
+        workspace_path = Path(self.agent.workspace).resolve()
+        paths = self.paths or AgentPaths()
+        session_dir = paths.project_session_dir(workspace_path)
+        new_session_id = uuid7_str()
+        new_session_file = session_dir / f"{new_session_id}.jsonl"
+
+        new_session = Session(path=new_session_file, cwd=str(workspace_path))
+        new_session.id = new_session_id
+        new_session.metadata["parent_session_id"] = session.id
+        if active_leaf_id:
+            new_session.metadata["cloned_from_leaf_id"] = active_leaf_id
+
+        for entry in path_entries:
+            if isinstance(entry, MessageEntry):
+                new_session.add_message(entry.role, entry.content, **(entry.metadata or {}))
+            elif isinstance(entry, CompactionEntry):
+                new_compaction = CompactionEntry(
+                    parent_id=new_session.tree.current_id,
+                    summary=entry.summary,
+                    replaces_entry_ids=list(entry.replaces_entry_ids),
+                    metadata=dict(entry.metadata),
+                )
+                new_session.append_entry(new_compaction)
+            elif isinstance(entry, BranchSummaryEntry):
+                new_bs = BranchSummaryEntry(
+                    parent_id=new_session.tree.current_id,
+                    summary=entry.summary,
+                    details=dict(entry.details),
+                )
+                new_session.append_entry(new_bs)
+            else:
+                copied = entry.model_copy(update={"parent_id": new_session.tree.current_id})
+                new_session.append_entry(copied)
+
+        new_session.save()
+
+        mode = getattr(self.settings, "default_permission_mode", None)
+        gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
+        self.agent = CodingAgent(
+            workspace=workspace_path,
+            llm=self.agent.agent.llm,
+            session=new_session,
+            permission_gate=gate,
+        )
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "new_session_id": new_session_id,
+                "session_file": str(new_session_file),
+            },
+        )
+
+    async def _handle_shell_exec(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        command = params.get("command", "").strip()
+        if not command:
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'command' parameter"},
+            )
+        exclude_from_context = bool(params.get("exclude_from_context", False))
+        timeout = float(params.get("timeout", 60.0))
+
+        cwd = Path(self.agent.workspace)
+        res = await asyncio.to_thread(
+            self.macro_engine.execute_shell,
+            command=command,
+            cwd=cwd,
+            exclude_from_context=exclude_from_context,
+            timeout=timeout,
+        )
+
+        if not exclude_from_context:
+            output_str = res.get("output", "")
+            if output_str:
+                formatted = f"Ran `{command}`\n```text\n{output_str}\n```"
+            else:
+                formatted = f"Ran `{command}`\n```text\n```"
+
+            self.agent.session.add_message(
+                role="user",
+                content=formatted,
+                metadata={
+                    "type": "bashExecution",
+                    "customType": "bashExecution",
+                    "command": command,
+                    "exit_code": res.get("exit_code"),
+                    "exclude_from_context": False,
+                },
+            )
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "output": res.get("output", ""),
+                "exit_code": res.get("exit_code", 0),
+            },
+        )
+
+    def _handle_macro_expand(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if self.agent:
+            self.macro_engine.workspace = Path(self.agent.workspace)
+        text = str(params.get("text", ""))
+        skills_dir_param = params.get("skills_dir")
+        prompts_dir_param = params.get("prompts_dir")
+
+        skills_dir = Path(skills_dir_param) if skills_dir_param else None
+        prompts_dir = Path(prompts_dir_param) if prompts_dir_param else None
+
+        expanded_text, is_expanded = self.macro_engine.expand_macro(
+            text,
+            skills_dir=skills_dir,
+            prompts_dir=prompts_dir,
+        )
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "text": expanded_text,
+                "expanded": is_expanded,
+                "expanded_text": expanded_text,
+            },
+        )
+
+    def _handle_model_switch(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        raw_model = params.get("model", "")
+        if not raw_model or not isinstance(raw_model, str) or not raw_model.strip():
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'model' parameter"},
+            )
+        raw_model = raw_model.strip()
+
+        provider = params.get("provider")
+        if isinstance(provider, str):
+            provider = provider.strip() or None
+
+        if "/" in raw_model:
+            prov_part, model_name = raw_model.split("/", 1)
+            provider = provider or prov_part.strip()
+            model_name = model_name.strip()
+        else:
+            model_name = raw_model
+            if not provider:
+                if model_name.startswith("gemini-"):
+                    provider = "antigravity"
+                elif "deepseek" in model_name:
+                    provider = "deepseek"
+                elif "gpt-" in model_name or "o1" in model_name or "o3" in model_name:
+                    provider = "openai"
+                elif "claude-" in model_name:
+                    provider = "anthropic"
+                else:
+                    current_llm = getattr(self.agent.agent, "llm", None)
+                    current_config = getattr(current_llm, "config", None)
+                    if current_config and hasattr(current_config, "provider"):
+                        provider = current_config.provider
+                    elif self.settings and self.settings.default_provider:
+                        provider = self.settings.default_provider
+                    else:
+                        provider = "openai"
+
+        # 更新 Agent 当前模型标识
+        self.agent.agent.model = model_name
+
+        llm_inst = getattr(self.agent.agent, "llm", None)
+        if hasattr(llm_inst, "config"):
+            paths = self.paths or AgentPaths()
+            auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+            api_key = os.environ.get(f"{provider.upper()}_API_KEY") if provider else None
+            base_url = os.environ.get(f"{provider.upper()}_BASE_URL") if provider else None
+            if provider:
+                cred = auth_mgr.get_credential(provider)
+                if cred is not None:
+                    if isinstance(cred, ApiKeyCredential):
+                        api_key = cred.resolve_key()
+                        if not base_url and cred.base_url:
+                            base_url = cred.base_url
+                    elif isinstance(cred, OAuthCredential):
+                        api_key = cred.access
+            try:
+                new_config = Config(
+                    provider=provider or "openai",
+                    model=model_name,
+                    api_key=api_key or "placeholder",
+                    base_url=base_url,
+                )
+                self.agent.agent.llm = LLM(config=new_config)
+            except Exception:
+                pass
+        elif llm_inst is not None and hasattr(llm_inst, "model"):
+            setattr(llm_inst, "model", model_name)
+
+        # 向 Session 追加 ModelChangeEntry
+        entry = ModelChangeEntry(
+            model=model_name,
+            provider=provider,
+            parent_id=self.agent.session.tree.current_id,
+        )
+        self.agent.session.append_entry(entry)
+
+        # 若 persist=True，更新并持久化 settings.json
+        persist = bool(params.get("persist", False))
+        if persist:
+            paths = self.paths or AgentPaths()
+            if self.settings is None:
+                self.settings = load_settings(paths)
+            self.settings.default_model = model_name
+            if provider:
+                self.settings.default_provider = provider
+            save_settings(self.settings, paths.settings_path)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "model": model_name,
+                "provider": provider,
+            },
+        )
+
+    def _handle_thinking_set(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        level = params.get("level", "")
+        if not level or not isinstance(level, str):
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'level' parameter"},
+            )
+        level = level.strip().lower()
+
+        valid_levels = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+        if level not in valid_levels:
+            return self.send_response(
+                req_id,
+                error={
+                    "code": -32602,
+                    "message": f"Invalid thinking level '{level}'. Must be one of: {', '.join(sorted(valid_levels))}",
+                },
+            )
+
+        entry = ThinkingLevelChangeEntry(
+            thinking_level=level,
+            parent_id=self.agent.session.tree.current_id,
+        )
+        self.agent.session.append_entry(entry)
+
+        setattr(self.agent, "thinking_level", level)
+
+        persist = bool(params.get("persist", False))
+        if persist:
+            paths = self.paths or AgentPaths()
+            if self.settings is None:
+                self.settings = load_settings(paths)
+            self.settings.default_thinking_level = level  # type: ignore[assignment]
+            save_settings(self.settings, paths.settings_path)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "level": level,
+            },
+        )
+
+    def _handle_auth_logout(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        provider = params.get("provider", "")
+        if not provider or not isinstance(provider, str) or not provider.strip():
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing 'provider' parameter"},
+            )
+        prov = provider.strip().lower()
+
+        paths = self.paths or AgentPaths()
+        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+        self.auth_mgr = auth_mgr
+
+        profile = params.get("profile")
+        if isinstance(profile, str):
+            profile = profile.strip() or None
+
+        removed = auth_mgr.remove_credential(prov, profile=profile)
+
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "provider": prov,
+                "removed": removed,
+            },
+        )
+
+    def _handle_resource_reload(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        paths = self.paths or AgentPaths()
+        workspace_path = Path(self.agent.workspace if self.agent else ".").resolve()
+
+        # 1. 重载 settings
+        self.settings = load_settings(paths, cwd=workspace_path)
+
+        # 2. 重载项目指导文件与系统提示词
+        new_prompt = build_default_coding_prompt(workspace_path)
+        if self.agent:
+            self.agent.agent._system_prompt = new_prompt
+
+            mem_store = getattr(self.agent.agent, "memory_store", None)
+            mem_prompt = (
+                mem_store.format_all_for_system_prompt()
+                if mem_store is not None and hasattr(mem_store, "format_all_for_system_prompt")
+                else None
+            )
+            skill_prompt = (
+                self.agent.agent.skill_manager.format_prompt() if hasattr(self.agent.agent, "skill_manager") else ""
+            )
+            subagent_prompt = (
+                self.agent.agent.subagent_manager.format_prompt()
+                if hasattr(self.agent.agent, "subagent_manager")
+                else ""
+            )
+            parts = [p for p in (new_prompt, skill_prompt, subagent_prompt, mem_prompt) if p]
+            new_sys_content = "\n\n".join(parts)
+
+            if self.agent.agent.messages and self.agent.agent.messages[0].role == "system":
+                self.agent.agent.messages[0] = Message(role="system", content=new_sys_content)
+            elif parts:
+                self.agent.agent.messages.insert(0, Message(role="system", content=new_sys_content))
+
+        # 3. 重载 skills
+        skill_dirs = [
+            paths.skills_dir,
+            paths.project_skills_dir(workspace_path),
+            paths.project_agents_skills_dir(workspace_path),
+        ]
+        skill_mgr = SkillManager(dirs=skill_dirs)
+        if self.agent and hasattr(self.agent.agent, "skill_manager"):
+            self.agent.agent.skill_manager = skill_mgr
+        skill_count = len(skill_mgr.skills)
+
+        # 4. 统计 templates
+        template_count = 0
+        for p_dir in (
+            paths.prompts_dir,
+            paths.project_agent_dir(workspace_path) / "prompts",
+            workspace_path / ".agents" / "prompts",
+        ):
+            if p_dir.exists():
+                template_count += len(list(p_dir.glob("*.md")))
+
+        summary = f"Reloaded settings, project context, {skill_count} skills, and {template_count} prompt templates."
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "summary": summary,
+                "skills_count": skill_count,
+                "templates_count": template_count,
+            },
+        )
+
+    def _handle_trust_set(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        paths = self.paths or AgentPaths()
+        paths.home.mkdir(parents=True, exist_ok=True)
+        trust_file = paths.home / "trust.json"
+
+        workspace_path = Path(self.agent.workspace if self.agent else ".").resolve()
+        target_dir = Path(params.get("path", workspace_path)).resolve()
+
+        if bool(params.get("parent", False)):
+            target_dir = target_dir.parent
+
+        trusted = bool(params.get("trusted", True))
+
+        trust_data: dict[str, bool] = {}
+        if trust_file.exists():
+            try:
+                content = trust_file.read_text(encoding="utf-8")
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    trust_data = parsed
+            except Exception:
+                trust_data = {}
+
+        trust_data[str(target_dir)] = trusted
+
+        tmp_file = trust_file.with_name(f"{trust_file.name}.tmp")
+        tmp_file.write_text(json.dumps(trust_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp_file.replace(trust_file)
+
+        decision = "trusted" if trusted else "untrusted"
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "path": str(target_dir),
+                "trusted": trusted,
+                "decision": decision,
+            },
+        )
+
+    async def _handle_shutdown(self, req_id: Any) -> dict[str, Any]:
+        self.is_shutting_down = True
+        if self.agent and hasattr(self.agent, "close_mcp"):
+            res = self.agent.close_mcp()
+            if inspect.isawaitable(res):
+                await res
+        return self.send_response(req_id, result={"status": "ok"})
+
     async def handle_request(self, req: dict[str, Any]) -> dict[str, Any]:
         """分发并处理单个 RPC 请求。"""
         req_id = req.get("id", 0)
@@ -194,120 +1518,56 @@ class RpcServer:
 
         try:
             if method == "initialize":
-                workspace_path = Path(params.get("workspace", ".")).resolve()
-                model_name = params.get("model")
-                mode = params.get("mode", "review")
-
-                llm = self.llm
-                if llm is None:
-                    provider = None
-                    if model_name and "/" in model_name:
-                        provider, model_name = model_name.split("/", 1)
-                    elif model_name and (
-                        model_name.startswith("gemini-") or "flash" in model_name or "pro" in model_name
-                    ):
-                        provider = "antigravity"
-                    elif model_name and "deepseek" in model_name:
-                        provider = "deepseek"
-                    elif model_name and ("gpt-" in model_name or "o1" in model_name or "o3" in model_name):
-                        provider = "openai"
-
-                    if not provider:
-                        from my_agent_llm.auth.antigravity import AntigravityAuthResolver
-
-                        if AntigravityAuthResolver().resolve_credentials() is not None:
-                            provider = "antigravity"
-                            model_name = model_name or "gemini-3.8-flash"
-                        elif os.environ.get("DEEPSEEK_API_KEY"):
-                            provider = "deepseek"
-                            model_name = model_name or "deepseek-chat"
-                        else:
-                            provider = "openai"
-                            model_name = model_name or "gpt-4o"
-
-                    api_key = os.environ.get(f"{provider.upper()}_API_KEY") or os.environ.get("OPENAI_API_KEY")
-                    base_url = os.environ.get(f"{provider.upper()}_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-                    try:
-                        llm = LLM(
-                            config=Config(provider=provider, model=model_name, api_key=api_key, base_url=base_url)
-                        )
-                    except Exception:
-                        llm = None
-
-                session_file = workspace_path / ".my_agent_core" / "sessions" / "default.jsonl"
-                session_file.parent.mkdir(parents=True, exist_ok=True)
-
-                gate = PermissionGate(mode=mode) if mode else None
-                self.agent = CodingAgent(
-                    workspace=workspace_path,
-                    llm=llm,
-                    session=session_file,
-                    permission_gate=gate,
-                )
-
-                actual_model = getattr(getattr(self.agent.agent.llm, "config", None), "model", "default")
-                return self.send_response(
-                    req_id,
-                    result={
-                        "status": "ok",
-                        "workspace": str(workspace_path),
-                        "model": actual_model,
-                    },
-                )
-
+                return await self._handle_initialize(req_id, params)
             elif method == "prompt":
-                if not self.agent:
-                    return self.send_response(
-                        req_id,
-                        error={"code": -32001, "message": "Agent not initialized"},
-                    )
-
-                text = params.get("text", "")
-                async for event in self.agent.run_stream(text):
-                    serialized = serialize_event(event)
-                    self.send_notification("event", serialized)
-
-                return self.send_response(req_id, result={"status": "completed"})
-
+                return await self._handle_prompt(req_id, params)
+            elif method == "login":
+                return self._handle_login(req_id, params)
             elif method == "steer":
-                if not self.agent:
-                    return self.send_response(
-                        req_id,
-                        error={"code": -32001, "message": "Agent not initialized"},
-                    )
-                msg = params.get("message", "")
-                self.agent.steer(msg)
-                return self.send_response(req_id, result={"status": "ok"})
-
+                return self._handle_steer(req_id, params)
             elif method == "followup":
-                if not self.agent:
-                    return self.send_response(
-                        req_id,
-                        error={"code": -32001, "message": "Agent not initialized"},
-                    )
-                msg = params.get("message", "")
-                self.agent.follow_up(msg)
-                return self.send_response(req_id, result={"status": "ok"})
-
+                return self._handle_followup(req_id, params)
             elif method == "abort":
-                if self.agent:
-                    self.agent.abort()
-                return self.send_response(req_id, result={"status": "ok"})
-
+                return self._handle_abort(req_id)
+            elif method == "session_name":
+                return self._handle_session_name(req_id, params)
+            elif method == "session_list":
+                return self._handle_session_list(req_id, params)
+            elif method == "session_resume":
+                return self._handle_session_resume(req_id, params)
+            elif method == "session_compact":
+                return await self._handle_session_compact(req_id, params)
+            elif method == "session_new":
+                return self._handle_session_new(req_id, params)
+            elif method == "session_tree":
+                return self._handle_session_tree(req_id, params)
+            elif method == "session_branch":
+                return await self._handle_session_branch(req_id, params)
+            elif method == "session_fork":
+                return self._handle_session_fork(req_id, params)
+            elif method == "session_clone":
+                return self._handle_session_clone(req_id, params)
+            elif method == "shell_exec":
+                return await self._handle_shell_exec(req_id, params)
+            elif method == "macro_expand":
+                return self._handle_macro_expand(req_id, params)
+            elif method == "model_switch":
+                return self._handle_model_switch(req_id, params)
+            elif method == "thinking_set":
+                return self._handle_thinking_set(req_id, params)
+            elif method == "auth_logout":
+                return self._handle_auth_logout(req_id, params)
+            elif method == "resource_reload":
+                return self._handle_resource_reload(req_id, params)
+            elif method == "trust_set":
+                return self._handle_trust_set(req_id, params)
             elif method == "shutdown":
-                self.is_shutting_down = True
-                if self.agent and hasattr(self.agent, "close_mcp"):
-                    res = self.agent.close_mcp()
-                    if inspect.isawaitable(res):
-                        await res
-                return self.send_response(req_id, result={"status": "ok"})
-
+                return await self._handle_shutdown(req_id)
             else:
                 return self.send_response(
                     req_id,
                     error={"code": -32601, "message": f"Method '{method}' not found"},
                 )
-
         except Exception as e:
             return self.send_response(
                 req_id,
@@ -339,7 +1599,13 @@ class RpcServer:
                 )
                 continue
 
-            await self.handle_request(req)
+            # 并发派发请求，保证在 prompt 执行期间仍可实时处理 abort / steer / followup
+            task = asyncio.create_task(self.handle_request(req))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+        if self._background_tasks:
+            await asyncio.gather(*list(self._background_tasks), return_exceptions=True)
 
 
 async def main() -> None:
@@ -347,17 +1613,39 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description="my-coding-agent stdio JSON-RPC server")
     parser.add_argument("-w", "--workspace", default=".", help="工作区路径")
     parser.add_argument("-m", "--model", default=None, help="LLM 模型标识符")
+    parser.add_argument("-c", "--continue", dest="continue_session", action="store_true", help="续接最近一次会话")
+    parser.add_argument("-r", "--resume", nargs="?", const=True, default=None, help="恢复指定会话或打开选择器")
+    parser.add_argument("-n", "--name", default=None, help="为当前会话命名")
+    parser.add_argument("--thinking", default=None, help="思考深度等级")
+    parser.add_argument("--no-session", action="store_true", help="内存无痕模式")
+    parser.add_argument("--new-session", action="store_true", help="强制开启新会话")
     args = parser.parse_args()
 
     server = RpcServer()
     # 如果指定了启动工作区或模型，先行执行预初始化
-    if args.workspace != "." or args.model is not None:
+    if (
+        args.workspace != "."
+        or args.model is not None
+        or args.continue_session
+        or args.resume is not None
+        or args.name is not None
+        or args.thinking is not None
+        or args.no_session
+    ):
         await server.handle_request(
             {
                 "jsonrpc": "2.0",
                 "id": 0,
                 "method": "initialize",
-                "params": {"workspace": args.workspace, "model": args.model},
+                "params": {
+                    "workspace": args.workspace,
+                    "model": args.model,
+                    "continue_session": args.continue_session,
+                    "resume": args.resume,
+                    "name": args.name,
+                    "thinking": args.thinking,
+                    "no_session": args.no_session,
+                },
             }
         )
 

@@ -10,6 +10,7 @@ export class ToolExecutionComponent extends Container {
   private isExpanded = false;
   private resultText = "";
   private elapsedSeconds = 0;
+  private startTime = Date.now();
 
   constructor(
     public readonly toolName: string,
@@ -24,6 +25,17 @@ export class ToolExecutionComponent extends Container {
     this.updateDisplay();
   }
 
+  public get finished(): boolean {
+    return this.isFinished;
+  }
+
+  public get elapsed(): number {
+    if (this.isFinished) {
+      return this.elapsedSeconds;
+    }
+    return Math.max(0, (Date.now() - this.startTime) / 1000);
+  }
+
   public updateArgs(args: Record<string, unknown>): void {
     this.args = args;
     this.updateDisplay();
@@ -32,11 +44,14 @@ export class ToolExecutionComponent extends Container {
   public updateResult(
     result: unknown,
     isError: boolean,
-    elapsedSeconds = 0,
+    elapsedSeconds?: number,
   ): void {
     this.isFinished = true;
     this.isError = isError;
-    this.elapsedSeconds = elapsedSeconds;
+    this.elapsedSeconds =
+      elapsedSeconds !== undefined && elapsedSeconds >= 0
+        ? elapsedSeconds
+        : Math.max(0, (Date.now() - this.startTime) / 1000);
 
     if (typeof result === "string") {
       this.resultText = result;
@@ -59,6 +74,13 @@ export class ToolExecutionComponent extends Container {
     this.updateDisplay();
   }
 
+  public override render(width: number): string[] {
+    if (!this.isFinished) {
+      this.updateDisplay();
+    }
+    return super.render(width);
+  }
+
   private formatArgs(): string {
     const keys = Object.keys(this.args);
     if (keys.length === 0) {
@@ -79,22 +101,29 @@ export class ToolExecutionComponent extends Container {
     this.box.clear();
 
     // 1. Header
-    let icon = theme.fg("warning", "\u27f3");
+    let icon = theme.fg("warning", "⠋");
     let statusSuffix = "";
     if (this.isFinished) {
       if (this.isError) {
-        icon = theme.fg("error", "\u2717");
-        statusSuffix = theme.fg("error", " (失败)");
+        icon = theme.fg("error", "✗");
+        statusSuffix = theme.fg("error", "(失败)");
       } else {
-        icon = theme.fg("success", "\u2713");
-        statusSuffix =
-          this.elapsedSeconds > 0
-            ? theme.fg("dim", ` (${this.elapsedSeconds.toFixed(1)}s)`)
-            : "";
+        icon = theme.fg("success", "✓");
+        statusSuffix = theme.fg("dim", `(${this.elapsedSeconds.toFixed(1)}s)`);
       }
+    } else {
+      statusSuffix = theme.fg("dim", `Elapsed ${this.elapsed.toFixed(1)}s`);
     }
 
-    const titleText = `${icon} ${theme.bold(theme.fg("toolTitle", this.toolName))} ${theme.fg("dim", this.formatArgs())}${statusSuffix}`;
+    const argsStr = this.formatArgs();
+    const parts = [icon, theme.bold(theme.fg("toolTitle", this.toolName))];
+    if (argsStr) {
+      parts.push(theme.fg("dim", argsStr));
+    }
+    if (statusSuffix) {
+      parts.push(statusSuffix);
+    }
+    const titleText = parts.join(" ");
     this.box.addChild(new Text(titleText, 0, 0));
 
     // 2. Result Output (if finished)

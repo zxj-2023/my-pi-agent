@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -16,8 +17,10 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
+from my_agent_llm.auth.manager import AuthManager
+from my_agent_llm.auth.schema import ApiKeyCredential
 from my_agent_llm.models import Message, Response, StreamChunk
-from my_coding_agent import CodingAgent
+from my_coding_agent import AgentPaths, CodingAgent
 from my_coding_agent.rpc_server import RpcServer, serialize_event
 
 
@@ -173,6 +176,61 @@ async def test_rpc_server_errors_and_edge_cases(tmp_path: Path):
 
 
 @pytest.mark.anyio
+async def test_rpc_server_concurrent_abort_during_prompt(tmp_path: Path):
+    class SlowFakeLLM:
+        def __init__(self):
+            self.model = "slow-model"
+
+        async def achat_stream(self, *a, **kw):
+            for i in range(10):
+                await asyncio.sleep(0.02)
+                yield StreamChunk(content=f"chunk{i} ")
+
+    in_buf = io.StringIO()
+    out_buf = io.StringIO()
+    server = RpcServer(stdin=in_buf, stdout=out_buf, llm=SlowFakeLLM())
+
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(tmp_path)},
+        }
+    )
+
+    # 启动长时间 Prompt
+    prompt_task = asyncio.create_task(
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompt",
+                "params": {"text": "run forever"},
+            }
+        )
+    )
+
+    # 短暂等待生成开始
+    await asyncio.sleep(0.04)
+
+    # 发送并发中断
+    abort_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "abort",
+            "params": {},
+        }
+    )
+    assert abort_resp["result"]["status"] == "ok"
+
+    # prompt 应当迅速中止退出，而不是跑满 10 个 chunk
+    prompt_resp = await prompt_task
+    assert prompt_resp["result"]["status"] == "completed"
+
+
+@pytest.mark.anyio
 async def test_rpc_server_run_forever(tmp_path: Path):
     lines = [
         json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(tmp_path)}}),
@@ -190,3 +248,109 @@ async def test_rpc_server_run_forever(tmp_path: Path):
     assert '"id": 2' in output
     assert '"id": 3' in output
     assert server.is_shutting_down is True
+
+
+@pytest.mark.anyio
+async def test_rpc_server_zero_pollution_workspace(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "custom_agent_home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+
+    workspace_dir = tmp_path / "user_project"
+    workspace_dir.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace_dir)},
+        }
+    )
+    assert resp["result"]["status"] == "ok"
+
+    # 关键断言：用户工程工作区内绝对不能出现任何 .my_agent_core 目录！
+    assert not (workspace_dir / ".my_agent_core").exists()
+
+    # 会话必须集中存储在全局用户目录下
+    paths = AgentPaths(home=custom_home)
+    assert paths.sessions_dir.exists()
+    assert paths.default_session_path(workspace_dir).parent.exists()
+
+
+@pytest.mark.anyio
+async def test_rpc_server_login_updates_auth_manager_and_env(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "custom_agent_home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+
+    workspace_dir = tmp_path / "user_project"
+    workspace_dir.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace_dir)},
+        }
+    )
+
+    # 执行 login
+    login_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "login",
+            "params": {"provider": "deepseek", "key": "sk-deepseek-test-999"},
+        }
+    )
+    assert login_resp["result"]["status"] == "ok"
+
+    # 断言 1: 项目工作区 .env 写入
+    env_file = workspace_dir / ".env"
+    assert env_file.exists()
+    assert "DEEPSEEK_API_KEY=sk-deepseek-test-999" in env_file.read_text(encoding="utf-8")
+
+    # 断言 2: 全局 auth.json 凭据中心同步更新
+    paths = AgentPaths(home=custom_home)
+    assert paths.auth_path.exists()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+    cred = auth_mgr.get_credential("deepseek")
+    assert cred is not None
+    assert isinstance(cred, ApiKeyCredential)
+    assert cred.key == "sk-deepseek-test-999"
+
+
+@pytest.mark.anyio
+async def test_rpc_server_credentials_resolution_from_auth_store(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "custom_agent_home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+
+    # 预先在 auth.json 写入 deepseek 凭证
+    paths = AgentPaths(home=custom_home)
+    paths.ensure_directories()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+    auth_mgr.set_api_key("deepseek", "sk-stored-in-auth-json")
+
+    # 确保环境中无任何相关环境变量
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    workspace_dir = tmp_path / "user_project"
+    workspace_dir.mkdir()
+
+    server = RpcServer()  # llm is None, should resolve from auth_mgr
+    resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace_dir), "model": "deepseek/deepseek-chat"},
+        }
+    )
+    assert resp["result"]["status"] == "ok"
+    assert server.agent is not None
+    assert server.agent.agent.llm is not None
+    assert server.agent.agent.llm.config.provider == "deepseek"
+    assert server.agent.agent.llm.config.api_key == "sk-stored-in-auth-json"

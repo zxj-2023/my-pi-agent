@@ -1,81 +1,187 @@
 import * as os from "node:os";
-import { Container, Text } from "@earendil-works/pi-tui";
+import * as path from "node:path";
+import {
+  Container,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 
 export interface FooterData {
   workspace: string;
   gitBranch?: string;
+  sessionName?: string;
+  providerName?: string;
   modelName?: string;
-  tokensUsed?: number;
+  thinkingLevel?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  tokensUsed?: number; // 兼容旧版调用场景
+  contextWindow?: number;
+  costUsd?: number;
   elapsedSeconds?: number;
   isBusy?: boolean;
 }
 
 export class FooterComponent extends Container {
-  private data: FooterData = {
-    workspace: process.cwd(),
-    gitBranch: "main",
-    modelName: "default",
-    tokensUsed: 0,
-    elapsedSeconds: 0,
-    isBusy: false,
-  };
+  private data: FooterData;
 
   constructor(initialData?: Partial<FooterData>) {
     super();
-    if (initialData) {
-      this.data = { ...this.data, ...initialData };
-    }
-    this.updateDisplay();
+    this.data = {
+      workspace: process.cwd(),
+      modelName: "default",
+      thinkingLevel: "off",
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      contextWindow: 128000,
+      costUsd: 0,
+      ...initialData,
+    };
   }
 
   public update(partial: Partial<FooterData>): void {
     this.data = { ...this.data, ...partial };
-    this.updateDisplay();
+  }
+
+  public override render(width: number): string[] {
+    // 1. 第一行：工作区路径 (~ 折叠) + 分支 + 会话名
+    let pwd = this.formatCwd(this.data.workspace);
+    if (this.data.gitBranch) {
+      pwd += ` (${this.data.gitBranch})`;
+    }
+    if (this.data.sessionName) {
+      pwd += ` • ${this.data.sessionName}`;
+    }
+    const line1 = truncateToWidth(
+      theme.fg("dim", pwd),
+      width,
+      theme.fg("dim", "..."),
+    );
+
+    // 2. 第二行左侧：Token 指标与实时状态
+    const statsParts: string[] = [];
+    if (this.data.inputTokens && this.data.inputTokens > 0) {
+      statsParts.push(`↑${this.formatTokens(this.data.inputTokens)}`);
+    }
+    if (this.data.outputTokens && this.data.outputTokens > 0) {
+      statsParts.push(`↓${this.formatTokens(this.data.outputTokens)}`);
+    }
+    if (
+      this.data.tokensUsed &&
+      this.data.tokensUsed > 0 &&
+      !this.data.inputTokens &&
+      !this.data.outputTokens
+    ) {
+      statsParts.push(this.formatTokens(this.data.tokensUsed));
+    }
+    if (this.data.costUsd && this.data.costUsd > 0) {
+      statsParts.push(`$${this.data.costUsd.toFixed(3)}`);
+    }
+
+    const totalTok =
+      this.data.totalTokens ??
+      this.data.tokensUsed ??
+      (this.data.inputTokens || 0) + (this.data.outputTokens || 0);
+    const contextWin = this.data.contextWindow || 128000;
+    const percent = (totalTok / contextWin) * 100;
+    const percentStr = `${percent.toFixed(1)}%/${this.formatTokens(contextWin)}`;
+    const contextColor =
+      percent > 90 ? "error" : percent > 70 ? "warning" : "dim";
+    statsParts.push(theme.fg(contextColor, percentStr));
+
+    if (this.data.elapsedSeconds && this.data.elapsedSeconds > 0) {
+      statsParts.push(
+        theme.fg("dim", `${this.data.elapsedSeconds.toFixed(1)}s`),
+      );
+    }
+    if (this.data.isBusy) {
+      statsParts.push(theme.fg("warning", "⠋"));
+    }
+
+    const statsLeft = statsParts.join(" ");
+
+    // 3. 第二行右侧：模型与思考深度 (provider) model • thinking
+    const prov = this.data.providerName ? `(${this.data.providerName}) ` : "";
+    const model = this.data.modelName || "default";
+    const thinking =
+      this.data.thinkingLevel && this.data.thinkingLevel !== "off"
+        ? ` • ${this.data.thinkingLevel}`
+        : "";
+    const rightSide = `${prov}${model}${thinking}`;
+
+    // 4. 动态计算填充间距并右对齐，应用 ANSI 独立染色保护
+    let statsLeftFormatted = statsLeft;
+    let statsLeftWidth = visibleWidth(statsLeftFormatted);
+    if (statsLeftWidth > width) {
+      statsLeftFormatted = truncateToWidth(statsLeftFormatted, width, "...");
+      statsLeftWidth = visibleWidth(statsLeftFormatted);
+    }
+
+    const minPadding = 2;
+    const rightWidth = visibleWidth(rightSide);
+    let line2: string;
+
+    if (statsLeftWidth + minPadding + rightWidth <= width) {
+      const padLen = width - statsLeftWidth - rightWidth;
+      const remainder = " ".repeat(padLen) + rightSide;
+      line2 = theme.fg("dim", statsLeftFormatted) + theme.fg("dim", remainder);
+    } else {
+      const availableForRight = width - statsLeftWidth - minPadding;
+      if (availableForRight > 0) {
+        const truncatedRight = truncateToWidth(
+          rightSide,
+          availableForRight,
+          "",
+        );
+        const padLen = Math.max(
+          0,
+          width - statsLeftWidth - visibleWidth(truncatedRight),
+        );
+        const remainder = " ".repeat(padLen) + truncatedRight;
+        line2 =
+          theme.fg("dim", statsLeftFormatted) + theme.fg("dim", remainder);
+      } else {
+        line2 = truncateToWidth(
+          theme.fg("dim", statsLeftFormatted),
+          width,
+          "...",
+        );
+      }
+    }
+
+    return [line1, line2];
   }
 
   private formatCwd(dir: string): string {
+    if (!dir) return "";
     const home = os.homedir();
-    if (dir.startsWith(home)) {
-      return "~" + dir.slice(home.length).replace(/\\/g, "/");
+    const resolved = path.resolve(dir);
+    const isWindows = process.platform === "win32";
+    const normResolved = isWindows ? resolved.toLowerCase() : resolved;
+    const normHome = isWindows ? home.toLowerCase() : home;
+
+    if (normResolved === normHome) return "~";
+    if (
+      normResolved.startsWith(normHome + path.sep) ||
+      normResolved.startsWith(normHome + "/")
+    ) {
+      return "~" + resolved.slice(home.length).replace(/\\/g, "/");
     }
-    return dir.replace(/\\/g, "/");
+    return resolved.replace(/\\/g, "/");
   }
 
   private formatTokens(count: number): string {
-    if (count < 1000) {
-      return String(count);
+    if (count < 1000) return String(count);
+    if (count < 1000000) {
+      const k = count / 1000;
+      const formatted = k.toFixed(1);
+      return formatted.endsWith(".0") ? `${Math.round(k)}k` : `${formatted}k`;
     }
-    if (count < 1_000_000) {
-      return `${(count / 1000).toFixed(1)}k`;
-    }
-    return `${(count / 1_000_000).toFixed(1)}M`;
-  }
-
-  private updateDisplay(): void {
-    this.clear();
-
-    const cwdStr = this.formatCwd(this.data.workspace);
-    const branchStr = this.data.gitBranch
-      ? `\u{1f33f} ${this.data.gitBranch}`
-      : "\u{1f33f} (no git)";
-    const modelStr = `\u{1f916} ${this.data.modelName || "default"}`;
-    const tokenStr = `\u{1f4ca} Tokens: ${this.formatTokens(this.data.tokensUsed || 0)}`;
-
-    let line =
-      `${theme.bold(theme.fg("accent", `\u{1f4c1} ${cwdStr}`))} ` +
-      `[${theme.fg("success", branchStr)}] ` +
-      `[${theme.fg("borderAccent", modelStr)}] ` +
-      `[${theme.fg("warning", tokenStr)}]`;
-
-    if (this.data.elapsedSeconds && this.data.elapsedSeconds > 0) {
-      line += ` [${theme.dim(`\u23f1\ufe0f ${this.data.elapsedSeconds.toFixed(1)}s`)}]`;
-    }
-
-    if (this.data.isBusy) {
-      line += ` ${theme.bold(theme.fg("warning", "\u27f3 思考计算中..."))}`;
-    }
-
-    this.addChild(new Text(line, 1, 0));
+    const m = count / 1000000;
+    const formatted = m.toFixed(1);
+    return formatted.endsWith(".0") ? `${Math.round(m)}M` : `${formatted}M`;
   }
 }
