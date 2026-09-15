@@ -281,6 +281,14 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
         session_file: "/tmp/cloned.jsonl",
       };
     }
+    if (method === "models_list") {
+      return {
+        status: "ok",
+        models: [
+          { id: "deepseek-chat", provider: "deepseek", name: "DeepSeek V3", contextWindow: 64000 },
+        ],
+      };
+    }
     if (method === "model_switch") {
       return { status: "ok", model: params?.model || "deepseek-chat" };
     }
@@ -375,6 +383,12 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
 
   // 13. /login (无参 -> 调起 LoginSelector)
   await app.handleUserSubmit("/login");
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
+
+  // 14. /model (无参 -> 调起 ModelSelector)
+  await app.handleUserSubmit("/model");
   assert.ok(app["activeSelectorComponent"]);
   app["activeSelectorComponent"].handleInput("\x1b");
   assert.equal(app["activeSelectorComponent"], undefined);

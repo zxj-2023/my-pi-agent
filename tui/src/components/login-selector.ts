@@ -94,15 +94,10 @@ export class LoginSelectorComponent extends Container {
       scrollInfo: (s: string) => theme.dim(s),
       noMatch: (_s: string) => theme.dim("无匹配 Provider"),
     };
-    const list = new SelectList(
-      items,
-      Math.max(1, items.length),
-      listTheme,
-      {
-        minPrimaryColumnWidth: 14,
-        maxPrimaryColumnWidth: 28,
-      },
-    );
+    const list = new SelectList(items, Math.max(1, items.length), listTheme, {
+      minPrimaryColumnWidth: 14,
+      maxPrimaryColumnWidth: 28,
+    });
     list.onSelect = (item) => {
       const found = this.providers.find((p) => p.id === item.value);
       if (found) {
@@ -133,11 +128,16 @@ export class LoginSelectorComponent extends Container {
     this.addChild(new Spacer(1));
 
     if (this.phase === "select_provider") {
-      this.addChild(new Text(theme.bold("Login / Bind Provider Credentials"), 0, 0));
+      this.addChild(
+        new Text(theme.bold("Login / Bind Provider Credentials"), 0, 0),
+      );
       this.addChild(new Spacer(1));
       this.addChild(
         new Text(
-          theme.fg("muted", "Credentials will be securely saved to ~/.my-pi-agent/auth.json"),
+          theme.fg(
+            "muted",
+            "Credentials will be securely saved to ~/.my-pi-agent/auth.json",
+          ),
           0,
           0,
         ),
@@ -151,11 +151,7 @@ export class LoginSelectorComponent extends Container {
       this.addChild(new Spacer(1));
 
       this.addChild(
-        new Text(
-          theme.fg("dim", "  Enter to select · Escape to cancel"),
-          0,
-          0,
-        ),
+        new Text(theme.fg("dim", "  Enter to select · Escape to cancel"), 0, 0),
       );
     } else {
       this.addChild(

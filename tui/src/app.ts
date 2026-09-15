@@ -1262,61 +1262,20 @@ export class AgentApp {
   }
 
   public showModelSelector(initialQuery?: string): void {
-    const availableModels: ModelItem[] = [
-      {
-        id: "deepseek-chat",
-        provider: "deepseek",
-        name: "DeepSeek V3",
-        contextWindow: 64000,
-      },
-      {
-        id: "deepseek-reasoner",
-        provider: "deepseek",
-        name: "DeepSeek R1",
-        contextWindow: 64000,
-      },
-      {
-        id: "gpt-4o",
-        provider: "openai",
-        name: "GPT-4o",
-        contextWindow: 128000,
-      },
-      {
-        id: "gpt-4o-mini",
-        provider: "openai",
-        name: "GPT-4o Mini",
-        contextWindow: 128000,
-      },
-      {
-        id: "claude-3-5-sonnet-20241022",
-        provider: "anthropic",
-        name: "Claude 3.5 Sonnet",
-        contextWindow: 200000,
-      },
-      {
-        id: "claude-3-5-haiku-20241022",
-        provider: "anthropic",
-        name: "Claude 3.5 Haiku",
-        contextWindow: 200000,
-      },
-      {
-        id: "gemini-2.5-flash",
-        provider: "antigravity",
-        name: "Gemini 2.5 Flash",
-        contextWindow: 1000000,
-      },
-      {
-        id: "gemini-2.5-pro",
-        provider: "antigravity",
-        name: "Gemini 2.5 Pro",
-        contextWindow: 1000000,
-      },
-    ];
-
     this.showSelector((done) => {
       const selector = new ModelSelectorComponent(
         this.options.model || "default",
-        availableModels,
+        async (all: boolean) => {
+          try {
+            const res = await this.client.sendRequest<{
+              status: string;
+              models: ModelItem[];
+            }>("models_list", { scope: all ? "all" : "configured" });
+            return res.models || [];
+          } catch {
+            return [];
+          }
+        },
         async (model) => {
           done();
           try {
@@ -1360,6 +1319,7 @@ export class AgentApp {
           this.tui.requestRender();
         },
         this.options.model,
+        () => this.tui.requestRender(),
       );
       return { component: selector, focus: selector.searchInput };
     });

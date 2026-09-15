@@ -25,18 +25,11 @@ const TEST_MODELS = [
 ];
 
 test("ModelSelectorComponent renders models list with provider badges", () => {
-  let selected = null;
-  let cancelled = false;
-
   const selector = new ModelSelectorComponent(
     "deepseek-chat",
     TEST_MODELS,
-    (m) => {
-      selected = m;
-    },
-    () => {
-      cancelled = true;
-    },
+    () => {},
+    () => {},
     undefined,
     undefined,
     "gpt-4o",
@@ -78,4 +71,36 @@ test("ModelSelectorComponent handles navigation, selection and cancellation", ()
   // Press escape
   selector.handleInput("\x1b");
   assert.equal(cancelled, true);
+});
+
+test("ModelSelectorComponent supports dynamic loader and Tab scope toggle", async () => {
+  let loadedScopeAll = null;
+
+  const selector = new ModelSelectorComponent(
+    "deepseek-chat",
+    async (all) => {
+      loadedScopeAll = all;
+      return all
+        ? TEST_MODELS
+        : TEST_MODELS.filter((m) => m.provider === "deepseek");
+    },
+    () => {},
+    () => {},
+  );
+
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(loadedScopeAll, false);
+
+  const linesConfigured = selector.render(80).join("\n");
+  assert.ok(linesConfigured.includes("deepseek-chat"));
+  assert.ok(!linesConfigured.includes("gpt-4o"));
+
+  // Press Tab to switch scope to All
+  selector.handleInput("\t");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(loadedScopeAll, true);
+
+  const linesAll = selector.render(80).join("\n");
+  assert.ok(linesAll.includes("deepseek-chat"));
+  assert.ok(linesAll.includes("gpt-4o"));
 });

@@ -178,6 +178,26 @@ def serialize_event(event: Event) -> dict[str, Any]:
     return {"type": type(event).__name__.lower()}
 
 
+KNOWN_MODEL_CATALOG: list[dict[str, Any]] = [
+    # DeepSeek
+    {"id": "deepseek-chat", "provider": "deepseek", "name": "DeepSeek-V3", "contextWindow": 64000},
+    {"id": "deepseek-reasoner", "provider": "deepseek", "name": "DeepSeek-R1", "contextWindow": 64000},
+    # OpenAI
+    {"id": "gpt-4o", "provider": "openai", "name": "GPT-4o", "contextWindow": 128000},
+    {"id": "gpt-4o-mini", "provider": "openai", "name": "GPT-4o mini", "contextWindow": 128000},
+    {"id": "o1", "provider": "openai", "name": "o1", "contextWindow": 200000},
+    {"id": "o3-mini", "provider": "openai", "name": "o3-mini", "contextWindow": 200000},
+    # Anthropic
+    {"id": "claude-3-5-sonnet-20241022", "provider": "anthropic", "name": "Claude 3.5 Sonnet", "contextWindow": 200000},
+    {"id": "claude-3-5-haiku-20241022", "provider": "anthropic", "name": "Claude 3.5 Haiku", "contextWindow": 200000},
+    {"id": "claude-3-opus-20240229", "provider": "anthropic", "name": "Claude 3 Opus", "contextWindow": 200000},
+    # Antigravity (Google)
+    {"id": "gemini-3.8-flash", "provider": "antigravity", "name": "Gemini 3.8 Flash", "contextWindow": 1000000},
+    {"id": "gemini-2.5-pro", "provider": "antigravity", "name": "Gemini 2.5 Pro", "contextWindow": 1000000},
+    {"id": "gemini-2.5-flash", "provider": "antigravity", "name": "Gemini 2.5 Flash", "contextWindow": 1000000},
+]
+
+
 class RpcServer:
     """标准 stdio JSON-RPC 2.0 服务端，将 Python 无头 CodingAgent 连接至 Node 前端。"""
 
@@ -315,7 +335,9 @@ class RpcServer:
                     api_key = api_key or os.environ.get("OPENAI_API_KEY")
                     base_url = base_url or os.environ.get("OPENAI_BASE_URL")
                 elif provider == "antigravity":
-                    api_key = api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
+                    api_key = (
+                        api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
+                    )
 
             if not api_key and provider != "antigravity":
                 api_key = os.environ.get("OPENAI_API_KEY")
@@ -340,8 +362,8 @@ class RpcServer:
         explicit_model = params.get("model")
         mode = params.get("mode", settings.default_permission_mode)
 
-        load_dotenv(workspace_path / ".env", override=False)
-        load_dotenv(find_dotenv(usecwd=True), override=False)
+        if (workspace_path / ".env").exists():
+            load_dotenv(workspace_path / ".env", override=False)
 
         llm = self.llm
         if llm is None:
@@ -1362,6 +1384,64 @@ class RpcServer:
             },
         )
 
+    def _get_configured_providers(self) -> set[str]:
+        configured: set[str] = set()
+        paths = self.paths or AgentPaths()
+        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+
+        for p in ["deepseek", "openai", "anthropic", "antigravity"]:
+            if auth_mgr.get_credential(p) is not None:
+                configured.add(p)
+                continue
+            key_name = "ANTIGRAVITY_ACCESS_TOKEN" if p == "antigravity" else f"{p.upper()}_API_KEY"
+            if os.environ.get(key_name):
+                configured.add(p)
+                continue
+            if p == "openai" and os.environ.get("OPENAI_API_KEY"):
+                configured.add("openai")
+            if p == "antigravity":
+                try:
+                    from my_agent_llm.auth.antigravity import AntigravityAuthResolver
+
+                    ws = Path(self.agent.workspace if self.agent else ".").resolve()
+                    resolver = AntigravityAuthResolver(workspace=ws)
+                    if resolver.resolve_credentials() is not None:
+                        configured.add("antigravity")
+                except Exception:
+                    pass
+
+        return configured
+
+    def _handle_models_list(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        scope = params.get("scope", "configured")
+        configured_providers = self._get_configured_providers()
+
+        models = []
+        for item in KNOWN_MODEL_CATALOG:
+            prov = item["provider"]
+            is_configured = prov in configured_providers
+            if scope == "all" or is_configured:
+                models.append({
+                    **item,
+                    "is_configured": is_configured,
+                })
+
+        curr = "default"
+        if self.agent:
+            curr = getattr(self.agent, "model", None) or getattr(
+                getattr(self.agent, "agent", None), "model", "default"
+            )
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "scope": scope,
+                "configured_providers": sorted(list(configured_providers)),
+                "models": models,
+                "current_model": curr,
+            },
+        )
+
     def _handle_auth_logout(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         provider = params.get("provider", "")
         if not provider or not isinstance(provider, str) or not provider.strip():
@@ -1545,6 +1625,8 @@ class RpcServer:
                 return await self._handle_shell_exec(req_id, params)
             elif method == "macro_expand":
                 return self._handle_macro_expand(req_id, params)
+            elif method == "models_list":
+                return self._handle_models_list(req_id, params)
             elif method == "model_switch":
                 return self._handle_model_switch(req_id, params)
             elif method == "thinking_set":

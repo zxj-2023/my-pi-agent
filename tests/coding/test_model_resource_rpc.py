@@ -276,3 +276,47 @@ def test_auth_manager_remove_credential(tmp_path: Path) -> None:
 
     # 3. 删除不存在的 provider
     assert mgr.remove_credential("nonexistent") is False
+
+
+@pytest.mark.anyio
+async def test_models_list_configured_vs_all_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTIGRAVITY_ACCESS_TOKEN", raising=False)
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    paths = AgentPaths(home=custom_home)
+    paths.ensure_directories()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+    # 仅配置 deepseek 凭证
+    auth_mgr.set_api_key("deepseek", "sk-deepseek-only-key")
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+
+    # 1. 默认 scope=configured: 仅返回已配置 Provider 的模型 (仅 deepseek)
+    resp_conf = await server.handle_request(
+        {"jsonrpc": "2.0", "id": 2, "method": "models_list", "params": {"scope": "configured"}}
+    )
+    assert resp_conf["result"]["status"] == "ok"
+    models_conf = resp_conf["result"]["models"]
+    assert len(models_conf) > 0
+    # 必须全部是 deepseek 模型，绝不混入未配置的 openai/anthropic
+    assert all(m["provider"] == "deepseek" for m in models_conf)
+    assert any(m["id"] == "deepseek-chat" for m in models_conf)
+
+    # 2. scope=all: 返回全量支持的模型 (包含 openai, anthropic 等)
+    resp_all = await server.handle_request(
+        {"jsonrpc": "2.0", "id": 3, "method": "models_list", "params": {"scope": "all"}}
+    )
+    assert resp_all["result"]["status"] == "ok"
+    models_all = resp_all["result"]["models"]
+    assert len(models_all) > len(models_conf)
+    assert any(m["provider"] == "openai" for m in models_all)
+    assert any(m["provider"] == "anthropic" for m in models_all)

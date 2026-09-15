@@ -14,14 +14,20 @@ export interface ModelItem {
   provider: string;
   name?: string;
   contextWindow?: number;
+  is_configured?: boolean;
 }
+
+export type ModelListLoader = (all: boolean) => Promise<ModelItem[]>;
 
 export class ModelSelectorComponent extends Container {
   public searchInput: Input;
+  private headerContainer: Container;
   private listContainer: Container;
   private allModels: ModelItem[] = [];
   private filteredModels: ModelItem[] = [];
   private selectedIndex = 0;
+  private scope: "configured" | "all" = "configured";
+  private loader?: ModelListLoader;
   private _focused = false;
 
   get focused(): boolean {
@@ -34,33 +40,52 @@ export class ModelSelectorComponent extends Container {
 
   constructor(
     public readonly currentModel: string,
-    models: ModelItem[],
+    modelsOrLoader: ModelItem[] | ModelListLoader,
     public readonly onSelect: (model: ModelItem) => void,
     public readonly onCancel: () => void,
     initialSearch?: string,
     public readonly onSelectAsDefault?: (model: ModelItem) => void,
     public readonly defaultModelId?: string,
+    private readonly requestRender?: () => void,
   ) {
     super();
 
-    this.allModels = this.sortModels(models);
-    this.filteredModels = [...this.allModels];
+    this.headerContainer = new Container();
+    this.listContainer = new Container();
+    this.searchInput = new Input();
 
+    if (typeof modelsOrLoader === "function") {
+      this.loader = modelsOrLoader;
+    } else {
+      this.allModels = this.sortModels(modelsOrLoader);
+      this.filteredModels = [...this.allModels];
+    }
+
+    this.rebuildStaticLayout(initialSearch);
+
+    if (this.loader) {
+      void this.reload(initialSearch);
+    } else {
+      this.updateHeader();
+      if (initialSearch) {
+        this.filterModels(initialSearch);
+      } else {
+        const curIdx = this.filteredModels.findIndex(
+          (m) =>
+            m.id === currentModel || `${m.provider}/${m.id}` === currentModel,
+        );
+        this.selectedIndex = curIdx >= 0 ? curIdx : 0;
+        this.updateList();
+      }
+    }
+  }
+
+  private rebuildStaticLayout(initialSearch?: string): void {
     this.addChild(new DynamicBorder());
     this.addChild(new Spacer(1));
-    this.addChild(
-      new Text(
-        theme.fg(
-          "warning",
-          "Only showing models from configured providers. Use /login to bind credentials.",
-        ),
-        0,
-        0,
-      ),
-    );
+    this.addChild(this.headerContainer);
     this.addChild(new Spacer(1));
 
-    this.searchInput = new Input();
     if (initialSearch) {
       this.searchInput.setValue(initialSearch);
     }
@@ -71,7 +96,6 @@ export class ModelSelectorComponent extends Container {
     this.addChild(this.searchInput);
     this.addChild(new Spacer(1));
 
-    this.listContainer = new Container();
     this.addChild(this.listContainer);
     this.addChild(new Spacer(1));
 
@@ -79,23 +103,64 @@ export class ModelSelectorComponent extends Container {
       new Text(
         theme.fg(
           "dim",
-          "  Enter to select · Ctrl+S to set as default · Escape to cancel",
+          "  Enter to select · Ctrl+S to set as default · Tab to switch scope · Escape to cancel",
         ),
         0,
         0,
       ),
     );
     this.addChild(new DynamicBorder());
+  }
 
-    if (initialSearch) {
-      this.filterModels(initialSearch);
-    } else {
-      const curIdx = this.filteredModels.findIndex(
-        (m) =>
-          m.id === currentModel || `${m.provider}/${m.id}` === currentModel,
-      );
-      this.selectedIndex = curIdx >= 0 ? curIdx : 0;
+  private updateHeader(): void {
+    this.headerContainer.clear();
+    const scopeLabel =
+      this.scope === "configured"
+        ? "◉ Configured | ○ All"
+        : "○ Configured | ◉ All";
+    this.headerContainer.addChild(
+      new Text(
+        `${theme.bold("Model Catalog")}                  ${theme.fg("accent", scopeLabel)}`,
+        0,
+        0,
+      ),
+    );
+    const hint =
+      this.scope === "configured"
+        ? "Only showing models from configured providers. Use /login to bind credentials. (Tab to toggle all)"
+        : "Showing all catalog models. Use /login to configure unconfigured providers. (Tab to toggle configured only)";
+    this.headerContainer.addChild(new Text(theme.fg("muted", hint), 0, 0));
+  }
+
+  public async reload(initialSearch?: string): Promise<void> {
+    if (!this.loader) return;
+    try {
+      const models = await this.loader(this.scope === "all");
+      this.allModels = this.sortModels(models);
+      this.updateHeader();
+      const q =
+        initialSearch === undefined
+          ? this.searchInput.getValue()
+          : initialSearch;
+      if (q) {
+        this.filterModels(q);
+      } else {
+        this.filteredModels = [...this.allModels];
+        const curIdx = this.filteredModels.findIndex(
+          (m) =>
+            m.id === this.currentModel ||
+            `${m.provider}/${m.id}` === this.currentModel,
+        );
+        this.selectedIndex = curIdx >= 0 ? curIdx : 0;
+        this.updateList();
+      }
+    } catch {
+      this.allModels = [];
+      this.filteredModels = [];
       this.updateList();
+    }
+    if (this.requestRender) {
+      this.requestRender();
     }
   }
 
@@ -170,8 +235,12 @@ export class ModelSelectorComponent extends Container {
         ? theme.fg("muted", ` · ${Math.round(item.contextWindow / 1024)}k`)
         : "";
       const defaultBadge = isDefault ? theme.fg("muted", " · default") : "";
+      const unconfBadge =
+        item.is_configured === false
+          ? theme.fg("dim", " (unconfigured)")
+          : "";
 
-      const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${ctxBadge}${defaultBadge}`;
+      const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${ctxBadge}${unconfBadge}${defaultBadge}`;
       this.listContainer.addChild(new Text(line, 0, 0));
     }
 
@@ -199,6 +268,12 @@ export class ModelSelectorComponent extends Container {
   }
 
   public handleInput(data: string): void {
+    if (matchesKey(data, "tab")) {
+      this.scope = this.scope === "configured" ? "all" : "configured";
+      void this.reload();
+      return;
+    }
+
     if (matchesKey(data, "up")) {
       if (this.filteredModels.length === 0) return;
       this.selectedIndex =
