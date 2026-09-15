@@ -132,11 +132,11 @@ test("InteractiveMode handles slash commands (/clear, /help, /model, /thinking)"
   await mode.handleSlashCommand("/help");
   await mode.handleSlashCommand("/model gpt-4o");
   assert.equal(mode.currentModelName, "gpt-4o");
-  assert.equal(calls[0].method, "model_switch");
+  assert.ok(calls.some((c) => c.method === "model_switch"));
 
   await mode.handleSlashCommand("/thinking high");
   assert.equal(mode.currentThinkingLevel, "high");
-  assert.equal(calls[1].method, "thinking_set");
+  assert.ok(calls.some((c) => c.method === "thinking_set"));
 
   await mode.handleSlashCommand("/clear");
 });
@@ -249,4 +249,50 @@ test("isEnterKey matches return, enter, carriage returns, and CRLF across platfo
   assert.equal(isEnterKey("a"), false);
   assert.equal(isEnterKey("\t"), false);
   assert.equal(isEnterKey("\x1b"), false);
+});
+
+test("InteractiveMode slash commands (/model fuzzy, /thinking validation, /session stats, /copy, /hotkeys, /name)", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  // 1. /thinking 有效等级
+  await mode.handleSlashCommand("/thinking high");
+  assert.equal(mode.currentThinkingLevel, "high");
+
+  // 2. /thinking 无效等级 -> 提示错误，不污染状态
+  await mode.handleSlashCommand("/thinking invalid_level");
+  assert.equal(mode.currentThinkingLevel, "high");
+  const renderedThinkingErr = mode.ui.render(80).join("\n");
+  assert.ok(renderedThinkingErr.includes("未知思考等级"));
+
+  // 3. /name 无参查询
+  await mode.handleSlashCommand("/name");
+  const renderedNameQuery = mode.ui.render(80).join("\n");
+  assert.ok(renderedNameQuery.includes("当前会话名称"));
+
+  // 4. /session 无参展示指标看板
+  await mode.handleSlashCommand("/session");
+  const renderedSessionStats = mode.ui.render(80).join("\n");
+  assert.ok(renderedSessionStats.includes("会话状态与指标统计"));
+
+  // 5. /hotkeys 快捷键清单
+  await mode.handleSlashCommand("/hotkeys");
+  const renderedHotkeys = mode.ui.render(80).join("\n");
+  assert.ok(renderedHotkeys.includes("常用键盘快捷键说明清单"));
+
+  // 6. /model 精确匹配
+  await mode.handleSlashCommand("/model gpt-4o");
+  assert.equal(mode.currentModelName, "gpt-4o");
+
+  // 7. /model 非精确匹配 -> 打开选择器预填搜索词，不直接改名
+  await mode.handleSlashCommand("/model deep");
+  assert.ok(mode.activeSelectorComponent);
+  assert.equal(mode.activeSelectorComponent.searchInput.getValue(), "deep");
+  mode.activeSelectorComponent.handleInput("\x1b"); // Esc 取消
+  assert.equal(mode.activeSelectorComponent, undefined);
+
+  // 8. /copy 命令 (无消息时报错)
+  await mode.handleSlashCommand("/copy");
+  const renderedCopy = mode.ui.render(80).join("\n");
+  assert.ok(renderedCopy.includes("当前暂无智能体消息可供复制"));
 });

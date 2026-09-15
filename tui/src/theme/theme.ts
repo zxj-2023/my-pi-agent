@@ -1,12 +1,28 @@
 import chalk from "chalk";
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import darkJson from "./dark.json" with { type: "json" };
+import lightJson from "./light.json" with { type: "json" };
 
 export class ThemeManager {
   private colors = new Map<string, string>();
+  public currentThemeName = "dark";
 
   constructor() {
     this.load(darkJson);
+  }
+
+  public setTheme(name: string): boolean {
+    if (name === "light") {
+      this.load(lightJson);
+      this.currentThemeName = "light";
+      return true;
+    }
+    if (name === "dark") {
+      this.load(darkJson);
+      this.currentThemeName = "dark";
+      return true;
+    }
+    return false;
   }
 
   public load(json: {

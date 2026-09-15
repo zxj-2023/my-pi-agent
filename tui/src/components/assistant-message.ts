@@ -52,6 +52,10 @@ export class AssistantMessageComponent extends Container {
     }
   }
 
+  public getContentText(): string {
+    return this.contentText;
+  }
+
   public toggleThinking(): void {
     this.isThinkingExpanded = !this.isThinkingExpanded;
     this.updateThinkingDisplay();

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as process from "node:process";
+import { spawn } from "node:child_process";
 import {
   CombinedAutocompleteProvider,
   type Component,
@@ -40,7 +41,10 @@ import {
   TreeSelectorComponent,
 } from "../components/tree-selector.js";
 import { UserMessageComponent } from "../components/user-message.js";
-import { UserMessageSelectorComponent } from "../components/user-message-selector.js";
+import {
+  type UserMessageItem,
+  UserMessageSelectorComponent,
+} from "../components/user-message-selector.js";
 import { theme } from "../theme/theme.js";
 import { createChatViewport } from "./chat-viewport.js";
 import {
@@ -124,6 +128,9 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
     description: "查看或更新当前工作区的代码执行信任安全策略",
     argumentHint: "[true|false]",
   },
+  { name: "copy", description: "复制最后一条智能体消息到剪贴板" },
+  { name: "hotkeys", description: "查看所有键盘快捷键说明清单" },
+  { name: "quit", description: "优雅退出当前智能体终端" },
 ];
 
 function findFdPath(): string | undefined {
@@ -662,7 +669,7 @@ export class InteractiveMode {
   // 常用选择器封装
   // --------------------------------------------------------------------------
 
-  public showModelSelector(): void {
+  public showModelSelector(initialSearch?: string): void {
     this.showSelector((done) => {
       const selector = new ModelSelectorComponent(
         this.currentModelName,
@@ -699,7 +706,7 @@ export class InteractiveMode {
           }
         },
         () => done(),
-        undefined,
+        initialSearch,
         undefined,
         undefined,
         () => this.ui.requestRender(),
@@ -840,15 +847,31 @@ export class InteractiveMode {
   }
 
   public showThemeSelector(): void {
+    const curTheme = theme.currentThemeName;
     this.showSelector((done) => {
       const selector = new ThemeSelectorComponent(
-        "dark",
+        curTheme,
         ["dark", "light"],
-        (themeName: string) => {
+        async (themeName: string) => {
           done();
+          theme.setTheme(themeName);
+          try {
+            await this.bridge.setSetting("theme", themeName);
+          } catch {
+            // ignore
+          }
           this.appendSystemNotice(`✓ 主题已切换至: ${themeName}`);
+          this.ui.requestRender();
         },
-        () => done(),
+        () => {
+          theme.setTheme(curTheme);
+          done();
+          this.ui.requestRender();
+        },
+        (previewTheme: string) => {
+          theme.setTheme(previewTheme);
+          this.ui.requestRender();
+        },
       );
       return { component: selector, focus: selector };
     });
@@ -880,22 +903,75 @@ export class InteractiveMode {
     });
   }
 
-  public showForkSelector(): void {
+  public async showForkSelector(): Promise<void> {
+    let userMessages: UserMessageItem[] = [];
+    try {
+      const res: any = await this.bridge.getTree();
+      const tree: TreeNode[] = (res?.tree || res?.nodes || []) as TreeNode[];
+      for (const n of tree) {
+        if (n.role === "user") {
+          userMessages.push({ id: n.id, text: n.preview || n.id });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (userMessages.length === 0) {
+      this.appendSystemNotice("当前会话暂无历史用户消息可供分叉。");
+      return;
+    }
+
     this.showSelector((done) => {
-      const defaultMessages = [{ id: "msg-1", text: "Initial user message" }];
       const selector = new UserMessageSelectorComponent(
-        defaultMessages,
-        () => done(),
+        userMessages,
+        async (msg: UserMessageItem) => {
+          done();
+          try {
+            const client = (this.bridge as any).client;
+            const res: any =
+              (await client?.sendRequest?.("session_fork", {
+                entry_id: msg.id,
+              })) || (await (this.bridge as any).forkSession?.(msg.id));
+            if (res?.messages) {
+              if (res?.new_session_id) {
+                this.footer.update({ sessionName: res.new_session_id });
+              }
+              this.renderSessionHistory(
+                res.messages,
+                `✓ 已从用户提问分叉开辟新会话: ${res.new_session_id || msg.id}`,
+              );
+            } else {
+              this.appendSystemNotice(
+                `✓ 已成功从节点 ${msg.id} 分叉开辟新会话: ${res?.new_session_id || ""}`,
+              );
+            }
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `分叉会话失败: ${err.message || String(err)}`,
+            );
+          }
+        },
         () => done(),
       );
       return { component: selector, focus: selector };
     });
   }
 
-  public showSettingsSelector(): void {
+  public async showSettingsSelector(): Promise<void> {
+    let currentSettings: Record<string, unknown> = {};
+    try {
+      const res: any = await this.bridge.getSettings();
+      if (res?.settings) {
+        currentSettings = res.settings;
+      }
+    } catch {
+      // ignore
+    }
+
     this.showSelector((done) => {
       const selector = new SettingsSelectorComponent(
-        {},
+        currentSettings,
         async (key: string, value: unknown) => {
           try {
             await this.bridge.setSetting(key, value);
@@ -958,10 +1034,31 @@ export class InteractiveMode {
         }
         case "model": {
           if (args) {
-            this.currentModelName = args;
-            this.footer.update({ modelName: args });
-            await this.bridge.switchModel(args);
-            this.appendSystemNotice(`✓ 已切换至模型: ${args}`);
+            // 检查是否为已知模型的完全匹配 (对齐 Pi 原厂 handleModelCommand)
+            const allModelsRes: any = await this.bridge.listModels({ scope: "all" });
+            const models: ModelItem[] = ((allModelsRes as any)?.models || []).map((m: any) => ({
+              id: m.id || m.name,
+              provider: m.provider || "default",
+            }));
+            const matched = models.find(
+              (m) =>
+                m.id.toLowerCase() === args.toLowerCase() ||
+                `${m.provider}/${m.id}`.toLowerCase() === args.toLowerCase(),
+            );
+            if (matched) {
+              this.currentModelName = matched.id;
+              this.footer.update({
+                modelName: matched.id,
+                providerName: matched.provider,
+              });
+              await this.bridge.switchModel(matched.id, matched.provider);
+              this.appendSystemNotice(
+                `✓ 已成功切换至模型: ${matched.id} (${matched.provider})`,
+              );
+            } else {
+              // 未精确匹配时，将参数作为初始搜索词呼出模型选择器 (对齐 Pi 原厂行为)
+              this.showModelSelector(args);
+            }
           } else {
             this.showModelSelector();
           }
@@ -970,14 +1067,32 @@ export class InteractiveMode {
         case "session": {
           if (args) {
             const res: any = await this.bridge.resumeSession(args);
+            if (res?.session_name || res?.session_id) {
+              this.footer.update({
+                sessionName: res.session_name || res.session_id,
+              });
+            }
             this.renderSessionHistory(
               res?.messages || [],
               `✓ 已成功恢复历史会话 [${args}]`,
             );
           } else {
-            this.appendSystemNotice(
-              "✓ 会话状态存储模式：集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。",
-            );
+            // 对齐 Pi 原厂展示当前会话指标看板 (Session Info & Stats)
+            const sessionName =
+              (this.footer as any)?.data?.sessionName || "default";
+            const model = this.currentModelName;
+            const thinking = this.currentThinkingLevel;
+            const messageCount = this.chatContainer.children.length;
+            const info = [
+              theme.bold("会话状态与指标统计 (Session Info & Stats)"),
+              "",
+              `  ${theme.fg("dim", "名称:")} ${sessionName}`,
+              `  ${theme.fg("dim", "工作区:")} ${this.workspace}`,
+              `  ${theme.fg("dim", "生效模型:")} ${model} (思考预算: ${thinking})`,
+              `  ${theme.fg("dim", "视口组件数:")} ${messageCount}`,
+              `  ${theme.fg("dim", "存储位置:")} 集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。`,
+            ].join("\n");
+            this.appendSystemNotice(info);
           }
           break;
         }
@@ -1005,11 +1120,27 @@ export class InteractiveMode {
           break;
         }
         case "thinking": {
+          const validLevels = [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+          ];
           if (args) {
-            this.currentThinkingLevel = args;
-            this.footer.update({ thinkingLevel: args });
-            await this.bridge.setThinking(args);
-            this.appendSystemNotice(`✓ 思考预算已更新为: ${args}`);
+            const normalized = args.trim().toLowerCase();
+            if (validLevels.includes(normalized)) {
+              this.currentThinkingLevel = normalized;
+              this.footer.update({ thinkingLevel: normalized });
+              await this.bridge.setThinking(normalized);
+              this.appendSystemNotice(`✓ 思考预算已更新为: ${normalized}`);
+            } else {
+              this.appendErrorMessage(
+                `未知思考等级 "${args}"。可用等级: ${validLevels.join(", ")}。`,
+              );
+            }
           } else {
             this.showThinkingSelector();
           }
@@ -1057,7 +1188,7 @@ export class InteractiveMode {
           break;
         }
         case "settings": {
-          this.showSettingsSelector();
+          await this.showSettingsSelector();
           break;
         }
         case "new": {
@@ -1073,7 +1204,11 @@ export class InteractiveMode {
         }
         case "name": {
           if (!args) {
-            this.appendSystemNotice("用法：/name <会话名称>");
+            const currentName =
+              (this.footer as any)?.data?.sessionName || "未命名会话 (default)";
+            this.appendSystemNotice(
+              `当前会话名称: ${currentName}\n修改名称用法: /name <新名称>`,
+            );
             break;
           }
           const res: any =
@@ -1081,7 +1216,9 @@ export class InteractiveMode {
             (await (this.bridge.client as any).sendRequest?.("session_name", {
               name: args,
             }));
-          this.appendSystemNotice(`✓ 会话名称已更新: ${res?.name || args}`);
+          const newName = res?.name || args;
+          this.footer.update({ sessionName: newName });
+          this.appendSystemNotice(`✓ 会话名称已更新: ${newName}`);
           break;
         }
         case "compact": {
@@ -1102,8 +1239,12 @@ export class InteractiveMode {
         case "clone": {
           const res: any = await ((this.bridge as any).cloneSession?.() ??
             (this.bridge.client as any).sendRequest?.("session_clone"));
+          const newId = res?.new_session_id || "";
+          if (newId) {
+            this.footer.update({ sessionName: newId });
+          }
           this.appendSystemNotice(
-            `✓ 已克隆当前会话: ${res?.new_session_id || ""}`,
+            `✓ 已克隆当前会话开辟全新探索副本: ${newId}`,
           );
           break;
         }
@@ -1118,7 +1259,7 @@ export class InteractiveMode {
               `✓ 已成功从节点 ${args} 分叉开辟新会话: ${res?.new_session_id || ""}`,
             );
           } else {
-            this.showForkSelector();
+            await this.showForkSelector();
           }
           break;
         }
@@ -1155,6 +1296,63 @@ export class InteractiveMode {
             await this.bridge.followUp(args);
             this.appendSystemNotice(`[Followup 任务已排队]: ${args}`);
           }
+          break;
+        }
+        case "copy": {
+          const target =
+            this.currentStreamingAssistant || this.latestAssistantMessage;
+          const text = target?.getContentText();
+          if (!text) {
+            this.appendErrorMessage("当前暂无智能体消息可供复制。");
+            break;
+          }
+          const isWindows = process.platform === "win32";
+          const isMac = process.platform === "darwin";
+          try {
+            let proc;
+            if (isWindows) {
+              proc = spawn("clip");
+            } else if (isMac) {
+              proc = spawn("pbcopy");
+            } else {
+              proc = spawn("xclip", ["-selection", "clipboard"]);
+            }
+            proc.on("error", () => {});
+            proc.stdin?.write(text);
+            proc.stdin?.end();
+          } catch {
+            // ignore clipboard error
+          }
+          this.appendSystemNotice("✓ 已将最后一条智能体回答内容复制到系统剪贴板。");
+          break;
+        }
+        case "hotkeys": {
+          const list = [
+            theme.bold("常用键盘快捷键说明清单 (Hotkeys):"),
+            "",
+            `  ${theme.bold("导航与视口 (Navigation):")}`,
+            `    ↑ / ↓         在选择器列表中上下选择条目`,
+            `    Tab           切换选择器范围 (Configured vs All)`,
+            `    Ctrl+O        展开 / 折叠思考过程 (Thinking) 与工具执行卡片`,
+            "",
+            `  ${theme.bold("编辑与会话 (Editing):")}`,
+            `    Enter         提交提问 (在输入框) 或确认当前所选条目 (在选择器)`,
+            `    Ctrl+C        清空当前输入文字 (输入框有文字时) / 关闭弹窗 (选择器中)`,
+            `    Ctrl+D        快速退出终端 (仅当输入框为空时生效)`,
+            `    Ctrl+L        快速唤起模型选择器 (Model Catalog)`,
+            "",
+            `  ${theme.bold("流程与控制 (Control):")}`,
+            `    Esc           中断当前正在执行的流式回答 (Abort) / 取消并关闭弹窗`,
+            `    /             呼出全部斜杠命令菜单与自动补全`,
+            `    !cmd          执行本地 Shell 命令并将输出加入上下文`,
+            `    !!cmd         静默执行本地 Shell 命令 (不加入对话上下文)`,
+          ].join("\n");
+          this.appendSystemNotice(list);
+          break;
+        }
+        case "quit":
+        case "exit": {
+          void this.handleExit();
           break;
         }
         default: {
