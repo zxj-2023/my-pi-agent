@@ -37,7 +37,9 @@ export class UserMessageSelectorComponent extends Container {
 
     this.addChild(new DynamicBorder());
     this.addChild(new Spacer(1));
-    this.addChild(new Text(theme.bold("Fork Session from Previous Message"), 0, 0));
+    this.addChild(
+      new Text(theme.bold("Fork Session from Previous Message"), 0, 0),
+    );
     this.addChild(
       new Text(
         theme.fg(
@@ -96,7 +98,10 @@ export class UserMessageSelectorComponent extends Container {
       const isSelected = i === this.selectedIndex;
 
       const cursor = isSelected ? theme.fg("accent", "› ") : "  ";
-      const indexTag = theme.fg("muted", `[Message ${i + 1} of ${this.messages.length}]`);
+      const indexTag = theme.fg(
+        "muted",
+        `[Message ${i + 1} of ${this.messages.length}]`,
+      );
       const snippet = msg.text.replace(/[\n\r\t]/g, " ").trim();
 
       const left = `${cursor}${indexTag} ${isSelected ? theme.bold(snippet) : snippet}`;

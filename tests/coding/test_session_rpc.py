@@ -310,3 +310,56 @@ async def test_session_resume_cross_project(tmp_path: Path, monkeypatch):
     assert resume_resp["result"]["status"] == "ok"
     assert resume_resp["result"]["session_id"] == sid_a
     assert resume_resp["result"]["cwd"] == str(ws_a)
+    assert "messages" in resume_resp["result"]
+    assert len(resume_resp["result"]["messages"]) >= 1
+
+
+@pytest.mark.anyio
+async def test_session_history_and_metadata_serialization(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "hello test"}})
+
+    hist_resp = await server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "session_history", "params": {}})
+    assert hist_resp["result"]["status"] == "ok"
+    assert server.agent is not None
+    assert server.agent is not None
+    assert hist_resp["result"]["session_id"] == server.agent.session.id
+    msgs = hist_resp["result"]["messages"]
+    assert len(msgs) >= 2
+    assert msgs[0]["role"] == "user"
+    assert msgs[0]["content"] == "hello test"
+    assert msgs[1]["role"] == "assistant"
+    assert "metadata" in msgs[1]
+
+
+@pytest.mark.anyio
+async def test_initialize_loads_existing_session_history(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    # 1. 启动会话并产生交互
+    server1 = RpcServer(llm=FakeLLM())
+    await server1.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    await server1.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "initial message"}})
+
+    # 2. 重新启动（模拟同一工作区重新打开）
+    server2 = RpcServer(llm=FakeLLM())
+    init_resp = await server2.handle_request(
+        {"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    assert init_resp["result"]["status"] == "ok"
+    assert "messages" in init_resp["result"]
+    assert len(init_resp["result"]["messages"]) >= 2
+    assert init_resp["result"]["messages"][0]["content"] == "initial message"

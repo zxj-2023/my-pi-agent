@@ -11,10 +11,11 @@ import {
   matchesKey,
   ProcessTerminal,
   type SlashCommand,
+  Text,
   type TUI,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
-import { PythonKernelClient } from "./client.js";
+import { PythonKernelClient, type SessionMessage } from "./client.js";
 import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { FooterComponent } from "./components/footer.js";
 import { HeaderComponent } from "./components/header.js";
@@ -420,33 +421,25 @@ export class AgentApp {
     }
 
     if (cmd === "/new") {
-      this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
-      const infoComp = new AssistantMessageComponent();
-      this.chatContainer.addChild(infoComp);
       try {
         const res = await this.client.sendRequest<{
           status: string;
           session_id: string;
           session_file: string;
         }>("session_new");
-        this.chatContainer.clear();
-        this.activeTools.clear();
-        this.toolStartTimes.clear();
-        this.currentAssistantComp = null;
-        this.isBusy = false;
-        this.footer.update({ isBusy: false });
-        const newComp = new AssistantMessageComponent();
-        this.chatContainer.addChild(newComp);
-        newComp.appendTextDelta(
+        this.footer.update({ sessionName: res.session_id });
+        this.renderSessionHistory(
+          [],
           `✓ 已开启全新空白会话 (ID: \`${res.session_id}\`)`,
         );
-        newComp.finalize();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        infoComp.appendTextDelta(`✗ 开启新会话失败: ${msg}`);
-        infoComp.finalize();
+        const errComp = new AssistantMessageComponent();
+        errComp.appendTextDelta(`✗ 开启新会话失败: ${msg}`);
+        errComp.finalize();
+        this.chatContainer.addChild(errComp);
       }
       this.tui.requestRender();
       return true;
@@ -457,23 +450,32 @@ export class AgentApp {
         this.showSessionSelector();
         return true;
       }
-      this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
-      const infoComp = new AssistantMessageComponent();
-      this.chatContainer.addChild(infoComp);
       try {
         const res = await this.client.sendRequest<{
           status: string;
           session_id: string;
+          session_name?: string;
           message_count?: number;
+          messages?: SessionMessage[];
         }>("session_resume", { session_id: argsText });
-        infoComp.appendTextDelta(`✓ 已成功恢复会话: \`${res.session_id}\``);
+        if (res.session_name || res.session_id) {
+          this.footer.update({
+            sessionName: res.session_name || res.session_id,
+          });
+        }
+        this.renderSessionHistory(
+          res.messages || [],
+          `✓ 已成功恢复会话: \`${res.session_id}\``,
+        );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        infoComp.appendTextDelta(`✗ 恢复会话失败: ${msg}`);
+        const errComp = new AssistantMessageComponent();
+        errComp.appendTextDelta(`✗ 恢复会话失败: ${msg}`);
+        errComp.finalize();
+        this.chatContainer.addChild(errComp);
       }
-      infoComp.finalize();
       this.tui.requestRender();
       return true;
     }
@@ -589,11 +591,8 @@ export class AgentApp {
         this.showForkSelector();
         return true;
       }
-      this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
-      const infoComp = new AssistantMessageComponent();
-      this.chatContainer.addChild(infoComp);
       try {
         const targetEntryId = argsText;
         const res = await this.client.sendRequest<{
@@ -601,18 +600,21 @@ export class AgentApp {
           new_session_id: string;
           session_file: string;
           prompt_text: string;
+          messages?: SessionMessage[];
         }>("session_fork", { entry_id: targetEntryId });
-        infoComp.appendTextDelta(
-          `✓ 已成功从节点 \`${targetEntryId.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``,
-        );
         if (res.prompt_text) {
           this.editor.setText(res.prompt_text);
         }
+        this.footer.update({ sessionName: res.new_session_id });
+        const banner = `✓ 已成功从节点 \`${targetEntryId.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``;
+        this.renderSessionHistory(res.messages || [], banner);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        infoComp.appendTextDelta(`✗ 分叉会话失败: ${msg}`);
+        const errComp = new AssistantMessageComponent();
+        errComp.appendTextDelta(`✗ 分叉会话失败: ${msg}`);
+        errComp.finalize();
+        this.chatContainer.addChild(errComp);
       }
-      infoComp.finalize();
       this.tui.requestRender();
       return true;
     }
@@ -689,9 +691,7 @@ export class AgentApp {
             `✓ 已成功清除 \`${res.provider}\` 的认证凭据。`,
           );
         } else {
-          infoComp.appendTextDelta(
-            `ℹ 未找到 \`${res.provider}\` 的已存凭据。`,
-          );
+          infoComp.appendTextDelta(`ℹ 未找到 \`${res.provider}\` 的已存凭据。`);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1254,12 +1254,16 @@ export class AgentApp {
             const res = await this.client.sendRequest<{
               status: string;
               session_id: string;
+              session_name?: string;
+              messages?: SessionMessage[];
             }>("session_resume", { session_id: session.id });
-            this.footer.update({ sessionName: session.name || session.id });
-            const infoComp = new AssistantMessageComponent();
-            infoComp.appendTextDelta(`✓ 已成功恢复会话: \`${res.session_id}\``);
-            infoComp.finalize();
-            this.chatContainer.addChild(infoComp);
+            this.footer.update({
+              sessionName: res.session_name || session.name || session.id,
+            });
+            this.renderSessionHistory(
+              res.messages || [],
+              `✓ 已成功恢复会话: \`${res.session_id}\``,
+            );
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             const errComp = new AssistantMessageComponent();
@@ -1359,17 +1363,16 @@ export class AgentApp {
           try {
             const res = await this.client.sendRequest<{
               status: string;
+              leaf_id: string;
               editor_text?: string;
+              session_id?: string;
+              messages?: SessionMessage[];
             }>("session_branch", { target_id: node.id });
             if (res.editor_text) {
               this.editor.setText(res.editor_text);
             }
-            const info = new AssistantMessageComponent();
-            info.appendTextDelta(
-              `✓ 已成功切换至节点分支: \`${node.id.slice(0, 8)}\``,
-            );
-            info.finalize();
-            this.chatContainer.addChild(info);
+            const banner = `✓ 已成功切换至节点分支: \`${node.id.slice(0, 8)}\``;
+            this.renderSessionHistory(res.messages || [], banner);
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             const errComp = new AssistantMessageComponent();
@@ -1446,17 +1449,16 @@ export class AgentApp {
           const res = await this.client.sendRequest<{
             status: string;
             new_session_id: string;
+            session_file: string;
             prompt_text?: string;
+            messages?: SessionMessage[];
           }>("session_fork", { entry_id: msg.id });
           if (res.prompt_text) {
             this.editor.setText(res.prompt_text);
           }
-          const info = new AssistantMessageComponent();
-          info.appendTextDelta(
-            `✓ 已成功从节点 \`${msg.id.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``,
-          );
-          info.finalize();
-          this.chatContainer.addChild(info);
+          this.footer.update({ sessionName: res.new_session_id });
+          const banner = `✓ 已成功从节点 \`${msg.id.slice(0, 8)}\` 分叉开辟新会话: \`${res.new_session_id}\``;
+          this.renderSessionHistory(res.messages || [], banner);
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           const errComp = new AssistantMessageComponent();
@@ -1467,10 +1469,8 @@ export class AgentApp {
         this.tui.requestRender();
       };
 
-      selector = new UserMessageSelectorComponent(
-        [],
-        onSelectMessage,
-        () => done(),
+      selector = new UserMessageSelectorComponent([], onSelectMessage, () =>
+        done(),
       );
 
       void this.client
@@ -1513,9 +1513,7 @@ export class AgentApp {
               `✓ 已成功清除 \`${res.provider}\` 的认证凭据。`,
             );
           } else {
-            info.appendTextDelta(
-              `ℹ 未找到 \`${res.provider}\` 的已存凭据。`,
-            );
+            info.appendTextDelta(`ℹ 未找到 \`${res.provider}\` 的已存凭据。`);
           }
           info.finalize();
           this.chatContainer.addChild(info);
@@ -1647,9 +1645,133 @@ export class AgentApp {
     });
   }
 
+  public renderSessionHistory(
+    messages: SessionMessage[],
+    banner?: string,
+  ): void {
+    this.chatContainer.clear();
+    this.activeTools.clear();
+    this.toolStartTimes.clear();
+    this.currentAssistantComp = null;
+
+    if (banner) {
+      const bannerComp = new AssistantMessageComponent();
+      bannerComp.appendTextDelta(banner);
+      bannerComp.finalize();
+      this.chatContainer.addChild(bannerComp);
+    } else if (!messages || messages.length === 0) {
+      const welcome = new Text(
+        theme.fg(
+          "muted",
+          "欢迎使用 my-pi-agent！输入需求或按 / 开启命令菜单。",
+        ),
+        1,
+        0,
+      );
+      this.chatContainer.addChild(welcome);
+    }
+
+    if (!messages || messages.length === 0) {
+      this.tui.requestRender();
+      return;
+    }
+
+    const pendingTools = new Map<string, ToolExecutionComponent>();
+
+    for (const msg of messages) {
+      if (msg.role === "user") {
+        this.chatContainer.addChild(new UserMessageComponent(msg.content));
+      } else if (msg.role === "assistant") {
+        const assistantComp = new AssistantMessageComponent();
+        const thinking =
+          msg.metadata?.thinking || msg.metadata?.reasoning_content;
+        if (thinking) {
+          assistantComp.appendReasoningDelta(String(thinking));
+        }
+        if (msg.content) {
+          assistantComp.appendTextDelta(msg.content);
+        }
+        assistantComp.finalize();
+        this.chatContainer.addChild(assistantComp);
+
+        const toolCalls = msg.metadata?.tool_calls;
+        if (Array.isArray(toolCalls)) {
+          for (const tc of toolCalls) {
+            const rawTc = tc as Record<string, unknown>;
+            const toolName = String(
+              rawTc.name ||
+                (rawTc.function as Record<string, unknown>)?.name ||
+                "tool",
+            );
+            const callId = String(rawTc.id || "");
+            let parsedArgs: Record<string, unknown> = {};
+            if (rawTc.args && typeof rawTc.args === "object") {
+              parsedArgs = rawTc.args as Record<string, unknown>;
+            } else if ((rawTc.function as Record<string, unknown>)?.arguments) {
+              const fnArgs = (rawTc.function as Record<string, unknown>)
+                .arguments;
+              if (typeof fnArgs === "string") {
+                try {
+                  parsedArgs = JSON.parse(fnArgs);
+                } catch {
+                  parsedArgs = { raw: fnArgs };
+                }
+              } else if (typeof fnArgs === "object" && fnArgs !== null) {
+                parsedArgs = fnArgs as Record<string, unknown>;
+              }
+            } else if (rawTc.arguments && typeof rawTc.arguments === "object") {
+              parsedArgs = rawTc.arguments as Record<string, unknown>;
+            }
+            const toolComp = new ToolExecutionComponent(
+              toolName,
+              callId,
+              parsedArgs,
+            );
+            this.chatContainer.addChild(toolComp);
+            if (callId) {
+              pendingTools.set(callId, toolComp);
+            }
+          }
+        }
+      } else if (msg.role === "tool") {
+        const callId = String(msg.metadata?.tool_call_id || "");
+        const toolComp = callId ? pendingTools.get(callId) : undefined;
+        const isError = Boolean(msg.metadata?.is_error);
+        if (toolComp) {
+          toolComp.updateResult(msg.content, isError);
+          pendingTools.delete(callId);
+        } else {
+          const toolName = String(msg.metadata?.tool_name || "tool");
+          const standalone = new ToolExecutionComponent(toolName, callId, {});
+          standalone.updateResult(msg.content, isError);
+          this.chatContainer.addChild(standalone);
+        }
+      }
+    }
+
+    for (const toolComp of pendingTools.values()) {
+      if (!toolComp.finished) {
+        toolComp.updateResult("(已完成)", false);
+      }
+    }
+
+    this.tui.requestRender();
+  }
+
   public async start(): Promise<void> {
-    await this.client.start();
+    const initResult = await this.client.start();
     this.tui.start();
+
+    if (initResult?.session_name || initResult?.session_id) {
+      this.footer.update({
+        sessionName: initResult.session_name || initResult.session_id,
+      });
+    }
+
+    if (initResult?.messages && initResult.messages.length > 0) {
+      this.renderSessionHistory(initResult.messages);
+    }
+
     if (this.options.resume === true) {
       await this.handleSlashCommand("/resume");
     } else if (typeof this.options.resume === "string" && this.options.resume) {

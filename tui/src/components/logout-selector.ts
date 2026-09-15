@@ -57,10 +57,7 @@ export class LogoutSelectorComponent extends Container {
 
     this.addChild(
       new Text(
-        theme.fg(
-          "dim",
-          "  Enter to remove credentials · Escape to cancel",
-        ),
+        theme.fg("dim", "  Enter to remove credentials · Escape to cancel"),
         0,
         0,
       ),
@@ -76,7 +73,10 @@ export class LogoutSelectorComponent extends Container {
     if (this.providers.length === 0) {
       this.listContainer.addChild(
         new Text(
-          theme.fg("muted", "  未发现任何已保存的凭据 (No stored credentials)。"),
+          theme.fg(
+            "muted",
+            "  未发现任何已保存的凭据 (No stored credentials)。",
+          ),
           0,
           0,
         ),
@@ -91,7 +91,9 @@ export class LogoutSelectorComponent extends Container {
 
       const cursor = isSelected ? theme.fg("accent", "› ") : "  ";
       const label = isSelected ? theme.bold(item.label) : item.label;
-      const desc = item.description ? theme.fg("dim", ` (${item.description})`) : "";
+      const desc = item.description
+        ? theme.fg("dim", ` (${item.description})`)
+        : "";
 
       const left = `${cursor}${label}${desc}`;
       const pad = Math.max(2, 78 - visibleWidth(left));

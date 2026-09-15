@@ -76,6 +76,34 @@ def uuid7_str() -> str:
     return str(uuid.UUID(int=uuid_int))
 
 
+def serialize_message(m: Message) -> dict[str, Any]:
+    """将内部 Message 实体转为标准 JSON 字典，保留 role、content 与关键 metadata (tool_calls / tool_call_id 等)。"""
+    md: dict[str, Any] = {}
+    if m.metadata:
+        for k, v in m.metadata.items():
+            if k == "tool_calls" and isinstance(v, list):
+                serialized_tcs = []
+                for tc in v:
+                    if hasattr(tc, "model_dump"):
+                        serialized_tcs.append(tc.model_dump())
+                    elif isinstance(tc, dict):
+                        serialized_tcs.append(tc)
+                    else:
+                        serialized_tcs.append(str(tc))
+                md[k] = serialized_tcs
+            elif hasattr(v, "model_dump"):
+                md[k] = v.model_dump()
+            elif isinstance(v, (str, int, float, bool, list, dict)) or v is None:
+                md[k] = v
+            else:
+                md[k] = str(v)
+    return {
+        "role": m.role,
+        "content": m.content,
+        "metadata": md,
+    }
+
+
 def serialize_event(event: Event) -> dict[str, Any]:
     """将 Python 内部不可变事实事件序列化为对标 Pi AgentEvent 规范的 JSON 字典。"""
     if isinstance(event, AgentStart):
@@ -394,7 +422,13 @@ class RpcServer:
                     target_session = None
 
         if target_session is None:
-            target_session = Session(path=session_file, cwd=str(workspace_path))
+            if session_file.exists() and not bool(params.get("new_session", False)):
+                try:
+                    target_session = Session.load(session_file)
+                except Exception:
+                    target_session = Session(path=session_file, cwd=str(workspace_path))
+            else:
+                target_session = Session(path=session_file, cwd=str(workspace_path))
 
         if bool(params.get("no_session", False)):
             target_session.save = lambda: None  # type: ignore[method-assign]
@@ -433,6 +467,8 @@ class RpcServer:
 
         self.macro_engine = MacroEngine(workspace=workspace_path, paths=paths)
 
+        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+
         actual_model = getattr(getattr(self.agent.agent.llm, "config", None), "model", "default")
         return self.send_response(
             req_id,
@@ -440,6 +476,12 @@ class RpcServer:
                 "status": "ok",
                 "workspace": str(workspace_path),
                 "model": actual_model,
+                "session_id": target_session.id,
+                "session_file": str(target_session.path) if target_session.path else "",
+                "session_name": target_session.metadata.get("name")
+                or target_session.metadata.get("title")
+                or target_session.id,
+                "messages": messages_repr,
             },
         )
 
@@ -713,17 +755,33 @@ class RpcServer:
             permission_gate=gate,
         )
 
-        messages_repr = [
-            {"role": m.role, "content": m.content} for m in self.agent.agent.messages if m.role != "system"
-        ]
+        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "session_id": new_session.id,
+                "session_name": new_session.metadata.get("name") or new_session.metadata.get("title") or new_session.id,
                 "session_file": str(target_file),
                 "cwd": new_session.cwd,
+                "messages": messages_repr,
+            },
+        )
+
+    def _handle_session_history(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "session_id": self.agent.session.id,
+                "session_name": self.agent.session.metadata.get("name") or self.agent.session.id,
                 "messages": messages_repr,
             },
         )
@@ -785,6 +843,7 @@ class RpcServer:
                 "status": "ok",
                 "session_id": session_id,
                 "session_file": str(session_file),
+                "messages": [],
             },
         )
 
@@ -981,10 +1040,14 @@ class RpcServer:
         restored = system + session.get_full_history_messages()
         self.agent.agent.messages = list(repair_tool_history(restored).messages)
 
+        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+
         res_payload: dict[str, Any] = {
             "status": "ok",
             "leaf_id": new_leaf_id,
             "editor_text": editor_text,
+            "session_id": session.id,
+            "messages": messages_repr,
         }
         if branch_summary_text:
             res_payload["branch_summary"] = branch_summary_text
@@ -1069,6 +1132,8 @@ class RpcServer:
             permission_gate=gate,
         )
 
+        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+
         return self.send_response(
             req_id,
             result={
@@ -1076,6 +1141,7 @@ class RpcServer:
                 "new_session_id": new_session_id,
                 "session_file": str(new_session_file),
                 "prompt_text": prompt_text,
+                "messages": messages_repr,
             },
         )
 
@@ -1136,12 +1202,15 @@ class RpcServer:
             permission_gate=gate,
         )
 
+        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "new_session_id": new_session_id,
                 "session_file": str(new_session_file),
+                "messages": messages_repr,
             },
         )
 
@@ -1662,6 +1731,8 @@ class RpcServer:
                 return self._handle_session_list(req_id, params)
             elif method == "session_resume":
                 return self._handle_session_resume(req_id, params)
+            elif method == "session_history":
+                return self._handle_session_history(req_id, params)
             elif method == "session_compact":
                 return await self._handle_session_compact(req_id, params)
             elif method == "session_new":

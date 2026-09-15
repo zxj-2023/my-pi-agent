@@ -89,9 +89,7 @@ export class TreeSelectorComponent extends Container {
       (n) => n.id === this.activeLeafId || (n.is_active && n.is_leaf),
     );
     this.selectedIndex =
-      initialIdx >= 0
-        ? initialIdx
-        : Math.max(0, this.allNodes.length - 1);
+      initialIdx >= 0 ? initialIdx : Math.max(0, this.allNodes.length - 1);
 
     this.updateList();
     if (this.requestRender) {
@@ -127,9 +125,7 @@ export class TreeSelectorComponent extends Container {
       const isSelected = i === this.selectedIndex;
 
       const cursor = isSelected ? theme.fg("accent", "› ") : "  ";
-      const activeMarker = node.is_active
-        ? theme.fg("accent", "* ")
-        : "  ";
+      const activeMarker = node.is_active ? theme.fg("accent", "* ") : "  ";
 
       const branchPrefix = node.parent_id === null ? "■ " : "├─ ";
       let roleBadge = `[${node.role}]`;

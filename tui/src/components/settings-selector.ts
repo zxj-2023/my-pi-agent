@@ -119,7 +119,9 @@ export class SettingsSelectorComponent extends Container {
 
       let valueDisplay = "";
       if (def.type === "boolean") {
-        valueDisplay = val ? theme.fg("success", "[x]") : theme.fg("muted", "[ ]");
+        valueDisplay = val
+          ? theme.fg("success", "[x]")
+          : theme.fg("muted", "[ ]");
       } else {
         valueDisplay = theme.fg("accent", String(val ?? "not set"));
       }
@@ -160,7 +162,11 @@ export class SettingsSelectorComponent extends Container {
       let nextVal: unknown;
       if (def.type === "boolean") {
         nextVal = !this.currentSettings[def.key];
-      } else if (def.type === "cycle" && def.options && def.options.length > 0) {
+      } else if (
+        def.type === "cycle" &&
+        def.options &&
+        def.options.length > 0
+      ) {
         const cur = String(this.currentSettings[def.key] ?? def.options[0]);
         const curIdx = def.options.indexOf(cur);
         const nextIdx = (curIdx + 1) % def.options.length;

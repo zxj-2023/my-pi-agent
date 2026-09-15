@@ -514,3 +514,65 @@ test("AgentApp expands macros (/skill: and /<template>) before submitting prompt
   const unknownText = app.chatContainer.children.at(-1).render(120).join("\n");
   assert.ok(unknownText.includes("暂未在当前内核模式下启用"));
 });
+
+test("AgentApp renders session history messages (user, assistant, tool execution) on session_resume", async () => {
+  const app = new AgentApp({ workspace: "." });
+
+  app["client"].sendRequest = async (method, _params) => {
+    if (method === "session_resume") {
+      return {
+        status: "ok",
+        session_id: "resumed-session-999",
+        session_name: "历史会话999",
+        messages: [
+          { role: "user", content: "请帮我读取 package.json" },
+          {
+            role: "assistant",
+            content: "好的，我正在读取文件内容：",
+            metadata: {
+              thinking: "让我思考一下使用 read 工具...",
+              tool_calls: [
+                {
+                  id: "call-1",
+                  function: {
+                    name: "read",
+                    arguments: '{"path": "package.json"}',
+                  },
+                },
+              ],
+            },
+          },
+          {
+            role: "tool",
+            content: '{"name": "my-agent-tui", "version": "0.1.0"}',
+            metadata: {
+              tool_call_id: "call-1",
+              tool_name: "read",
+              is_error: false,
+            },
+          },
+          {
+            role: "assistant",
+            content: "读取完成，版本号是 0.1.0。",
+          },
+        ],
+      };
+    }
+    return { status: "ok" };
+  };
+
+  await app.handleUserSubmit("/resume resumed-session-999");
+
+  // 验证 chatContainer 渲染了所有历史组件
+  assert.ok(app.chatContainer.children.length >= 4);
+
+  const renderedAll = app.chatContainer.children
+    .map((c) => (c.render ? c.render(120).join("\n") : ""))
+    .join("\n");
+
+  assert.ok(renderedAll.includes("resumed-session-999"));
+  assert.ok(renderedAll.includes("请帮我读取 package.json"));
+  assert.ok(renderedAll.includes("read"));
+  assert.ok(renderedAll.includes("package.json"));
+  assert.ok(renderedAll.includes("0.1.0"));
+});

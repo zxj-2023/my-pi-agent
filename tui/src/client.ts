@@ -10,6 +10,39 @@ import {
   JsonRpcResponse,
 } from "./protocol.js";
 
+export interface SessionMessage {
+  role: string;
+  content: string;
+  metadata?: {
+    tool_calls?: Array<{
+      id: string;
+      name?: string;
+      args?: Record<string, unknown>;
+      function?: {
+        name: string;
+        arguments: string | Record<string, unknown>;
+      };
+      [key: string]: unknown;
+    }>;
+    tool_call_id?: string;
+    is_error?: boolean;
+    tool_name?: string;
+    thinking?: string;
+    reasoning_content?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface InitializeResult {
+  status: string;
+  workspace: string;
+  model: string;
+  session_id?: string;
+  session_file?: string;
+  session_name?: string;
+  messages?: SessionMessage[];
+}
+
 export interface PythonKernelClientOptions {
   workspace?: string;
   model?: string;
@@ -37,9 +70,13 @@ export class PythonKernelClient extends EventEmitter {
     super();
   }
 
-  public async start(): Promise<void> {
+  public async start(): Promise<InitializeResult> {
     if (this.child) {
-      return;
+      return {
+        status: "ok",
+        workspace: this.options.workspace || process.cwd(),
+        model: this.options.model || "default",
+      };
     }
 
     const workspace = this.options.workspace || process.cwd();
@@ -100,7 +137,7 @@ export class PythonKernelClient extends EventEmitter {
     });
 
     // 初始化内核
-    await this.sendRequest("initialize", {
+    const res = (await this.sendRequest("initialize", {
       workspace,
       model: this.options.model,
       mode: this.options.mode || "review",
@@ -109,7 +146,9 @@ export class PythonKernelClient extends EventEmitter {
       name: this.options.sessionName,
       thinking: this.options.thinking,
       no_session: this.options.noSession,
-    });
+      new_session: this.options.newSession,
+    })) as InitializeResult;
+    return res;
   }
 
   private resolvePythonCommand(workspace: string): {
