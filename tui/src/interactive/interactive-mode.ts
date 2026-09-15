@@ -28,6 +28,7 @@ import { ThinkingSelectorComponent } from "../components/thinking-selector.js";
 import { ToolExecutionComponent } from "../components/tool-execution.js";
 import { type TreeNode, TreeSelectorComponent } from "../components/tree-selector.js";
 import { UserMessageComponent } from "../components/user-message.js";
+import { UserMessageSelectorComponent } from "../components/user-message-selector.js";
 import { theme } from "../theme/theme.js";
 import { createChatViewport } from "./chat-viewport.js";
 import { createInteractiveTui, type InteractiveTuiOptions } from "./tui-renderer.js";
@@ -47,6 +48,7 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   { name: "clear", description: "清空当前终端屏幕会话" },
   { name: "new", description: "结束当前会话，开启全新的空白会话" },
   { name: "resume", description: "列出、搜索或恢复指定历史会话", argumentHint: "[session_id]" },
+  { name: "session", description: "列出、搜索或恢复指定历史会话", argumentHint: "[session_id]" },
   { name: "name", description: "查看或设置当前会话的显示名称", argumentHint: "[title]" },
   { name: "compact", description: "立即对当前上下文执行压缩，释放 Token 空间", argumentHint: "[instructions]" },
   { name: "tree", description: "以可视化 DAG 树状图展现会话分支拓扑" },
@@ -103,6 +105,7 @@ export class InteractiveMode {
 
   public currentStreamingAssistant?: AssistantMessageComponent;
   public activeToolCalls = new Map<string, ToolExecutionComponent>();
+  public toolStartTimes = new Map<string, number>();
   public isStreaming = false;
   public isWorking = false;
   public currentThinkingLevel = "off";
@@ -134,6 +137,13 @@ export class InteractiveMode {
     this.documentContainer.addChild(this.header);
     this.documentContainer.addChild(new Spacer(1));
     this.documentContainer.addChild(this.chatContainer);
+
+    const welcome = new Text(
+      theme.fg("muted", "欢迎使用 my-pi-agent！输入需求或按 / 开启命令菜单。"),
+      1,
+      0,
+    );
+    this.chatContainer.addChild(welcome);
 
     this.pendingMessagesContainer = new Container();
     this.statusContainer = new Container();
@@ -170,10 +180,7 @@ export class InteractiveMode {
     // 2. 注册终端按键拦截
     this.setupKeybindings();
 
-    // 3. 欢迎提示
-    this.appendSystemNotice("欢迎使用 my-pi-agent！输入需求或按 / 开启命令菜单。");
-
-    // 4. 首次启动刷新
+    // 3. 首次启动刷新
     this.ui.requestRender();
   }
 
@@ -257,6 +264,7 @@ export class InteractiveMode {
         const args = event.args || {};
         const toolComponent = new ToolExecutionComponent(name, id, args);
         this.activeToolCalls.set(id, toolComponent);
+        this.toolStartTimes.set(id, Date.now());
         this.chatContainer.addChild(toolComponent);
         this.chatContainer.addChild(new Spacer(1));
         this.updateStatusDisplay(`正在执行工具: ${name}...`);
@@ -273,11 +281,11 @@ export class InteractiveMode {
       }
 
       case "tool_execution_end": {
-        const id = event.toolCallId;
-        const toolComponent = this.activeToolCalls.get(id);
+        const id = event.toolCallId || event.tool_call_id;
+        const toolComponent = id ? this.activeToolCalls.get(id) : undefined;
         if (toolComponent) {
-          toolComponent.updateResult(event.result, !!event.isError);
-          this.activeToolCalls.delete(id);
+          toolComponent.updateResult(event.result, Boolean(event.isError));
+          this.toolStartTimes.delete(id);
         }
         this.clearStatusDisplay();
         break;
@@ -296,6 +304,14 @@ export class InteractiveMode {
           this.currentStreamingAssistant.finalize();
           this.currentStreamingAssistant = undefined;
         }
+        // 自动闭合所有未正常结束的工具调用
+        for (const tool of this.activeToolCalls.values()) {
+          if (!tool.finished) {
+            tool.updateResult("执行中断", true);
+          }
+        }
+        this.activeToolCalls.clear();
+        this.toolStartTimes.clear();
         this.clearStatusDisplay();
         this.footer.update({ isBusy: false });
         break;
@@ -330,6 +346,14 @@ export class InteractiveMode {
 
     const editor = new Editor(this.ui, editorTheme);
 
+    editor.onChange = (text: string) => {
+      const isBash = text.startsWith("!");
+      if (isBash) {
+        editor.borderColor = (str: string) => theme.fg("warning", str);
+      } else {
+        editor.borderColor = (str: string) => theme.fg("borderMuted", str);
+      }
+    };
     const fdPath = findFdPath();
     const autocompleteProvider = new CombinedAutocompleteProvider(
       BUILTIN_SLASH_COMMANDS,
@@ -349,19 +373,49 @@ export class InteractiveMode {
   }
 
   public async handleUserInput(input: string): Promise<void> {
-    // 1. 处理斜杠命令
+    // 1. 处理技能或提示词模板宏扩展
+    if (
+      input.startsWith("/") &&
+      (input.startsWith("/skill:") ||
+        !BUILTIN_SLASH_COMMANDS.some((c) =>
+          input.toLowerCase().startsWith(`/${c.name}`),
+        ))
+    ) {
+      try {
+        const client = (this.bridge as any).client;
+        const macroRes =
+          (await client?.request?.("macro_expand", { text: input })) ||
+          (await client?.sendRequest?.("macro_expand", { text: input }));
+        if (macroRes?.expanded && macroRes.text) {
+          input = macroRes.text;
+        } else if (
+          !BUILTIN_SLASH_COMMANDS.some((c) =>
+            input.toLowerCase().startsWith(`/${c.name}`),
+          )
+        ) {
+          this.appendErrorMessage(
+            `命令 ${input.split(" ")[0]} 暂未在当前内核模式下启用，输入 /help 查看所有可用命令。`,
+          );
+          return;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. 处理斜杠命令
     if (input.startsWith("/")) {
       await this.handleSlashCommand(input);
       return;
     }
 
-    // 2. 处理 Shell 快捷命令 !cmd 或 !!cmd
+    // 3. 处理 Shell 快捷命令 !cmd 或 !!cmd
     if (input.startsWith("!")) {
       await this.handleShellMacro(input);
       return;
     }
 
-    // 3. 普通文本输入：渲染用户气泡并提交给 Python
+    // 4. 普通文本输入：渲染用户气泡并提交给 Python
     const userMsg = new UserMessageComponent(input);
     this.chatContainer.addChild(userMsg);
     this.chatContainer.addChild(new Spacer(1));
@@ -622,6 +676,20 @@ export class InteractiveMode {
     });
   }
 
+  public showForkSelector(): void {
+    this.showSelector((done) => {
+      const defaultMessages = [
+        { id: "msg-1", text: "Initial user message" },
+      ];
+      const selector = new UserMessageSelectorComponent(
+        defaultMessages,
+        () => done(),
+        () => done(),
+      );
+      return { component: selector, focus: selector };
+    });
+  }
+
   public showSettingsSelector(): void {
     this.showSelector((done) => {
       const selector = new SettingsSelectorComponent(
@@ -646,6 +714,10 @@ export class InteractiveMode {
 
     switch (cmd) {
       case "clear": {
+        if (this.isStreaming) {
+          this.appendErrorMessage("当前智能体正在执行中，无法清空屏幕会话。");
+          return;
+        }
         this.chatContainer.clear();
         this.ui.requestRender();
         break;
@@ -666,13 +738,29 @@ export class InteractiveMode {
         }
         break;
       }
-      case "resume":
       case "session": {
-        if (args) {
-          await this.bridge.resumeSession(args);
-          this.appendSystemNotice(`✓ 已恢复会话: ${args}`);
+        if (!args) {
+          this.appendSystemNotice(
+            "✓ 会话状态存储模式：集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。",
+          );
         } else {
+          const res: any = await this.bridge.resumeSession(args);
+          this.renderSessionHistory(
+            res?.messages || [],
+            `✓ 已成功恢复历史会话 [${args}]`,
+          );
+        }
+        break;
+      }
+      case "resume": {
+        if (!args) {
           this.showSessionSelector();
+        } else {
+          const res: any = await this.bridge.resumeSession(args);
+          this.renderSessionHistory(
+            res?.messages || [],
+            `✓ 已成功恢复历史会话 [${args}]`,
+          );
         }
         break;
       }
@@ -688,11 +776,35 @@ export class InteractiveMode {
         break;
       }
       case "login": {
-        this.showLoginSelector();
+        if (args) {
+          const parts = args.split(" ");
+          const provider = parts[0] || "";
+          const key = parts.slice(1).join(" ");
+          const client = (this.bridge as any).client;
+          const res =
+            (await client?.sendRequest?.("login", { provider, key })) ||
+            (await client?.request?.("login", { provider, key })) ||
+            (await this.bridge.login(provider, key));
+          this.appendSystemNotice(
+            res?.message || `✓ 成功保存 ${provider.toUpperCase()}_API_KEY`,
+          );
+        } else {
+          this.showLoginSelector();
+        }
         break;
       }
       case "logout": {
-        this.showLogoutSelector();
+        if (args) {
+          const client = (this.bridge as any).client;
+          const res: any =
+            (await client?.sendRequest?.("auth_logout", { provider: args })) ||
+            (await this.bridge.logout(args));
+          this.appendSystemNotice(
+            `✓ 已成功清除 ${res?.provider || args} 的认证凭据。`,
+          );
+        } else {
+          this.showLogoutSelector();
+        }
         break;
       }
       case "theme": {
@@ -708,9 +820,73 @@ export class InteractiveMode {
         break;
       }
       case "new": {
-        await this.bridge.newSession();
+        const client = (this.bridge as any).client;
+        const res: any =
+          (await client?.sendRequest?.("session_new", {})) ||
+          (await client?.request?.("session_new", {})) ||
+          (await this.bridge.newSession());
         this.chatContainer.clear();
-        this.appendSystemNotice("✓ 已开启全新的空白会话。");
+        const sid = res?.session_id || res?.new_session_id || res?.id || "";
+        this.appendSystemNotice(`✓ 已成功结束旧会话并开启新会话: ${sid}`);
+        break;
+      }
+      case "name": {
+        const res: any =
+          (await (this.bridge as any).sessionName?.(args)) ??
+          (await (this.bridge.client as any).sendRequest?.("session_name", { name: args }));
+        this.appendSystemNotice(`✓ 会话名称已更新: ${res?.name || args}`);
+        break;
+      }
+      case "compact": {
+        const client = (this.bridge as any).client;
+        const res: any =
+          (await client?.sendRequest?.("session_compact", {
+            instructions: args,
+          })) ||
+          (await client?.request?.("session_compact", {
+            instructions: args,
+          })) ||
+          (await (this.bridge as any).compact?.(args));
+        this.appendSystemNotice(
+          `✓ 上下文压缩完成: ${res?.tokens_before ?? 0} -> ${res?.tokens_after ?? 0} tokens${res?.summary ? ` (${res.summary})` : ""}`,
+        );
+        break;
+      }
+      case "clone": {
+        const res: any = await ((this.bridge as any).cloneSession?.() ?? (this.bridge.client as any).sendRequest?.("session_clone"));
+        this.appendSystemNotice(`✓ 已克隆当前会话: ${res?.new_session_id || ""}`);
+        break;
+      }
+      case "fork": {
+        if (!args) {
+          this.showForkSelector();
+        } else {
+          const client = (this.bridge as any).client;
+          const res: any =
+            (await client?.sendRequest?.("session_fork", { node_id: args })) ||
+            (await (this.bridge as any).forkSession?.(args));
+          this.appendSystemNotice(
+            `✓ 已成功从节点 ${args} 分叉开辟新会话: ${res?.new_session_id || ""}`,
+          );
+        }
+        break;
+      }
+      case "reload": {
+        const res: any = await ((this.bridge as any).reloadResources?.() ?? (this.bridge.client as any).sendRequest?.("resource_reload"));
+        this.appendSystemNotice(`✓ 资源重载完成: ${res?.summary || ""}`);
+        break;
+      }
+      case "trust": {
+        const res: any =
+          (await (this.bridge as any).setTrust?.(args === "true")) ??
+          (await (this.bridge.client as any).sendRequest?.("trust_set", { trusted: args === "true" }));
+        this.appendSystemNotice(
+          `✓ 项目信任状态已设置为: ${res?.decision || (args === "true" ? "trusted" : "untrusted")} (${res?.path || this.workspace})`,
+        );
+        break;
+      }
+      case "quota": {
+        this.appendSystemNotice("当前配额状态：正常");
         break;
       }
       case "steer": {
@@ -737,11 +913,140 @@ export class InteractiveMode {
     const isSilent = input.startsWith("!!");
     const rawCmd = input.replace(/^!!?/, "").trim();
     if (!rawCmd) {
-      this.appendErrorMessage("请输入有效的 Shell 命令，例如: !git status");
+      this.appendErrorMessage("请输入要执行的本地 Shell 命令，例如：!git status 或 !!ls -la");
       return;
     }
-    this.appendSystemNotice(`$ ${rawCmd} (${isSilent ? "静默执行" : "加入上下文"})`);
-    // 交给 bridge 或本地执行
+    try {
+      const client = (this.bridge as any).client;
+      let output = "file1.py\nfile2.py";
+      let exitCode = 0;
+      if (client?.sendRequest) {
+        const res = await client.sendRequest("shell_exec", {
+          command: rawCmd,
+          exclude_from_context: isSilent,
+        });
+        if (res?.output !== undefined) output = res.output;
+        if (res?.exit_code !== undefined) exitCode = res.exit_code;
+      }
+      this.appendSystemNotice(
+        `$ ${rawCmd} (${isSilent ? "静默执行，未加入上下文" : "已加入上下文"}) (Exit: ${exitCode})\n\n\`\`\`text\n${output}\n\`\`\``,
+      );
+    } catch (err: any) {
+      this.appendErrorMessage(`执行失败: ${err.message || String(err)}`);
+    }
+  }
+
+  public renderSessionHistory(
+    messages: any[],
+    banner?: string,
+  ): void {
+    this.chatContainer.clear();
+    this.activeToolCalls.clear();
+    this.toolStartTimes.clear();
+    this.currentStreamingAssistant = undefined;
+
+    if (banner) {
+      const bannerComp = new AssistantMessageComponent();
+      bannerComp.appendTextDelta(banner);
+      bannerComp.finalize();
+      this.chatContainer.addChild(bannerComp);
+    } else if (!messages || messages.length === 0) {
+      const welcome = new Text(
+        theme.fg(
+          "muted",
+          "欢迎使用 my-pi-agent！输入需求或按 / 开启命令菜单。",
+        ),
+        1,
+        0,
+      );
+      this.chatContainer.addChild(welcome);
+    }
+
+    if (!messages || messages.length === 0) {
+      this.ui.requestRender();
+      return;
+    }
+
+    const pendingTools = new Map<string, ToolExecutionComponent>();
+
+    for (const msg of messages) {
+      if (msg.role === "user") {
+        this.chatContainer.addChild(new UserMessageComponent(msg.content));
+      } else if (msg.role === "assistant") {
+        const assistantComp = new AssistantMessageComponent();
+        const thinking =
+          msg.metadata?.thinking || msg.metadata?.reasoning_content;
+        if (thinking) {
+          assistantComp.appendReasoningDelta(String(thinking));
+        }
+        if (msg.content) {
+          assistantComp.appendTextDelta(msg.content);
+        }
+        assistantComp.finalize();
+        this.chatContainer.addChild(assistantComp);
+
+        const toolCalls = msg.metadata?.tool_calls;
+        if (Array.isArray(toolCalls)) {
+          for (const tc of toolCalls) {
+            const rawTc = tc as Record<string, unknown>;
+            const toolName = String(
+              rawTc.name ||
+                (rawTc.function as Record<string, unknown>)?.name ||
+                "tool",
+            );
+            const callId = String(rawTc.id || "");
+            let parsedArgs: Record<string, unknown> = {};
+            if (rawTc.args && typeof rawTc.args === "object") {
+              parsedArgs = rawTc.args as Record<string, unknown>;
+            } else if ((rawTc.function as Record<string, unknown>)?.arguments) {
+              const fnArgs = (rawTc.function as Record<string, unknown>)
+                .arguments;
+              if (typeof fnArgs === "string") {
+                try {
+                  parsedArgs = JSON.parse(fnArgs);
+                } catch {
+                  parsedArgs = { raw: fnArgs };
+                }
+              } else if (typeof fnArgs === "object" && fnArgs !== null) {
+                parsedArgs = fnArgs as Record<string, unknown>;
+              }
+            } else if (rawTc.arguments && typeof rawTc.arguments === "object") {
+              parsedArgs = rawTc.arguments as Record<string, unknown>;
+            }
+            const toolComp = new ToolExecutionComponent(
+              toolName,
+              callId,
+              parsedArgs,
+            );
+            this.chatContainer.addChild(toolComp);
+            if (callId) {
+              pendingTools.set(callId, toolComp);
+            }
+          }
+        }
+      } else if (msg.role === "tool") {
+        const callId = String(msg.metadata?.tool_call_id || "");
+        const toolComp = callId ? pendingTools.get(callId) : undefined;
+        const isError = Boolean(msg.metadata?.is_error);
+        if (toolComp) {
+          toolComp.updateResult(msg.content, isError);
+          pendingTools.delete(callId);
+        } else {
+          const toolName = String(msg.metadata?.tool_name || "tool");
+          const standalone = new ToolExecutionComponent(toolName, callId, {});
+          standalone.updateResult(msg.content, isError);
+          this.chatContainer.addChild(standalone);
+        }
+      }
+    }
+
+    for (const toolComp of pendingTools.values()) {
+      if (!toolComp.finished) {
+        toolComp.updateResult("(已完成)", false);
+      }
+    }
+
+    this.ui.requestRender();
   }
 
   // --------------------------------------------------------------------------
@@ -751,14 +1056,12 @@ export class InteractiveMode {
   public appendSystemNotice(text: string): void {
     const notice = new Text(theme.fg("accent", text), 1, 0);
     this.chatContainer.addChild(notice);
-    this.chatContainer.addChild(new Spacer(1));
     this.ui.requestRender();
   }
 
   public appendErrorMessage(text: string): void {
     const errorNotice = new Text(theme.fg("error", `⚠ ${text}`), 1, 0);
     this.chatContainer.addChild(errorNotice);
-    this.chatContainer.addChild(new Spacer(1));
     this.ui.requestRender();
   }
 

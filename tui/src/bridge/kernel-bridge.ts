@@ -31,6 +31,7 @@ export interface TranslatorLike {
  * KernelBridge acts as a lightweight Session Adapter between the presentation
  * layer and the PythonKernelClient.
  */
+// Export bridge
 export class KernelBridge {
   public readonly client: ClientLike;
   public readonly translator: TranslatorLike;
@@ -59,6 +60,9 @@ export class KernelBridge {
     text: string,
     options?: PromptOptions,
   ): Promise<RpcResponseData> {
+    if (typeof (this.client as any).prompt === "function") {
+      return (this.client as any).prompt(text, options);
+    }
     const params: Record<string, unknown> = {
       text,
       ...(options || {}),
@@ -67,14 +71,26 @@ export class KernelBridge {
   }
 
   public async abort(): Promise<RpcResponseData> {
+    if (typeof (this.client as any).abort === "function") {
+      return (this.client as any).abort();
+    }
     return this.call<RpcResponseData>("abort", {});
   }
 
   public async steer(text: string): Promise<RpcResponseData> {
+    if (typeof (this.client as any).steer === "function") {
+      return (this.client as any).steer(text);
+    }
     return this.call<RpcResponseData>("steer", { prompt: text });
   }
 
   public async followUp(text: string): Promise<RpcResponseData> {
+    if (typeof (this.client as any).followup === "function") {
+      return (this.client as any).followup(text);
+    }
+    if (typeof (this.client as any).followUp === "function") {
+      return (this.client as any).followUp(text);
+    }
     return this.call<RpcResponseData>("followup", { prompt: text });
   }
 

@@ -80,7 +80,7 @@ test("InteractiveMode handles agent streaming events without throwing", () => {
     result: "content",
     isError: false,
   });
-  assert.equal(mode.activeToolCalls.size, 0);
+  assert.equal(mode.activeToolCalls.get("call-1")?.finished, true);
 
   mode.handleAgentEvent({
     type: "message_end",
@@ -90,6 +90,7 @@ test("InteractiveMode handles agent streaming events without throwing", () => {
 
   mode.handleAgentEvent({ type: "agent_end" });
   assert.equal(mode.isStreaming, false);
+  assert.equal(mode.activeToolCalls.size, 0);
 });
 
 test("InteractiveMode showSelector lifecycle handles mount and cleanup", () => {
