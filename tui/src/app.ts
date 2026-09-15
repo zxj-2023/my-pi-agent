@@ -18,6 +18,7 @@ import { PythonKernelClient } from "./client.js";
 import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { FooterComponent } from "./components/footer.js";
 import { HeaderComponent } from "./components/header.js";
+import { LoginSelectorComponent } from "./components/login-selector.js";
 import {
   type ModelItem,
   ModelSelectorComponent,
@@ -818,7 +819,10 @@ export class AgentApp {
           provider?: string;
         }>("model_switch", { model: argsText });
         this.options.model = res.model;
-        this.footer.update({ modelName: res.model, providerName: res.provider });
+        this.footer.update({
+          modelName: res.model,
+          providerName: res.provider,
+        });
         infoComp.appendTextDelta(
           `✓ 已切换生效模型为 \`${res.model}\`${res.provider ? ` (${res.provider})` : ""}`,
         );
@@ -846,42 +850,28 @@ export class AgentApp {
     }
 
     if (cmd === "/login") {
+      const [provider, ...keyParts] = argParts;
+      const key = keyParts.join(" ").trim();
+
+      if (!provider || !key) {
+        this.showLoginSelector();
+        return true;
+      }
+
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
-
-      const [provider, ...keyParts] = argParts;
-      const key = keyParts.join(" ").trim();
-
-      if (!provider || !key) {
-        infoComp.appendTextDelta(
-          [
-            "**模型凭证登录与配置指引**：",
-            "1. **全局凭据中心**：",
-            "   `~/.my-pi-agent/auth.json`",
-            "2. **在终端中快速绑定 (自动写入全局凭据中心与工作区 `.env`)**：",
-            "   `/login deepseek sk-xxxxxx`",
-            "   `/login openai sk-xxxxxx`",
-            "3. **或直接编辑当前项目根目录 `.env` 文件**：",
-            "   - `OPENAI_API_KEY=sk-...` (支持搭配 `OPENAI_BASE_URL` 与 `OPENAI_MODEL`)",
-            "   - `DEEPSEEK_API_KEY=sk-...`",
-            "   - `ANTHROPIC_API_KEY=sk-...`",
-            "   - `ANTIGRAVITY_ACCESS_TOKEN=ya29....`",
-          ].join("\n"),
-        );
-      } else {
-        try {
-          const res = (await this.client.sendRequest("login", {
-            provider,
-            key,
-          })) as { status: string; message: string };
-          infoComp.appendTextDelta(`✓ ${res.message || "凭据已保存"}`);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          infoComp.appendTextDelta(`✗ 保存凭据失败: ${msg}`);
-        }
+      try {
+        const res = (await this.client.sendRequest("login", {
+          provider,
+          key,
+        })) as { status: string; message: string };
+        infoComp.appendTextDelta(`✓ ${res.message || "凭据已保存"}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 保存凭据失败: ${msg}`);
       }
       infoComp.finalize();
       this.tui.requestRender();
@@ -1200,6 +1190,37 @@ export class AgentApp {
     this.activeSelectorDispose = undefined;
     this.activeSelectorComponent = undefined;
     dispose?.();
+  }
+
+  public showLoginSelector(): void {
+    this.showSelector((done) => {
+      const selector = new LoginSelectorComponent(
+        async (provider, key) => {
+          done();
+          try {
+            const res = (await this.client.sendRequest("login", {
+              provider,
+              key,
+            })) as { status: string; message: string };
+            const infoComp = new AssistantMessageComponent();
+            infoComp.appendTextDelta(
+              `✓ ${res.message || "已成功绑定凭据至全局凭据中心 (~/.my-pi-agent/auth.json)"}`,
+            );
+            infoComp.finalize();
+            this.chatContainer.addChild(infoComp);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const errComp = new AssistantMessageComponent();
+            errComp.appendTextDelta(`✗ 保存凭据失败: ${msg}`);
+            errComp.finalize();
+            this.chatContainer.addChild(errComp);
+          }
+          this.tui.requestRender();
+        },
+        () => done(),
+      );
+      return { component: selector, focus: selector.searchInput };
+    });
   }
 
   public showSessionSelector(): void {

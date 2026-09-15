@@ -99,10 +99,7 @@ export class ThinkingSelectorComponent extends Container {
     this.addChild(new DynamicBorder());
   }
 
-  private buildSelectList(
-    items: SelectItem[],
-    preselect: string,
-  ): SelectList {
+  private buildSelectList(items: SelectItem[], preselect: string): SelectList {
     const listTheme = {
       selectedPrefix: (s: string) => theme.fg("accent", s),
       selectedText: (s: string) => theme.bold(theme.fg("accent", s)),
@@ -110,15 +107,10 @@ export class ThinkingSelectorComponent extends Container {
       scrollInfo: (s: string) => theme.dim(s),
       noMatch: (_s: string) => theme.dim("无匹配等级"),
     };
-    const list = new SelectList(
-      items,
-      Math.max(1, items.length),
-      listTheme,
-      {
-        minPrimaryColumnWidth: 12,
-        maxPrimaryColumnWidth: 32,
-      },
-    );
+    const list = new SelectList(items, Math.max(1, items.length), listTheme, {
+      minPrimaryColumnWidth: 12,
+      maxPrimaryColumnWidth: 32,
+    });
     const curIdx = items.findIndex((i) => i.value === preselect);
     if (curIdx !== -1) {
       list.setSelectedIndex(curIdx);

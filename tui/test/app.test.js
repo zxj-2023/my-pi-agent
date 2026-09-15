@@ -156,11 +156,10 @@ test("AgentApp handles slash commands (/clear, /help, /steer, /followup) locally
   assert.ok(settingsText.includes("settings.json"));
 
   await app.handleUserSubmit("/login");
-  const loginGuideText = app.chatContainer.children
-    .at(-1)
-    .render(120)
-    .join("\n");
-  assert.ok(loginGuideText.includes("auth.json"));
+  assert.ok(app["activeSelectorComponent"]);
+  // 按 Esc 取消并关闭选择器
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
 
   await app.handleUserSubmit("/login deepseek sk-test-key-123");
   const loginSuccessText = app.chatContainer.children
@@ -373,6 +372,12 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
   await app.handleUserSubmit("/trust true");
   const trustText = app.chatContainer.children.at(-1).render(120).join("\n");
   assert.ok(trustText.includes("trusted"));
+
+  // 13. /login (无参 -> 调起 LoginSelector)
+  await app.handleUserSubmit("/login");
+  assert.ok(app["activeSelectorComponent"]);
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
 });
 
 test("AgentApp handles shell macro (!cmd, !!cmd) and switches border color on !", async () => {

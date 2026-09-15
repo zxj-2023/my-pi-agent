@@ -3,10 +3,25 @@ import assert from "node:assert/strict";
 import { ModelSelectorComponent } from "../dist/components/model-selector.js";
 
 const TEST_MODELS = [
-  { id: "deepseek-chat", provider: "deepseek", name: "DeepSeek V3", contextWindow: 64000 },
-  { id: "deepseek-reasoner", provider: "deepseek", name: "DeepSeek R1", contextWindow: 64000 },
+  {
+    id: "deepseek-chat",
+    provider: "deepseek",
+    name: "DeepSeek V3",
+    contextWindow: 64000,
+  },
+  {
+    id: "deepseek-reasoner",
+    provider: "deepseek",
+    name: "DeepSeek R1",
+    contextWindow: 64000,
+  },
   { id: "gpt-4o", provider: "openai", name: "GPT-4o", contextWindow: 128000 },
-  { id: "gpt-4o-mini", provider: "openai", name: "GPT-4o Mini", contextWindow: 128000 },
+  {
+    id: "gpt-4o-mini",
+    provider: "openai",
+    name: "GPT-4o Mini",
+    contextWindow: 128000,
+  },
 ];
 
 test("ModelSelectorComponent renders models list with provider badges", () => {

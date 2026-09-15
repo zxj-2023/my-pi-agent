@@ -307,10 +307,9 @@ async def test_rpc_server_login_updates_auth_manager_and_env(tmp_path: Path, mon
     )
     assert login_resp["result"]["status"] == "ok"
 
-    # 断言 1: 项目工作区 .env 写入
+    # 断言 1: 项目工作区保持零污染，绝不向工作区 .env 写入 Key
     env_file = workspace_dir / ".env"
-    assert env_file.exists()
-    assert "DEEPSEEK_API_KEY=sk-deepseek-test-999" in env_file.read_text(encoding="utf-8")
+    assert not env_file.exists()
 
     # 断言 2: 全局 auth.json 凭据中心同步更新
     paths = AgentPaths(home=custom_home)

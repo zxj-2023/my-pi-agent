@@ -61,7 +61,10 @@ from my_agent_core.skills import SkillManager
 
 def uuid7_str() -> str:
     """生成符合 RFC 9562 规范的 UUIDv7 字符串（基于毫秒时间戳保序）。"""
-    timestamp_ms = int(time.time() * 1000)
+    try:
+        timestamp_ms = int(time.time() * 1000)
+    except Exception:
+        timestamp_ms = 0
     rand = int.from_bytes(os.urandom(10), "big")
     uuid_int = (
         ((timestamp_ms & 0xFFFFFFFFFFFF) << 80)
@@ -294,23 +297,25 @@ class RpcServer:
                     model_name = explicit_model or "gpt-4o"
 
         if provider:
-            api_key = os.environ.get(f"{provider.upper()}_API_KEY")
-            base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
-            if provider == "openai":
-                api_key = api_key or os.environ.get("OPENAI_API_KEY")
-                base_url = base_url or os.environ.get("OPENAI_BASE_URL")
-            elif provider == "antigravity":
-                api_key = api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
+            # 1. 优先从全局凭据中心 (~/.my-pi-agent/auth.json) 加载
+            cred = auth_mgr.get_credential(provider)
+            if cred is not None:
+                if isinstance(cred, ApiKeyCredential):
+                    api_key = cred.resolve_key()
+                    if not base_url and cred.base_url:
+                        base_url = cred.base_url
+                elif isinstance(cred, OAuthCredential):
+                    api_key = cred.access
 
+            # 2. 次选本地环境变量与 .env 兜底
             if not api_key:
-                cred = auth_mgr.get_credential(provider)
-                if cred is not None:
-                    if isinstance(cred, ApiKeyCredential):
-                        api_key = cred.resolve_key()
-                        if not base_url and cred.base_url:
-                            base_url = cred.base_url
-                    elif isinstance(cred, OAuthCredential):
-                        api_key = cred.access
+                api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+                base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
+                if provider == "openai":
+                    api_key = api_key or os.environ.get("OPENAI_API_KEY")
+                    base_url = base_url or os.environ.get("OPENAI_BASE_URL")
+                elif provider == "antigravity":
+                    api_key = api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
 
             if not api_key and provider != "antigravity":
                 api_key = os.environ.get("OPENAI_API_KEY")
@@ -450,27 +455,7 @@ class RpcServer:
                 },
             )
 
-        workspace_path = Path(self.agent.workspace if self.agent else ".").resolve()
-        env_file = workspace_path / ".env"
         key_name = "ANTIGRAVITY_ACCESS_TOKEN" if provider == "antigravity" else f"{provider.upper()}_API_KEY"
-
-        lines = []
-        if env_file.exists():
-            lines = env_file.read_text(encoding="utf-8").splitlines()
-
-        updated = False
-        new_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith(f"{key_name}=") or stripped.startswith(f"export {key_name}="):
-                new_lines.append(f"{key_name}={key}")
-                updated = True
-            else:
-                new_lines.append(line)
-        if not updated:
-            new_lines.append(f"{key_name}={key}")
-
-        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         os.environ[key_name] = key
 
         paths = self.paths or AgentPaths()
@@ -484,7 +469,7 @@ class RpcServer:
             req_id,
             result={
                 "status": "ok",
-                "message": f"成功保存 {key_name} 至项目 .env 文件！",
+                "message": f"已成功绑定 {provider} 凭据至全局凭据中心 (~/.my-pi-agent/auth.json)！",
             },
         )
 
@@ -1151,7 +1136,10 @@ class RpcServer:
                 error={"code": -32602, "message": "Missing 'command' parameter"},
             )
         exclude_from_context = bool(params.get("exclude_from_context", False))
-        timeout = float(params.get("timeout", 60.0))
+        try:
+            timeout = float(params.get("timeout", 60.0))
+        except (ValueError, TypeError):
+            timeout = 60.0
 
         cwd = Path(self.agent.workspace)
         res = await asyncio.to_thread(
@@ -1267,17 +1255,23 @@ class RpcServer:
         if hasattr(llm_inst, "config"):
             paths = self.paths or AgentPaths()
             auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
-            api_key = os.environ.get(f"{provider.upper()}_API_KEY") if provider else None
-            base_url = os.environ.get(f"{provider.upper()}_BASE_URL") if provider else None
+            api_key = None
+            base_url = None
             if provider:
+                # 1. 优先从全局凭据中心读取
                 cred = auth_mgr.get_credential(provider)
                 if cred is not None:
                     if isinstance(cred, ApiKeyCredential):
                         api_key = cred.resolve_key()
-                        if not base_url and cred.base_url:
+                        if cred.base_url:
                             base_url = cred.base_url
                     elif isinstance(cred, OAuthCredential):
                         api_key = cred.access
+
+                # 2. 次选环境变量兜底
+                if not api_key:
+                    api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+                    base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
             try:
                 new_config = Config(
                     provider=provider or "openai",
