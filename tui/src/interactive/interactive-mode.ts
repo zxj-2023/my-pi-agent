@@ -19,19 +19,34 @@ import { DynamicBorder } from "../components/dynamic-border.js";
 import { FooterComponent } from "../components/footer.js";
 import { HeaderComponent } from "../components/header.js";
 import { LoginSelectorComponent } from "../components/login-selector.js";
-import { type LogoutProviderItem, LogoutSelectorComponent } from "../components/logout-selector.js";
-import { type ModelItem, ModelSelectorComponent } from "../components/model-selector.js";
-import { type SessionItem, SessionSelectorComponent } from "../components/session-selector.js";
+import {
+  type LogoutProviderItem,
+  LogoutSelectorComponent,
+} from "../components/logout-selector.js";
+import {
+  type ModelItem,
+  ModelSelectorComponent,
+} from "../components/model-selector.js";
+import {
+  type SessionItem,
+  SessionSelectorComponent,
+} from "../components/session-selector.js";
 import { SettingsSelectorComponent } from "../components/settings-selector.js";
 import { ThemeSelectorComponent } from "../components/theme-selector.js";
 import { ThinkingSelectorComponent } from "../components/thinking-selector.js";
 import { ToolExecutionComponent } from "../components/tool-execution.js";
-import { type TreeNode, TreeSelectorComponent } from "../components/tree-selector.js";
+import {
+  type TreeNode,
+  TreeSelectorComponent,
+} from "../components/tree-selector.js";
 import { UserMessageComponent } from "../components/user-message.js";
 import { UserMessageSelectorComponent } from "../components/user-message-selector.js";
 import { theme } from "../theme/theme.js";
 import { createChatViewport } from "./chat-viewport.js";
-import { createInteractiveTui, type InteractiveTuiOptions } from "./tui-renderer.js";
+import {
+  createInteractiveTui,
+  type InteractiveTuiOptions,
+} from "./tui-renderer.js";
 
 export interface InteractiveModeOptions extends InteractiveTuiOptions {
   workspace?: string;
@@ -47,23 +62,68 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   { name: "help", description: "查看所有可用命令与快捷键说明" },
   { name: "clear", description: "清空当前终端屏幕会话" },
   { name: "new", description: "结束当前会话，开启全新的空白会话" },
-  { name: "resume", description: "列出、搜索或恢复指定历史会话", argumentHint: "[session_id]" },
-  { name: "session", description: "列出、搜索或恢复指定历史会话", argumentHint: "[session_id]" },
-  { name: "name", description: "查看或设置当前会话的显示名称", argumentHint: "[title]" },
-  { name: "compact", description: "立即对当前上下文执行压缩，释放 Token 空间", argumentHint: "[instructions]" },
+  {
+    name: "resume",
+    description: "列出、搜索或恢复指定历史会话",
+    argumentHint: "[session_id]",
+  },
+  {
+    name: "session",
+    description: "列出、搜索或恢复指定历史会话",
+    argumentHint: "[session_id]",
+  },
+  {
+    name: "name",
+    description: "查看或设置当前会话的显示名称",
+    argumentHint: "[title]",
+  },
+  {
+    name: "compact",
+    description: "立即对当前上下文执行压缩，释放 Token 空间",
+    argumentHint: "[instructions]",
+  },
   { name: "tree", description: "以可视化 DAG 树状图展现会话分支拓扑" },
-  { name: "fork", description: "基于当前节点创建全新分支", argumentHint: "[node_id]" },
+  {
+    name: "fork",
+    description: "基于当前节点创建全新分支",
+    argumentHint: "[node_id]",
+  },
   { name: "clone", description: "深度克隆当前分支，开辟全新探索副本" },
-  { name: "model", description: "交互式查看与切换当前使用的语言模型", argumentHint: "[model_id]" },
-  { name: "thinking", description: "调整模型思考预算深度等级 (off/minimal/low/medium/high/xhigh/max)", argumentHint: "[level]" },
+  {
+    name: "model",
+    description: "交互式查看与切换当前使用的语言模型",
+    argumentHint: "[model_id]",
+  },
+  {
+    name: "thinking",
+    description:
+      "调整模型思考预算深度等级 (off/minimal/low/medium/high/xhigh/max)",
+    argumentHint: "[level]",
+  },
   { name: "login", description: "两阶段交互式绑定 Provider API Key" },
-  { name: "logout", description: "清除指定 Provider 的已存 API 密钥凭据", argumentHint: "[provider]" },
+  {
+    name: "logout",
+    description: "清除指定 Provider 的已存 API 密钥凭据",
+    argumentHint: "[provider]",
+  },
   { name: "theme", description: "实时预览并切换终端 TrueColor 主题方案" },
   { name: "settings", description: "交互式管理模型与运行时核心参数" },
-  { name: "steer", description: "向运行中的智能体插话或修正方向", argumentHint: "<instruction>" },
-  { name: "followup", description: "添加后续任务指令，在当前任务结束后执行", argumentHint: "<instruction>" },
+  {
+    name: "steer",
+    description: "向运行中的智能体插话或修正方向",
+    argumentHint: "<instruction>",
+  },
+  {
+    name: "followup",
+    description: "添加后续任务指令，在当前任务结束后执行",
+    argumentHint: "<instruction>",
+  },
   { name: "reload", description: "重新载入所有动态 Skills 与 Prompt 模板" },
-  { name: "trust", description: "查看或更新当前工作区的代码执行信任安全策略", argumentHint: "[true|false]" },
+  {
+    name: "trust",
+    description: "查看或更新当前工作区的代码执行信任安全策略",
+    argumentHint: "[true|false]",
+  },
 ];
 
 function findFdPath(): string | undefined {
@@ -184,6 +244,10 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  public start(): void {
+    this.ui.start();
+  }
+
   public stop(): void {
     if (this.unsubscribeBridge) {
       this.unsubscribeBridge();
@@ -241,7 +305,9 @@ export class InteractiveMode {
         if (Array.isArray(event.message?.content)) {
           for (const block of event.message.content) {
             if (block.type === "thinking" && block.thinking) {
-              this.currentStreamingAssistant.appendReasoningDelta(block.thinking);
+              this.currentStreamingAssistant.appendReasoningDelta(
+                block.thinking,
+              );
             } else if (block.type === "text" && block.text) {
               this.currentStreamingAssistant.appendTextDelta(block.text);
             }
@@ -547,9 +613,14 @@ export class InteractiveMode {
           done();
           if (selected) {
             this.currentModelName = selected.id;
-            this.footer.update({ modelName: selected.id, providerName: selected.provider });
+            this.footer.update({
+              modelName: selected.id,
+              providerName: selected.provider,
+            });
             await this.bridge.switchModel(selected.id, selected.provider);
-            this.appendSystemNotice(`✓ 已成功切换至模型: ${selected.id} (${selected.provider})`);
+            this.appendSystemNotice(
+              `✓ 已成功切换至模型: ${selected.id} (${selected.provider})`,
+            );
           }
         },
         () => done(),
@@ -566,7 +637,9 @@ export class InteractiveMode {
           return ((res as any)?.sessions || []).map((s: any) => ({
             id: s.session_id || s.id,
             name: s.title || s.name || s.session_id,
-            modified: s.updated_at ? Math.floor(s.updated_at / 1000) : Math.floor(Date.now() / 1000),
+            modified: s.updated_at
+              ? Math.floor(s.updated_at / 1000)
+              : Math.floor(Date.now() / 1000),
             cwd: s.workspace || this.workspace,
             message_count: s.message_count || 0,
           }));
@@ -625,8 +698,16 @@ export class InteractiveMode {
       const defaultProviders: LogoutProviderItem[] = [
         { id: "deepseek", label: "DeepSeek", description: "deepseek API key" },
         { id: "openai", label: "OpenAI", description: "openai API key" },
-        { id: "anthropic", label: "Anthropic", description: "anthropic API key" },
-        { id: "antigravity", label: "Antigravity", description: "oauth credential" },
+        {
+          id: "anthropic",
+          label: "Anthropic",
+          description: "anthropic API key",
+        },
+        {
+          id: "antigravity",
+          label: "Antigravity",
+          description: "oauth credential",
+        },
       ];
       const selector = new LogoutSelectorComponent(
         defaultProviders,
@@ -678,9 +759,7 @@ export class InteractiveMode {
 
   public showForkSelector(): void {
     this.showSelector((done) => {
-      const defaultMessages = [
-        { id: "msg-1", text: "Initial user message" },
-      ];
+      const defaultMessages = [{ id: "msg-1", text: "Initial user message" }];
       const selector = new UserMessageSelectorComponent(
         defaultMessages,
         () => done(),
@@ -723,8 +802,12 @@ export class InteractiveMode {
         break;
       }
       case "help": {
-        this.appendSystemNotice("可用命令列表：\n" +
-          BUILTIN_SLASH_COMMANDS.map((c) => `  /${c.name.padEnd(12)} - ${c.description}`).join("\n"));
+        this.appendSystemNotice(
+          "可用命令列表：\n" +
+            BUILTIN_SLASH_COMMANDS.map(
+              (c) => `  /${c.name.padEnd(12)} - ${c.description}`,
+            ).join("\n"),
+        );
         break;
       }
       case "model": {
@@ -833,7 +916,9 @@ export class InteractiveMode {
       case "name": {
         const res: any =
           (await (this.bridge as any).sessionName?.(args)) ??
-          (await (this.bridge.client as any).sendRequest?.("session_name", { name: args }));
+          (await (this.bridge.client as any).sendRequest?.("session_name", {
+            name: args,
+          }));
         this.appendSystemNotice(`✓ 会话名称已更新: ${res?.name || args}`);
         break;
       }
@@ -853,8 +938,11 @@ export class InteractiveMode {
         break;
       }
       case "clone": {
-        const res: any = await ((this.bridge as any).cloneSession?.() ?? (this.bridge.client as any).sendRequest?.("session_clone"));
-        this.appendSystemNotice(`✓ 已克隆当前会话: ${res?.new_session_id || ""}`);
+        const res: any = await ((this.bridge as any).cloneSession?.() ??
+          (this.bridge.client as any).sendRequest?.("session_clone"));
+        this.appendSystemNotice(
+          `✓ 已克隆当前会话: ${res?.new_session_id || ""}`,
+        );
         break;
       }
       case "fork": {
@@ -872,14 +960,17 @@ export class InteractiveMode {
         break;
       }
       case "reload": {
-        const res: any = await ((this.bridge as any).reloadResources?.() ?? (this.bridge.client as any).sendRequest?.("resource_reload"));
+        const res: any = await ((this.bridge as any).reloadResources?.() ??
+          (this.bridge.client as any).sendRequest?.("resource_reload"));
         this.appendSystemNotice(`✓ 资源重载完成: ${res?.summary || ""}`);
         break;
       }
       case "trust": {
         const res: any =
           (await (this.bridge as any).setTrust?.(args === "true")) ??
-          (await (this.bridge.client as any).sendRequest?.("trust_set", { trusted: args === "true" }));
+          (await (this.bridge.client as any).sendRequest?.("trust_set", {
+            trusted: args === "true",
+          }));
         this.appendSystemNotice(
           `✓ 项目信任状态已设置为: ${res?.decision || (args === "true" ? "trusted" : "untrusted")} (${res?.path || this.workspace})`,
         );
@@ -913,7 +1004,9 @@ export class InteractiveMode {
     const isSilent = input.startsWith("!!");
     const rawCmd = input.replace(/^!!?/, "").trim();
     if (!rawCmd) {
-      this.appendErrorMessage("请输入要执行的本地 Shell 命令，例如：!git status 或 !!ls -la");
+      this.appendErrorMessage(
+        "请输入要执行的本地 Shell 命令，例如：!git status 或 !!ls -la",
+      );
       return;
     }
     try {
@@ -936,10 +1029,7 @@ export class InteractiveMode {
     }
   }
 
-  public renderSessionHistory(
-    messages: any[],
-    banner?: string,
-  ): void {
+  public renderSessionHistory(messages: any[], banner?: string): void {
     this.chatContainer.clear();
     this.activeToolCalls.clear();
     this.toolStartTimes.clear();

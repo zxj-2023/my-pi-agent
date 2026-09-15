@@ -10,10 +10,23 @@ function createMockBridge() {
     request: async (method, params) => {
       calls.push({ method, params });
       if (method === "models_list") {
-        return { models: [{ id: "gpt-4o", provider: "openai" }, { id: "deepseek-chat", provider: "deepseek" }] };
+        return {
+          models: [
+            { id: "gpt-4o", provider: "openai" },
+            { id: "deepseek-chat", provider: "deepseek" },
+          ],
+        };
       }
       if (method === "session_list") {
-        return { sessions: [{ session_id: "s-1", title: "Test Session", updated_at: Date.now() }] };
+        return {
+          sessions: [
+            {
+              session_id: "s-1",
+              title: "Test Session",
+              updated_at: Date.now(),
+            },
+          ],
+        };
       }
       return { status: "ok" };
     },

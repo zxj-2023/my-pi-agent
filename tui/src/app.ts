@@ -1,6 +1,13 @@
-import { type Container, type Editor, type TuiMainScreen } from "@earendil-works/pi-tui";
+import {
+  type Container,
+  type Editor,
+  type TuiMainScreen,
+} from "@earendil-works/pi-tui";
 import { KernelBridge } from "./bridge/kernel-bridge.js";
-import { PythonKernelClient, type PythonKernelClientOptions } from "./client.js";
+import {
+  PythonKernelClient,
+  type PythonKernelClientOptions,
+} from "./client.js";
 import { type FooterComponent } from "./components/footer.js";
 import { type ToolExecutionComponent } from "./components/tool-execution.js";
 import {
@@ -88,6 +95,7 @@ export class AgentApp {
   public async start(): Promise<void> {
     await this.client.start();
     await this.interactiveMode.init();
+    this.interactiveMode.start();
     if (this.options.prompt) {
       await this.interactiveMode.handleUserInput(this.options.prompt);
     }
