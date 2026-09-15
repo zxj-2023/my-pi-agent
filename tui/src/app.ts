@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as process from "node:process";
 import {
   CombinedAutocompleteProvider,
+  type Component,
   Container,
   Editor,
   type EditorTheme,
@@ -17,6 +18,15 @@ import { PythonKernelClient } from "./client.js";
 import { AssistantMessageComponent } from "./components/assistant-message.js";
 import { FooterComponent } from "./components/footer.js";
 import { HeaderComponent } from "./components/header.js";
+import {
+  type ModelItem,
+  ModelSelectorComponent,
+} from "./components/model-selector.js";
+import {
+  type SessionItem,
+  SessionSelectorComponent,
+} from "./components/session-selector.js";
+import { ThinkingSelectorComponent } from "./components/thinking-selector.js";
 import { ToolExecutionComponent } from "./components/tool-execution.js";
 import { UserMessageComponent } from "./components/user-message.js";
 import { AgentEvent } from "./protocol.js";
@@ -149,6 +159,7 @@ export class AgentApp {
   private tui: TUI;
   private header: HeaderComponent;
   private chatContainer: Container;
+  private editorContainer: Container;
   private footer: FooterComponent;
   private editor: Editor;
   private client: PythonKernelClient;
@@ -157,6 +168,9 @@ export class AgentApp {
   private activeTools = new Map<string, ToolExecutionComponent>();
   private toolStartTimes = new Map<string, number>();
   private turnStartTime = 0;
+  private activeSelectorToken?: object;
+  private activeSelectorDispose?: () => void;
+  private activeSelectorComponent?: { handleInput: (data: string) => void };
 
   constructor(public readonly options: AppOptions = {}) {
     const terminal = new ProcessTerminal();
@@ -207,11 +221,14 @@ export class AgentApp {
     );
     this.editor.setAutocompleteProvider(autocompleteProvider);
 
+    this.editorContainer = new Container();
+    this.editorContainer.addChild(this.editor);
+
     this.header = new HeaderComponent();
 
     this.tui.addChild(this.header);
     this.tui.addChild(this.chatContainer);
-    this.tui.addChild(this.editor);
+    this.tui.addChild(this.editorContainer);
     this.tui.addChild(this.footer);
     this.tui.setFocus(this.editor);
 
@@ -240,8 +257,15 @@ export class AgentApp {
       this.tui.requestRender();
     };
 
-    // 2. 全局键盘热键监听 (Ctrl+C, Esc, Ctrl+O)
+    // 2. 全局键盘热键监听 (Ctrl+C, Esc, Ctrl+O, Ctrl+L)
     this.tui.addInputListener((data: string) => {
+      // 若当前挂载了活动的 Selector，直接委托给 Selector 处理键盘事件
+      if (this.activeSelectorComponent) {
+        this.activeSelectorComponent.handleInput(data);
+        this.tui.requestRender();
+        return undefined;
+      }
+
       if (matchesKey(data, "ctrl+c")) {
         void this.stop().finally(() => process.exit(0));
       } else if (matchesKey(data, "escape")) {
@@ -257,6 +281,9 @@ export class AgentApp {
           tool.toggleExpanded();
         }
         this.tui.requestRender();
+      } else if (matchesKey(data, "ctrl+l")) {
+        this.showModelSelector();
+        return undefined;
       }
       return undefined;
     });
@@ -406,52 +433,22 @@ export class AgentApp {
     }
 
     if (cmd === "/resume") {
+      if (!argsText) {
+        this.showSessionSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
       try {
-        if (argsText) {
-          const res = await this.client.sendRequest<{
-            status: string;
-            session_id: string;
-            message_count?: number;
-          }>("session_resume", { session_id: argsText });
-          infoComp.appendTextDelta(`✓ 已成功恢复会话: \`${res.session_id}\``);
-        } else {
-          const res = await this.client.sendRequest<{
-            status: string;
-            sessions: Array<{
-              id: string;
-              name: string;
-              modified: number;
-              message_count: number;
-              path: string;
-            }>;
-          }>("session_list");
-          if (!res.sessions || res.sessions.length === 0) {
-            infoComp.appendTextDelta("ℹ 暂无历史会话记录。");
-          } else {
-            const lines = [
-              "**历史会话列表** (可使用 `/resume <id>` 恢复指定会话):",
-            ];
-            for (const s of res.sessions.slice(0, 15)) {
-              const d = new Date(s.modified * 1000);
-              const timeStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-              const countStr = `${s.message_count || 0} 条消息`;
-              lines.push(
-                `- \`${s.id}\` **${s.name || "未命名会话"}** (${countStr}, ${timeStr})`,
-              );
-            }
-            if (res.sessions.length > 15) {
-              lines.push(
-                `_仅显示前 15 项，共 ${res.sessions.length} 个历史会话_`,
-              );
-            }
-            infoComp.appendTextDelta(lines.join("\n"));
-          }
-        }
+        const res = await this.client.sendRequest<{
+          status: string;
+          session_id: string;
+          message_count?: number;
+        }>("session_resume", { session_id: argsText });
+        infoComp.appendTextDelta(`✓ 已成功恢复会话: \`${res.session_id}\``);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         infoComp.appendTextDelta(`✗ 恢复会话失败: ${msg}`);
@@ -636,27 +633,26 @@ export class AgentApp {
     }
 
     if (cmd === "/thinking") {
+      if (!argsText) {
+        this.showThinkingSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
-      if (argsText) {
-        try {
-          const res = await this.client.sendRequest<{
-            status: string;
-            level: string;
-          }>("thinking_set", { level: argsText.toLowerCase() });
-          this.options.thinking = res.level;
-          infoComp.appendTextDelta(`✓ 思考预算等级已调整为: \`${res.level}\``);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          infoComp.appendTextDelta(`✗ 设置思考深度失败: ${msg}`);
-        }
-      } else {
-        infoComp.appendTextDelta(
-          "ℹ 可选思考预算等级: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`。\n使用示例: `/thinking high`",
-        );
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          level: string;
+        }>("thinking_set", { level: argsText.toLowerCase() });
+        this.options.thinking = res.level;
+        this.footer.update({ thinkingLevel: res.level });
+        infoComp.appendTextDelta(`✓ 思考预算等级已调整为: \`${res.level}\``);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 设置思考深度失败: ${msg}`);
       }
       infoComp.finalize();
       this.tui.requestRender();
@@ -806,31 +802,29 @@ export class AgentApp {
     }
 
     if (cmd === "/model") {
+      if (!argsText) {
+        this.showModelSelector();
+        return true;
+      }
       this.chatContainer.addChild(new UserMessageComponent(text));
       this.editor.setText("");
       this.resetEditorBorder();
       const infoComp = new AssistantMessageComponent();
       this.chatContainer.addChild(infoComp);
-      if (argsText) {
-        try {
-          const res = await this.client.sendRequest<{
-            status: string;
-            model: string;
-            provider?: string;
-          }>("model_switch", { model: argsText });
-          this.options.model = res.model;
-          this.footer.update({ modelName: res.model });
-          infoComp.appendTextDelta(
-            `✓ 已切换生效模型为 \`${res.model}\`${res.provider ? ` (${res.provider})` : ""}`,
-          );
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          infoComp.appendTextDelta(`✗ 切换模型失败: ${msg}`);
-        }
-      } else {
+      try {
+        const res = await this.client.sendRequest<{
+          status: string;
+          model: string;
+          provider?: string;
+        }>("model_switch", { model: argsText });
+        this.options.model = res.model;
+        this.footer.update({ modelName: res.model, providerName: res.provider });
         infoComp.appendTextDelta(
-          `ℹ 当前生效模型: \`${this.options.model || "default"}\`\n使用 \`/model <name>\` 切换 (如 \`deepseek-chat\`, \`openai/gpt-4o\`, \`antigravity/gemini-3.8-flash\`)。`,
+          `✓ 已切换生效模型为 \`${res.model}\`${res.provider ? ` (${res.provider})` : ""}`,
         );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        infoComp.appendTextDelta(`✗ 切换模型失败: ${msg}`);
       }
       infoComp.finalize();
       this.tui.requestRender();
@@ -1159,6 +1153,250 @@ export class AgentApp {
     }
 
     this.tui.requestRender();
+  }
+
+  public showSelector(
+    create: (done: () => void) => {
+      component: Container & { handleInput: (data: string) => void };
+      focus?: Component;
+      dispose?: () => void;
+    },
+  ): void {
+    const token = {};
+    let dispose: (() => void) | undefined;
+
+    const done = () => {
+      dispose?.();
+      if (this.activeSelectorToken !== token) return;
+      this.activeSelectorToken = undefined;
+      this.activeSelectorDispose = undefined;
+      this.activeSelectorComponent = undefined;
+
+      this.editorContainer.clear();
+      this.editorContainer.addChild(this.editor);
+      this.tui.setFocus(this.editor);
+      this.tui.requestRender();
+    };
+
+    const created = create(done);
+    dispose = created.dispose;
+
+    this.disposeActiveSelector();
+    this.activeSelectorToken = token;
+    this.activeSelectorDispose = dispose;
+    this.activeSelectorComponent = created.component;
+
+    this.editorContainer.clear();
+    this.editorContainer.addChild(created.component);
+    if (created.focus) {
+      this.tui.setFocus(created.focus);
+    }
+    this.tui.requestRender();
+  }
+
+  private disposeActiveSelector(): void {
+    const dispose = this.activeSelectorDispose;
+    this.activeSelectorToken = undefined;
+    this.activeSelectorDispose = undefined;
+    this.activeSelectorComponent = undefined;
+    dispose?.();
+  }
+
+  public showSessionSelector(): void {
+    this.showSelector((done) => {
+      const selector = new SessionSelectorComponent(
+        async (allProjects) => {
+          const res = await this.client.sendRequest<{
+            status: string;
+            sessions: SessionItem[];
+          }>("session_list", { all_projects: allProjects });
+          return res.sessions || [];
+        },
+        async (session) => {
+          done();
+          try {
+            const res = await this.client.sendRequest<{
+              status: string;
+              session_id: string;
+            }>("session_resume", { session_id: session.id });
+            this.footer.update({ sessionName: session.name || session.id });
+            const infoComp = new AssistantMessageComponent();
+            infoComp.appendTextDelta(`✓ 已成功恢复会话: \`${res.session_id}\``);
+            infoComp.finalize();
+            this.chatContainer.addChild(infoComp);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const errComp = new AssistantMessageComponent();
+            errComp.appendTextDelta(`✗ 恢复会话失败: ${msg}`);
+            errComp.finalize();
+            this.chatContainer.addChild(errComp);
+          }
+          this.tui.requestRender();
+        },
+        () => done(),
+        () => this.tui.requestRender(),
+      );
+      return { component: selector, focus: selector.searchInput };
+    });
+  }
+
+  public showModelSelector(initialQuery?: string): void {
+    const availableModels: ModelItem[] = [
+      {
+        id: "deepseek-chat",
+        provider: "deepseek",
+        name: "DeepSeek V3",
+        contextWindow: 64000,
+      },
+      {
+        id: "deepseek-reasoner",
+        provider: "deepseek",
+        name: "DeepSeek R1",
+        contextWindow: 64000,
+      },
+      {
+        id: "gpt-4o",
+        provider: "openai",
+        name: "GPT-4o",
+        contextWindow: 128000,
+      },
+      {
+        id: "gpt-4o-mini",
+        provider: "openai",
+        name: "GPT-4o Mini",
+        contextWindow: 128000,
+      },
+      {
+        id: "claude-3-5-sonnet-20241022",
+        provider: "anthropic",
+        name: "Claude 3.5 Sonnet",
+        contextWindow: 200000,
+      },
+      {
+        id: "claude-3-5-haiku-20241022",
+        provider: "anthropic",
+        name: "Claude 3.5 Haiku",
+        contextWindow: 200000,
+      },
+      {
+        id: "gemini-2.5-flash",
+        provider: "antigravity",
+        name: "Gemini 2.5 Flash",
+        contextWindow: 1000000,
+      },
+      {
+        id: "gemini-2.5-pro",
+        provider: "antigravity",
+        name: "Gemini 2.5 Pro",
+        contextWindow: 1000000,
+      },
+    ];
+
+    this.showSelector((done) => {
+      const selector = new ModelSelectorComponent(
+        this.options.model || "default",
+        availableModels,
+        async (model) => {
+          done();
+          try {
+            const res = await this.client.sendRequest<{
+              status: string;
+              model: string;
+              provider?: string;
+            }>("model_switch", { model: `${model.provider}/${model.id}` });
+            this.options.model = res.model;
+            this.footer.update({
+              modelName: res.model,
+              providerName: res.provider,
+            });
+            const info = new AssistantMessageComponent();
+            info.appendTextDelta(
+              `✓ 已切换生效模型为 \`${res.model}\`${res.provider ? ` (${res.provider})` : ""}`,
+            );
+            info.finalize();
+            this.chatContainer.addChild(info);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const errComp = new AssistantMessageComponent();
+            errComp.appendTextDelta(`✗ 切换模型失败: ${msg}`);
+            errComp.finalize();
+            this.chatContainer.addChild(errComp);
+          }
+          this.tui.requestRender();
+        },
+        () => done(),
+        initialQuery,
+        (model) => {
+          done();
+          this.options.model = `${model.provider}/${model.id}`;
+          this.footer.update({ modelName: this.options.model });
+          const info = new AssistantMessageComponent();
+          info.appendTextDelta(
+            `✓ 已将 \`${this.options.model}\` 设为全局默认模型`,
+          );
+          info.finalize();
+          this.chatContainer.addChild(info);
+          this.tui.requestRender();
+        },
+        this.options.model,
+      );
+      return { component: selector, focus: selector.searchInput };
+    });
+  }
+
+  public showThinkingSelector(): void {
+    const available = [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ];
+    const current = this.options.thinking || "off";
+
+    this.showSelector((done) => {
+      const selector = new ThinkingSelectorComponent(
+        current,
+        available,
+        async (lvl) => {
+          done();
+          try {
+            const res = await this.client.sendRequest<{
+              status: string;
+              level: string;
+            }>("thinking_set", { level: lvl.toLowerCase() });
+            this.options.thinking = res.level;
+            this.footer.update({ thinkingLevel: res.level });
+            const info = new AssistantMessageComponent();
+            info.appendTextDelta(`✓ 思考预算等级已调整为: \`${res.level}\``);
+            info.finalize();
+            this.chatContainer.addChild(info);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            const errComp = new AssistantMessageComponent();
+            errComp.appendTextDelta(`✗ 设置思考深度失败: ${msg}`);
+            errComp.finalize();
+            this.chatContainer.addChild(errComp);
+          }
+          this.tui.requestRender();
+        },
+        () => done(),
+        (lvl) => {
+          done();
+          this.options.thinking = lvl;
+          this.footer.update({ thinkingLevel: lvl });
+          const info = new AssistantMessageComponent();
+          info.appendTextDelta(`✓ 默认思考深度已设置为: \`${lvl}\``);
+          info.finalize();
+          this.chatContainer.addChild(info);
+          this.tui.requestRender();
+        },
+        this.options.thinking,
+      );
+      return { component: selector, focus: selector.searchInput };
+    });
   }
 
   public async start(): Promise<void> {

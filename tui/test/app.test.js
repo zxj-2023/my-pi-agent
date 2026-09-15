@@ -314,11 +314,12 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
   const newText = app.chatContainer.children.at(-1).render(120).join("\n");
   assert.ok(newText.includes("sid-new-123"));
 
-  // 2. /resume (无参 -> session_list)
+  // 2. /resume (无参 -> 调起交互选择器)
   await app.handleUserSubmit("/resume");
-  const listText = app.chatContainer.children.at(-1).render(120).join("\n");
-  assert.ok(listText.includes("历史测试一"));
-  assert.ok(listText.includes("历史测试二"));
+  assert.ok(app["activeSelectorComponent"]);
+  // 模拟按 Esc 取消并退出选择器
+  app["activeSelectorComponent"].handleInput("\x1b");
+  assert.equal(app["activeSelectorComponent"], undefined);
 
   // 3. /resume s1 (带参 -> session_resume)
   await app.handleUserSubmit("/resume s1");
