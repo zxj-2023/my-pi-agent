@@ -243,9 +243,18 @@ export class SessionSelectorComponent extends Container {
       this.onCancel();
       return;
     }
-    if (matchesKey(data, "return")) {
-      const selected = this.filteredSessions[this.selectedIndex];
-      if (selected) this.onSelect(selected);
+    if (
+      matchesKey(data, "return") ||
+      matchesKey(data, "enter") ||
+      data === "\r" ||
+      data === "\n" ||
+      data === "\r\n"
+    ) {
+      const selected =
+        this.filteredSessions[this.selectedIndex] || this.filteredSessions[0];
+      if (selected) {
+        this.onSelect(selected);
+      }
       return;
     }
 

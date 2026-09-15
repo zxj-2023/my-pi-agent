@@ -166,6 +166,7 @@ export class InteractiveMode {
   public currentStreamingAssistant?: AssistantMessageComponent;
   public activeToolCalls = new Map<string, ToolExecutionComponent>();
   public toolStartTimes = new Map<string, number>();
+  public transcriptScrollView?: any;
   public isStreaming = false;
   public isWorking = false;
   public currentThinkingLevel = "off";
@@ -229,6 +230,7 @@ export class InteractiveMode {
       editor: this.editorContainer,
       footer: this.footer,
     });
+    this.transcriptScrollView = viewport.transcript;
     this.ui.addChild(viewport.root);
     this.ui.setFocus(this.defaultEditor);
   }
@@ -501,11 +503,11 @@ export class InteractiveMode {
 
   private setupKeybindings(): void {
     this.ui.addInputListener((data: string) => {
-      // 若当前挂载了活动的 Selector，直接委托给 Selector 处理键盘事件
+      // 若当前挂载了活动的 Selector，直接委托给 Selector 处理键盘事件并消费
       if (this.activeSelectorComponent) {
         this.activeSelectorComponent.handleInput?.(data);
         this.ui.requestRender();
-        return undefined;
+        return { consume: true };
       }
 
       if (matchesKey(data, "ctrl+c")) {
@@ -635,15 +637,20 @@ export class InteractiveMode {
   public showSessionSelector(): void {
     this.showSelector((done) => {
       const selector = new SessionSelectorComponent(
-        async (_allProjects: boolean) => {
-          const res = await this.bridge.listSessions();
+        async (allProjects: boolean) => {
+          const res = await this.bridge.listSessions(
+            allProjects ? { all_projects: true } : {},
+          );
           return ((res as any)?.sessions || []).map((s: any) => ({
-            id: s.session_id || s.id,
-            name: s.title || s.name || s.session_id,
-            modified: s.updated_at
-              ? Math.floor(s.updated_at / 1000)
-              : Math.floor(Date.now() / 1000),
-            cwd: s.workspace || this.workspace,
+            id: s.id || s.session_id,
+            name: s.name || s.title || s.session_id,
+            path: s.path,
+            modified:
+              s.modified ??
+              (s.updated_at
+                ? Math.floor(s.updated_at / 1000)
+                : Math.floor(Date.now() / 1000)),
+            cwd: s.cwd || s.workspace || this.workspace,
             message_count: s.message_count || 0,
           }));
         },
@@ -651,7 +658,8 @@ export class InteractiveMode {
           done();
           if (session) {
             try {
-              const res: any = await this.bridge.resumeSession(session.id);
+              const target = session.path || session.id;
+              const res: any = await this.bridge.resumeSession(target);
               if (res?.session_name || res?.session_id) {
                 this.footer.update({
                   sessionName: res.session_name || res.session_id,
@@ -659,7 +667,7 @@ export class InteractiveMode {
               }
               this.renderSessionHistory(
                 res?.messages || [],
-                `✓ 已成功恢复会话: \`${res?.session_id || session.id}\``,
+                `✓ 已成功恢复会话: \`${res?.session_name || res?.session_id || session.id}\``,
               );
             } catch (err: any) {
               this.appendErrorMessage(
@@ -1164,6 +1172,7 @@ export class InteractiveMode {
       }
     }
 
+    this.transcriptScrollView?.scrollToEnd?.();
     this.ui.requestRender();
   }
 

@@ -111,8 +111,10 @@ export class KernelBridge {
     return this.call<RpcResponseData>("model_switch", params);
   }
 
-  public async listSessions(): Promise<RpcResponseData> {
-    return this.call<RpcResponseData>("session_list", {});
+  public async listSessions(
+    options: Record<string, unknown> = {},
+  ): Promise<RpcResponseData> {
+    return this.call<RpcResponseData>("session_list", options);
   }
 
   public async resumeSession(sessionId: string): Promise<RpcResponseData> {
