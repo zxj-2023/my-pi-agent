@@ -54,11 +54,11 @@ class CodingAgent:
 
         # 1. 自动生成或应用系统提示词
         global_agents = (
-            (Path.home() / ".pi" / "agent" / "AGENTS.md")
-            if (Path.home() / ".pi" / "agent" / "AGENTS.md").is_file()
+            (Path.home() / ".my-pi-agent" / "AGENTS.md")
+            if (Path.home() / ".my-pi-agent" / "AGENTS.md").is_file()
             else (
-                (Path.home() / ".my-pi-agent" / "AGENTS.md")
-                if (Path.home() / ".my-pi-agent" / "AGENTS.md").is_file()
+                (Path.home() / ".agents" / "AGENTS.md")
+                if (Path.home() / ".agents" / "AGENTS.md").is_file()
                 else None
             )
         )
@@ -215,7 +215,7 @@ class CodingAgent:
         try:
             asyncio.get_running_loop()
             self.agent.abort()
-        except Exception:
+        except RuntimeError:
             self.agent._aborted = True
             if self.agent._current_signal is not None:
                 self.agent._current_signal.cancel()

@@ -333,11 +333,8 @@ def get_antigravity_catalog(force: bool = False) -> list[dict[str, Any]]:
         now_ms = 0
 
     # 1. 优先从本地缓存加载 (4小时TTL)
-    for cache_path in [
-        Path.home() / ".my-pi-agent" / "antigravity-model-catalog.json",
-        Path.home() / ".pi" / "agent" / "antigravity-model-catalog.json",
-    ]:
-        if cache_path.exists():
+    cache_path = Path.home() / ".my-pi-agent" / "antigravity-model-catalog.json"
+    if cache_path.exists():
             try:
                 raw_text = cache_path.read_text(encoding="utf-8")
                 data = json.loads(raw_text)
