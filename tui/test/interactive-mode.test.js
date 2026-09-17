@@ -356,3 +356,100 @@ test("InteractiveMode handles Shift+Tab (\\x1b[Z) and Ctrl+T to cycle thinking l
   mode.ui.handleTerminalInput("\x1b[Z");
   assert.equal(mode.currentThinkingLevel, "off");
 });
+
+test("InteractiveMode renders error notice on message_end and agent_end when model errors", () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  mode.handleAgentEvent({ type: "agent_start" });
+  mode.handleAgentEvent({ type: "turn_start", iteration: 1 });
+  mode.handleAgentEvent({
+    type: "message_start",
+    message: { role: "assistant", content: "" },
+  });
+
+  // 模拟模型抛出 401 认证异常结束消息
+  const authErrMsg =
+    "Error code: 401 - Authentication Fails, Your api key is invalid";
+  mode.handleAgentEvent({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: authErrMsg,
+      metadata: { stop_reason: "error" },
+    },
+  });
+
+  mode.handleAgentEvent({
+    type: "agent_end",
+    stop_reason: "error",
+    final_text: authErrMsg,
+  });
+
+  // 验证错误信息已成功加入聊天气泡容器并对用户可见
+  const renderedText = mode.chatContainer.children
+    .map((c) => (c.render ? c.render(120).join("\n") : ""))
+    .join("\n");
+  assert.ok(
+    renderedText.includes("Authentication Fails"),
+    "Chat container must contain the 401 error message",
+  );
+  assert.ok(
+    renderedText.includes("⚠"),
+    "Chat container must contain the warning/error icon",
+  );
+});
+
+test("InteractiveMode /new command resets footer metrics and updates sessionName", async () => {
+  const { bridge } = createMockBridge();
+  bridge.client = {
+    sendRequest: async (method) => {
+      if (method === "session_new") {
+        return {
+          status: "ok",
+          session_id: "sid-brand-new-999",
+          session_name: "sid-brand-new-999",
+          context_window: 1000000,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+            contextTokens: 0,
+            cost: 0,
+          },
+        };
+      }
+      return { status: "ok" };
+    },
+  };
+
+  const mode = new InteractiveMode(bridge);
+  // 先设置旧会话的累积指标
+  mode.footer.update({
+    sessionName: "old-session-2026",
+    inputTokens: 158000,
+    outputTokens: 4400,
+    contextTokens: 23936,
+    contextWindow: 128000,
+    costUsd: 0.028,
+  });
+
+  assert.equal(mode.footer.getSessionName(), "old-session-2026");
+
+  // 执行 /new 命令
+  await mode.handleUserInput("/new");
+
+  // 验证 footer 的 sessionName 和各项 token 指标已被彻底重置
+  assert.equal(mode.footer.getSessionName(), "sid-brand-new-999");
+  assert.equal(mode.footer.getContextWindow(), 1000000);
+  const footerLines = mode.footer.render(120).join("\n");
+  assert.ok(footerLines.includes("sid-brand-new-999"));
+  assert.ok(
+    footerLines.includes("0.0%/1.0M") || footerLines.includes("0.0%/1000k"),
+  );
+  assert.ok(!footerLines.includes("158k"));
+  assert.ok(!footerLines.includes("18.7%"));
+});
+

@@ -356,14 +356,13 @@ async def test_models_list_configured_vs_all_rpc(tmp_path: Path, monkeypatch: py
 
 
 @pytest.mark.anyio
-async def test_models_list_openai_compat_deepseek_proxy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """验证当用户配置 OPENAI_BASE_URL 指向 DeepSeek 并配置自定义 OPENAI_MODEL 时，智能归属为 deepseek 并过滤官方 openai 模型。"""
+async def test_models_list_and_switch_deepseek_credential(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """验证当用户配置 DEEPSEEK_API_KEY 并使用自定义 DEEPSEEK_MODEL 时，各 Provider 凭据独立隔离且正常流转。"""
     custom_home = tmp_path / "home"
     monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-deepseek-via-openai-key")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepseek.com")
-    monkeypatch.setenv("OPENAI_MODEL", "deepseek-flash")
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-direct-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-flash")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTIGRAVITY_ACCESS_TOKEN", raising=False)
     workspace = tmp_path / "work"
@@ -381,8 +380,48 @@ async def test_models_list_openai_compat_deepseek_proxy(tmp_path: Path, monkeypa
     models = resp["result"]["models"]
     providers = {m["provider"] for m in models}
 
-    # 智能识别为 deepseek，绝不将官方 openai 模型混入
+    # 仅识别为 deepseek，绝不混入未配置的 openai 模型
     assert "deepseek" in providers
     assert "openai" not in providers
-    assert any(m["id"] == "deepseek-flash" for m in models)
+    flash_m = next(m for m in models if m["id"] == "deepseek-flash")
+    assert flash_m["contextWindow"] == 1000000
+    assert flash_m["context_window"] == 1000000
     assert not any(m["id"] == "gpt-4o" for m in models)
+
+    # 验证 model_switch 成功使用 DEEPSEEK_API_KEY，并返回 context_window
+    from my_agent_llm import LLM
+    from my_agent_llm.config import Config
+
+    real_llm = LLM(config=Config(provider="deepseek", model="deepseek-chat", api_key="sk-initial"))
+    assert server.agent is not None
+    server.agent.agent.llm = real_llm
+
+    switch_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "model_switch",
+            "params": {"model": "deepseek-flash", "provider": "deepseek"},
+        }
+    )
+    assert switch_resp["result"]["status"] == "ok"
+    assert switch_resp["result"]["model"] == "deepseek-flash"
+    assert switch_resp["result"]["context_window"] == 1000000
+    assert switch_resp["result"]["contextWindow"] == 1000000
+    # 验证 api_key 正确取自 DEEPSEEK_API_KEY，而非 "placeholder"
+    assert server.agent is not None
+    assert server.agent.agent.llm.config.api_key == "sk-deepseek-direct-key"
+    assert server.agent.agent.llm.config.base_url == "https://api.deepseek.com"
+
+    # 验证当 Provider 凭据不存在时，切换模型绝不塞 placeholder 假 key，而是返回 -32002 错误
+    fail_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "model_switch",
+            "params": {"model": "claude-3-5-sonnet-20241022", "provider": "anthropic"},
+        }
+    )
+    assert "error" in fail_resp
+    assert fail_resp["error"]["code"] == -32002
+    assert "ANTHROPIC_API_KEY" in fail_resp["error"]["message"]

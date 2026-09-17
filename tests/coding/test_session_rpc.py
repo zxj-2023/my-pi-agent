@@ -57,11 +57,21 @@ async def test_session_lifecycle_rpc(tmp_path: Path, monkeypatch):
     assert "tokens_after" in compact_resp["result"]
     assert "summary" in compact_resp["result"]
 
+    # 模拟旧会话累积使用量
+    server.session_usage["input"] = 158000
+    server.session_usage["contextTokens"] = 23936
+
     # 5. session_new
     new_resp = await server.handle_request({"jsonrpc": "2.0", "id": 6, "method": "session_new", "params": {}})
     assert new_resp["result"]["status"] == "ok"
     assert new_resp["result"]["session_id"] != ""
     assert new_resp["result"]["session_id"] != initial_session_id
+    assert new_resp["result"]["session_name"] == new_resp["result"]["session_id"]
+    assert new_resp["result"]["usage"]["input"] == 0
+    assert new_resp["result"]["usage"]["contextTokens"] == 0
+    assert server.session_usage["input"] == 0
+    assert server.session_usage["contextTokens"] == 0
+    assert new_resp["result"]["context_window"] > 0
 
     # 在新 session 中产生交互并重命名
     await server.handle_request(

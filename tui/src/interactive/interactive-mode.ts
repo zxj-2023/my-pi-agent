@@ -6,9 +6,7 @@ import {
   CombinedAutocompleteProvider,
   type Component,
   Container,
-  Editor,
   type EditorTheme,
-  Loader,
   matchesKey,
   type SlashCommand,
   Spacer,
@@ -41,6 +39,10 @@ import {
   StatusIndicator,
   WorkingStatusIndicator,
 } from "../components/status-indicator.js";
+import {
+  type LoadedResourcesData,
+  StartupResourcesComponent,
+} from "../components/startup-resources.js";
 import { ThemeSelectorComponent } from "../components/theme-selector.js";
 import { ThinkingSelectorComponent } from "../components/thinking-selector.js";
 import { ToolExecutionComponent } from "../components/tool-execution.js";
@@ -68,6 +70,7 @@ export interface InteractiveModeOptions extends InteractiveTuiOptions {
   noSession?: boolean;
   continueSession?: boolean;
   resume?: string | boolean;
+  resources?: LoadedResourcesData;
 }
 
 export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
@@ -190,6 +193,8 @@ export class InteractiveMode {
   public workspace: string;
   public onExit?: () => Promise<void> | void;
   private unsubscribeBridge?: () => void;
+  private hasRenderedTurnError = false;
+  public startupResources: StartupResourcesComponent;
 
   constructor(
     public readonly bridge: KernelBridge,
@@ -211,17 +216,13 @@ export class InteractiveMode {
     this.chatContainer = new Container();
     this.header = new HeaderComponent("0.1.0");
     this.dynamicBorder = new DynamicBorder();
+    this.startupResources = new StartupResourcesComponent(options.resources);
 
     this.documentContainer.addChild(this.header);
     this.documentContainer.addChild(new Spacer(1));
     this.documentContainer.addChild(this.chatContainer);
 
-    const welcome = new Text(
-      theme.fg("muted", "欢迎使用 my-pi-agent！输入需求或按 / 开启命令菜单。"),
-      1,
-      0,
-    );
-    this.chatContainer.addChild(welcome);
+    this.chatContainer.addChild(this.startupResources);
 
     this.pendingMessagesContainer = new Container();
     this.statusContainer = new Container();
@@ -316,6 +317,7 @@ export class InteractiveMode {
       case "agent_start": {
         this.isStreaming = true;
         this.isWorking = true;
+        this.hasRenderedTurnError = false;
         this.activeToolCalls.clear();
         this.currentStreamingAssistant = undefined;
         this.updateStatusDisplay("Working");
@@ -324,6 +326,7 @@ export class InteractiveMode {
 
       case "turn_start": {
         this.isWorking = true;
+        this.hasRenderedTurnError = false;
         this.updateStatusDisplay("Working");
         break;
       }
@@ -373,9 +376,45 @@ export class InteractiveMode {
 
       case "message_end": {
         if (this.currentStreamingAssistant) {
+          if (
+            !this.currentStreamingAssistant.getContentText() &&
+            event.message?.content
+          ) {
+            if (
+              event.message.metadata?.stop_reason === "error" ||
+              event.message.role === "error"
+            ) {
+              this.chatContainer.removeChild(this.currentStreamingAssistant);
+              this.appendErrorMessage(event.message.content);
+              this.hasRenderedTurnError = true;
+            } else {
+              this.currentStreamingAssistant.setContent(event.message.content);
+            }
+          } else if (
+            event.message?.metadata?.stop_reason === "error" &&
+            event.message?.content
+          ) {
+            this.appendErrorMessage(event.message.content);
+            this.hasRenderedTurnError = true;
+          }
           this.currentStreamingAssistant.finalize();
           this.latestAssistantMessage = this.currentStreamingAssistant;
           this.currentStreamingAssistant = undefined;
+        } else if (
+          event.message?.content &&
+          event.message?.role === "assistant"
+        ) {
+          if (event.message.metadata?.stop_reason === "error") {
+            this.appendErrorMessage(event.message.content);
+            this.hasRenderedTurnError = true;
+          } else {
+            const assistant = new AssistantMessageComponent();
+            assistant.setContent(event.message.content);
+            assistant.finalize();
+            this.chatContainer.addChild(assistant);
+            this.chatContainer.addChild(new Spacer(1));
+            this.latestAssistantMessage = assistant;
+          }
         }
         if (event.usage) {
           this.updateFooterUsage(event.usage, event.contextWindow);
@@ -433,7 +472,15 @@ export class InteractiveMode {
         this.isStreaming = false;
         this.isWorking = false;
         if (this.currentStreamingAssistant) {
-          this.currentStreamingAssistant.finalize();
+          if (
+            !this.currentStreamingAssistant.getContentText() &&
+            event.final_text &&
+            event.stop_reason === "error"
+          ) {
+            this.chatContainer.removeChild(this.currentStreamingAssistant);
+          } else {
+            this.currentStreamingAssistant.finalize();
+          }
           this.currentStreamingAssistant = undefined;
         }
         // 自动闭合所有未正常结束的工具调用
@@ -449,6 +496,14 @@ export class InteractiveMode {
           this.updateFooterUsage(event.usage, event.contextWindow);
         }
         this.footer.update({ isBusy: false });
+        if (
+          event.stop_reason === "error" &&
+          event.final_text &&
+          !this.hasRenderedTurnError
+        ) {
+          this.appendErrorMessage(event.final_text);
+          this.hasRenderedTurnError = true;
+        }
         break;
       }
 
@@ -463,6 +518,14 @@ export class InteractiveMode {
       }
     }
 
+    this.ui.requestRender();
+  }
+
+  public updateResources(resources: LoadedResourcesData): void {
+    this.startupResources.updateData(resources);
+    if (!this.chatContainer.children.includes(this.startupResources)) {
+      this.chatContainer.children.unshift(this.startupResources);
+    }
     this.ui.requestRender();
   }
 
@@ -661,6 +724,9 @@ export class InteractiveMode {
           return { consume: true };
         }
       } else if (matchesKey(data, "ctrl+o")) {
+        if (this.startupResources) {
+          this.startupResources.toggleExpanded();
+        }
         const targetAssistant =
           this.currentStreamingAssistant || this.latestAssistantMessage;
         if (targetAssistant) {
@@ -754,7 +820,7 @@ export class InteractiveMode {
             id: m.id || m.name,
             name: m.name || m.id,
             provider: m.provider || "default",
-            contextWindow: m.context_window || 128000,
+            contextWindow: m.contextWindow || m.context_window || 128000,
             is_configured: m.is_configured ?? true,
           }));
         },
@@ -770,16 +836,26 @@ export class InteractiveMode {
                 this.currentThinkingLevel = supported[0] || "off";
                 void this.bridge.setThinking(this.currentThinkingLevel);
               }
+              const ctxWin =
+                selected.contextWindow ||
+                (selected.id.startsWith("gemini-") ? 1048576 : 128000);
               this.footer.update({
                 modelName: selected.id,
                 providerName: selected.provider,
                 thinkingLevel: this.currentThinkingLevel,
-                contextWindow:
-                  selected.contextWindow ||
-                  (selected.id.startsWith("gemini-") ? 1048576 : 128000),
+                contextWindow: ctxWin,
               });
               this.updateEditorBorderColor();
-              await this.bridge.switchModel(selected.id, selected.provider);
+              const switchRes: any = await this.bridge.switchModel(
+                selected.id,
+                selected.provider,
+              );
+              if (switchRes?.context_window || switchRes?.contextWindow) {
+                this.footer.update({
+                  contextWindow:
+                    switchRes.context_window || switchRes.contextWindow,
+                });
+              }
               this.appendSystemNotice(
                 `✓ 已成功切换至模型: ${selected.id} (${selected.provider})`,
               );
@@ -804,19 +880,26 @@ export class InteractiveMode {
                 this.currentThinkingLevel = supported[0] || "off";
                 void this.bridge.setThinking(this.currentThinkingLevel);
               }
+              const ctxWin =
+                defaultModel.contextWindow ||
+                (defaultModel.id.startsWith("gemini-") ? 1048576 : 128000);
               this.footer.update({
                 modelName: defaultModel.id,
                 providerName: defaultModel.provider,
                 thinkingLevel: this.currentThinkingLevel,
-                contextWindow:
-                  defaultModel.contextWindow ||
-                  (defaultModel.id.startsWith("gemini-") ? 1048576 : 128000),
+                contextWindow: ctxWin,
               });
               this.updateEditorBorderColor();
-              await this.bridge.switchModel(
+              const switchRes: any = await this.bridge.switchModel(
                 defaultModel.id,
                 defaultModel.provider,
               );
+              if (switchRes?.context_window || switchRes?.contextWindow) {
+                this.footer.update({
+                  contextWindow:
+                    switchRes.context_window || switchRes.contextWindow,
+                });
+              }
               await this.bridge.setSetting("defaultModel", defaultModel.id);
               await this.bridge.setSetting(
                 "defaultProvider",
@@ -1283,6 +1366,7 @@ export class InteractiveMode {
             ).map((m: any) => ({
               id: m.id || m.name,
               provider: m.provider || "default",
+              contextWindow: m.contextWindow || m.context_window,
             }));
             const matched = models.find(
               (m) =>
@@ -1291,11 +1375,24 @@ export class InteractiveMode {
             );
             if (matched) {
               this.currentModelName = matched.id;
+              const ctxWin =
+                matched.contextWindow ||
+                (matched.id.startsWith("gemini-") ? 1048576 : 128000);
               this.footer.update({
                 modelName: matched.id,
                 providerName: matched.provider,
+                contextWindow: ctxWin,
               });
-              await this.bridge.switchModel(matched.id, matched.provider);
+              const switchRes: any = await this.bridge.switchModel(
+                matched.id,
+                matched.provider,
+              );
+              if (switchRes?.context_window || switchRes?.contextWindow) {
+                this.footer.update({
+                  contextWindow:
+                    switchRes.context_window || switchRes.contextWindow,
+                });
+              }
               this.appendSystemNotice(
                 `✓ 已成功切换至模型: ${matched.id} (${matched.provider})`,
               );
@@ -1441,6 +1538,31 @@ export class InteractiveMode {
             (await this.bridge.newSession());
           this.chatContainer.clear();
           const sid = res?.session_id || res?.new_session_id || res?.id || "";
+          const sname = res?.session_name || sid;
+          if (res?.usage) {
+            this.updateFooterUsage(
+              res.usage,
+              res.context_window || res.contextWindow,
+            );
+          } else {
+            this.footer.update({
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              totalTokens: 0,
+              contextTokens: 0,
+              costUsd: 0,
+              cacheHitRate: undefined,
+            });
+          }
+          this.footer.update({
+            sessionName: sname,
+            contextWindow:
+              res?.context_window ||
+              res?.contextWindow ||
+              this.footer.getContextWindow(),
+          });
           this.appendSystemNotice(`✓ 已成功结束旧会话并开启新会话: ${sid}`);
           break;
         }

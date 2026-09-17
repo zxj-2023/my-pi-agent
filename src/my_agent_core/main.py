@@ -13,7 +13,6 @@ import sys
 from datetime import datetime
 from typing import Any
 
-from dotenv import find_dotenv, load_dotenv
 
 from my_agent_core.agent import Agent
 from my_agent_core.events import (
@@ -58,8 +57,7 @@ TOOLS = [multiply, get_current_time, get_weather]
 # 演示层的系统提示词：my_agent_core 库层没有默认值，
 # 给什么提示词是应用层（本 demo）的选择。
 DEMO_SYSTEM_PROMPT = (
-    "You are a helpful assistant. Use the available tools when they help; "
-    "answer directly when they don't."
+    "You are a helpful assistant. Use the available tools when they help; answer directly when they don't."
 )
 
 
@@ -82,10 +80,9 @@ def print_events(event: Event) -> None:
 
 
 def build_llm() -> LLM:
-    load_dotenv(find_dotenv(usecwd=True))
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is missing. Add it to .env.")
+        raise RuntimeError("OPENAI_API_KEY is missing. Configure it in environment variables or auth credentials.")
     options: dict[str, Any] = {"provider": "openai", "api_key": api_key}
     if base_url := os.getenv("OPENAI_BASE_URL"):
         options["base_url"] = base_url
@@ -95,7 +92,6 @@ def build_llm() -> LLM:
 
 
 async def amain() -> None:
-    load_dotenv(find_dotenv(usecwd=True))
     llm = build_llm()
     store = SessionStore()  # 默认 workspace=cwd
     for question in QUESTIONS:
@@ -117,10 +113,7 @@ async def amain() -> None:
 
 def _force_utf8_streams() -> None:
     for stream in (sys.stdout, sys.stderr):
-        if (
-            stream
-            and getattr(stream, "encoding", "").lower().replace("-", "") != "utf8"
-        ):
+        if stream and getattr(stream, "encoding", "").lower().replace("-", "") != "utf8":
             with contextlib.suppress(Exception):
                 stream.reconfigure(encoding="utf-8", errors="replace")  # pyright: ignore[reportAttributeAccessIssue]
 

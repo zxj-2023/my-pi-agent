@@ -19,12 +19,12 @@ export class HeaderComponent extends Container {
       theme.fg("dim", "Ctrl+O") + theme.fg("muted", " expand"),
     ].join(theme.fg("muted", " · "));
 
-    const onboarding = theme.fg(
+    const startupHelp = theme.fg(
       "dim",
-      "欢迎使用 my-pi-agent！输入需求或按 / 开启命令菜单。",
+      "Press Ctrl+O to show full startup help and loaded resources.\n\nPi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
     );
 
-    const content = `${logo}\n${hints}\n\n${onboarding}`;
+    const content = `${logo}\n${hints}\n\n${startupHelp}`;
     this.addChild(new Text(content, 1, 0));
     this.addChild(new Spacer(1));
   }

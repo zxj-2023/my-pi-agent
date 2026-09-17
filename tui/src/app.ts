@@ -142,6 +142,10 @@ export class AgentApp {
       );
     }
 
+    if (initResult?.resources) {
+      this.interactiveMode.updateResources(initResult.resources);
+    }
+
     if (initResult?.messages && initResult.messages.length > 0) {
       this.interactiveMode.renderSessionHistory(initResult.messages);
     }

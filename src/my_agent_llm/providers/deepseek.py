@@ -18,7 +18,7 @@ class DeepSeekProvider(OpenAIProvider):
         if client is None and config.base_url is None:
             updates["base_url"] = "https://api.deepseek.com"
         if client is None and config.api_key is None:
-            key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            key = os.environ.get("DEEPSEEK_API_KEY")
             if key:
                 updates["api_key"] = key
         if updates:
@@ -38,6 +38,8 @@ class DeepSeekProvider(OpenAIProvider):
         tools: list[dict] | None = None,
         **kwargs,
     ) -> Response:
+        if self.client is None:
+            raise RuntimeError("client not provided; cannot run sync methods")
         response = self.client.chat.completions.create(  # pyright: ignore[reportCallIssue, reportArgumentType]
             model=model,
             messages=self._convert_messages(messages),
@@ -62,6 +64,8 @@ class DeepSeekProvider(OpenAIProvider):
         tools: list[dict] | None = None,
         **kwargs,
     ) -> Iterator[StreamChunk]:
+        if self.client is None:
+            raise RuntimeError("client not provided; cannot run sync methods")
         reasoning_parts: list[str] = []
         accumulator = _ToolCallAccumulator()
         text_acc = ""
@@ -88,9 +92,7 @@ class DeepSeekProvider(OpenAIProvider):
                 reasoning_parts.append(delta.reasoning_content)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                yield StreamChunk(
-                    content=delta.content, finish_reason=choice.finish_reason
-                )
+                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
         tool_calls = accumulator.finish()
         reasoning = "".join(reasoning_parts) if reasoning_parts else None
         final_response = Response(
@@ -173,9 +175,7 @@ class DeepSeekProvider(OpenAIProvider):
                 reasoning_parts.append(delta.reasoning_content)
             if getattr(delta, "content", None):
                 text_acc += delta.content
-                yield StreamChunk(
-                    content=delta.content, finish_reason=choice.finish_reason
-                )
+                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
         tool_calls = accumulator.finish()
         reasoning = "".join(reasoning_parts) if reasoning_parts else None
         final_response = Response(

@@ -14,8 +14,6 @@ import uuid
 from pathlib import Path
 from typing import Any, TextIO
 
-from dotenv import find_dotenv, load_dotenv
-
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
@@ -52,6 +50,7 @@ from my_coding_agent.macro import MacroEngine
 from my_coding_agent.paths import AgentPaths
 from my_coding_agent.permissions import PermissionGate
 from my_coding_agent.prompt import build_default_coding_prompt
+from my_coding_agent.resource_scanner import get_all_skill_dirs, scan_loaded_resources
 from my_coding_agent.settings import Settings, load_settings, save_settings
 
 logger = logging.getLogger(__name__)
@@ -270,11 +269,11 @@ def discover_deepseek_models_remote(
         elif isinstance(cred, OAuthCredential):
             api_key = cred.access
         if not api_key:
-            api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            api_key = os.environ.get("DEEPSEEK_API_KEY")
         if not api_key:
             return []
 
-        target_base = os.environ.get("OPENAI_BASE_URL") or base_url
+        target_base = os.environ.get("DEEPSEEK_BASE_URL") or base_url
         target_base_clean = target_base.rstrip("/")
         models_url = f"{target_base_clean}/models"
 
@@ -712,6 +711,22 @@ class RpcServer:
         self.emit_json(resp)
         return resp
 
+    def _get_current_model_name(self) -> str:
+        if not self.agent:
+            return "default"
+        cur = getattr(self.agent.agent, "model", None)
+        if cur:
+            return str(cur)
+        llm = getattr(self.agent.agent, "llm", None)
+        if llm is not None:
+            cfg = getattr(llm, "config", None)
+            if cfg is not None and getattr(cfg, "model", None):
+                return str(getattr(cfg, "model"))
+            mod = getattr(llm, "model", None)
+            if mod:
+                return str(mod)
+        return "default"
+
     def _compute_session_usage(self, session: Session, model_name: str) -> dict[str, Any]:
         """对标 Pi 规范，从会话历史中提取所有 Assistant 消息的 usage 累加统计。"""
         totals: dict[str, Any] = {
@@ -804,11 +819,8 @@ class RpcServer:
         elif model_name and model_name.startswith("gemini-"):
             provider = "antigravity"
         elif model_name and ("deepseek" in model_name):
-            provider = (
-                "deepseek"
-                if (os.environ.get("DEEPSEEK_API_KEY") or auth_mgr.get_credential("deepseek"))
-                else ("openai" if explicit_model else None)
-            )
+            has_deepseek_cred = bool(os.environ.get("DEEPSEEK_API_KEY") or auth_mgr.get_credential("deepseek"))
+            provider = "deepseek" if has_deepseek_cred else ("openai" if explicit_model else None)
         elif model_name and ("gpt-" in model_name or "o1" in model_name or "o3" in model_name):
             provider = "openai"
         elif model_name and ("claude-" in model_name):
@@ -848,22 +860,17 @@ class RpcServer:
                 elif isinstance(cred, OAuthCredential):
                     api_key = cred.access
 
-            # 2. 次选本地环境变量与 .env 兜底
+            # 2. 次选本地环境变量兜底
             if not api_key:
                 api_key = os.environ.get(f"{provider.upper()}_API_KEY")
                 base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
-                if provider == "openai":
-                    api_key = api_key or os.environ.get("OPENAI_API_KEY")
-                    base_url = base_url or os.environ.get("OPENAI_BASE_URL")
-                elif provider == "antigravity":
+                if provider == "antigravity":
                     api_key = (
                         api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
                     )
 
-            if not api_key and provider != "antigravity":
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not base_url and provider == "openai":
-                    base_url = os.environ.get("OPENAI_BASE_URL")
+            if provider == "deepseek" and not base_url:
+                base_url = "https://api.deepseek.com"
 
         try:
             return LLM(config=Config(provider=provider, model=model_name, api_key=api_key, base_url=base_url))
@@ -882,9 +889,6 @@ class RpcServer:
 
         explicit_model = params.get("model")
         mode = params.get("mode", settings.default_permission_mode)
-
-        if (workspace_path / ".env").exists():
-            load_dotenv(workspace_path / ".env", override=False)
 
         llm = self.llm
         if llm is None:
@@ -927,11 +931,13 @@ class RpcServer:
             target_session.save = lambda: None  # type: ignore[method-assign]
 
         gate = PermissionGate(mode=mode) if mode else None
+        skill_dirs = get_all_skill_dirs(workspace_path, paths)
         self.agent = CodingAgent(
             workspace=workspace_path,
             llm=llm,
             session=target_session,
             permission_gate=gate,
+            skill_dirs=skill_dirs,
         )
 
         if initial_name := params.get("name"):
@@ -966,6 +972,7 @@ class RpcServer:
         actual_provider = getattr(getattr(self.agent.agent.llm, "config", None), "provider", "default")
         ctx_win = resolve_model_context_window(actual_model)
         self.session_usage = self._compute_session_usage(target_session, actual_model)
+        resources = scan_loaded_resources(workspace_path, paths)
 
         return self.send_response(
             req_id,
@@ -975,6 +982,7 @@ class RpcServer:
                 "model": actual_model,
                 "provider": actual_provider,
                 "context_window": ctx_win,
+                "contextWindow": ctx_win,
                 "usage": self.session_usage,
                 "thinking_level": getattr(self.agent, "thinking_level", "off"),
                 "session_id": target_session.id,
@@ -982,6 +990,7 @@ class RpcServer:
                 "session_name": target_session.metadata.get("name")
                 or target_session.metadata.get("title")
                 or target_session.id,
+                "resources": resources,
                 "messages": messages_repr,
             },
         )
@@ -997,7 +1006,7 @@ class RpcServer:
                 req_id,
                 error={
                     "code": -32002,
-                    "message": "未检测到有效模型凭据。请在当前项目 .env 文件中配置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY，或输入 /login 绑定 Key。",
+                    "message": "未检测到有效模型凭据。请使用 /login <provider> <key> 绑定凭证，或在系统环境变量中配置对应 API Key。",
                 },
             )
 
@@ -1406,16 +1415,18 @@ class RpcServer:
         mode = getattr(self.settings, "default_permission_mode", None)
         gate = self.agent.permission_gate if self.agent else (PermissionGate(mode=mode) if mode else None)
         llm = self.agent.agent.llm if self.agent else self.llm
+        skill_dirs = get_all_skill_dirs(workspace_path, paths)
         self.agent = CodingAgent(
             workspace=workspace_path,
             llm=llm,
             session=new_session,
             permission_gate=gate,
+            skill_dirs=skill_dirs,
         )
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
-        actual_model = getattr(self.agent.agent, "model", "default")
+        actual_model = self._get_current_model_name()
         ctx_win = resolve_model_context_window(actual_model)
         self.session_usage = self._compute_session_usage(new_session, actual_model)
 
@@ -1721,20 +1732,41 @@ class RpcServer:
         new_session.id = session_id
         mode = getattr(self.settings, "default_permission_mode", None)
         gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
+        skill_dirs = get_all_skill_dirs(workspace_path, paths)
 
         self.agent = CodingAgent(
             workspace=workspace_path,
             llm=self.agent.agent.llm,
             session=new_session,
             permission_gate=gate,
+            skill_dirs=skill_dirs,
         )
+
+        # 彻底重置会话统计指标为 0
+        self.session_usage = {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "latestCacheHitRate": None,
+            "cacheHitRate": None,
+            "total": 0,
+            "contextTokens": 0,
+            "cost": 0.0,
+        }
+        actual_model = self._get_current_model_name()
+        ctx_win = resolve_model_context_window(actual_model)
 
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "session_id": session_id,
+                "session_name": session_id,
                 "session_file": str(session_file),
+                "context_window": ctx_win,
+                "contextWindow": ctx_win,
+                "usage": self.session_usage,
                 "messages": [],
             },
         )
@@ -1935,11 +1967,18 @@ class RpcServer:
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
+        actual_model = self._get_current_model_name()
+        ctx_win = resolve_model_context_window(actual_model)
+        self.session_usage = self._compute_session_usage(session, actual_model)
+
         res_payload: dict[str, Any] = {
             "status": "ok",
             "leaf_id": new_leaf_id,
             "editor_text": editor_text,
             "session_id": session.id,
+            "context_window": ctx_win,
+            "contextWindow": ctx_win,
+            "usage": self.session_usage,
             "messages": messages_repr,
         }
         if branch_summary_text:
@@ -2033,12 +2072,21 @@ class RpcServer:
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
+        actual_model = self._get_current_model_name()
+        ctx_win = resolve_model_context_window(actual_model)
+        self.session_usage = self._compute_session_usage(new_session, actual_model)
+
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "new_session_id": new_session_id,
+                "session_id": new_session_id,
+                "session_name": new_session.metadata.get("name") or new_session.id,
                 "session_file": str(new_session_file),
+                "context_window": ctx_win,
+                "contextWindow": ctx_win,
+                "usage": self.session_usage,
                 "prompt_text": prompt_text,
                 "messages": messages_repr,
             },
@@ -2109,12 +2157,21 @@ class RpcServer:
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
+        actual_model = self._get_current_model_name()
+        ctx_win = resolve_model_context_window(actual_model)
+        self.session_usage = self._compute_session_usage(new_session, actual_model)
+
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "new_session_id": new_session_id,
+                "session_id": new_session_id,
+                "session_name": clone_title,
                 "session_file": str(new_session_file),
+                "context_window": ctx_win,
+                "contextWindow": ctx_win,
+                "usage": self.session_usage,
                 "messages": messages_repr,
             },
         )
@@ -2268,16 +2325,39 @@ class RpcServer:
                 if not api_key:
                     api_key = os.environ.get(f"{provider.upper()}_API_KEY")
                     base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
+                    if provider == "antigravity":
+                        api_key = (
+                            api_key
+                            or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN")
+                            or os.environ.get("GOOGLE_ACCESS_TOKEN")
+                        )
+
+                if provider == "deepseek" and not base_url:
+                    base_url = "https://api.deepseek.com"
+
+            # 3. 严格校验凭据，绝不塞假 Key 蒙混过关
+            if not api_key and provider != "antigravity":
+                return self.send_response(
+                    req_id,
+                    error={
+                        "code": -32002,
+                        "message": f"未检测到 {provider} 的有效 API Key。请使用 /login {provider} <key> 绑定凭据，或在系统环境变量中配置 {provider.upper()}_API_KEY。",
+                    },
+                )
+
             try:
                 new_config = Config(
                     provider=provider or "openai",
                     model=model_name,
-                    api_key=api_key or "placeholder",
+                    api_key=api_key,
                     base_url=base_url,
                 )
                 self.agent.agent.llm = LLM(config=new_config)
-            except Exception:
-                pass
+            except Exception as exc:
+                return self.send_response(
+                    req_id,
+                    error={"code": -32000, "message": f"构造模型实例失败: {exc}"},
+                )
         elif llm_inst is not None and hasattr(llm_inst, "model"):
             setattr(llm_inst, "model", model_name)
 
@@ -2300,12 +2380,15 @@ class RpcServer:
                 self.settings.default_provider = provider
             save_settings(self.settings, paths.settings_path)
 
+        ctx_win = resolve_model_context_window(model_name)
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "model": model_name,
                 "provider": provider,
+                "context_window": ctx_win,
+                "contextWindow": ctx_win,
             },
         )
 
@@ -2363,21 +2446,13 @@ class RpcServer:
         paths = self.paths or AgentPaths()
         auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
 
-        openai_base_url = os.environ.get("OPENAI_BASE_URL", "").strip().lower()
-        is_deepseek_proxy = "deepseek" in openai_base_url
-
         for p in ["deepseek", "openai", "anthropic", "antigravity"]:
             if auth_mgr.get_credential(p) is not None:
                 configured.add(p)
                 continue
-            if p == "openai" and is_deepseek_proxy:
-                continue
             key_name = "ANTIGRAVITY_ACCESS_TOKEN" if p == "antigravity" else f"{p.upper()}_API_KEY"
             if os.environ.get(key_name):
                 configured.add(p)
-                continue
-            if p == "deepseek" and is_deepseek_proxy and os.environ.get("OPENAI_API_KEY"):
-                configured.add("deepseek")
                 continue
             if p == "antigravity":
                 try:
@@ -2439,20 +2514,25 @@ class RpcServer:
                 else ("openai" if "openai" in configured_providers else "default")
             )
             if prov in configured_providers or scope == "all":
+                ctx_win = resolve_model_context_window(custom_model)
                 models.insert(
                     0,
                     {
                         "id": custom_model,
                         "provider": prov,
                         "name": custom_model,
-                        "contextWindow": 64000 if prov == "deepseek" else 128000,
+                        "contextWindow": ctx_win,
+                        "context_window": ctx_win,
                         "is_configured": prov in configured_providers,
                     },
                 )
 
-        curr = "default"
-        if self.agent:
-            curr = getattr(self.agent, "model", None) or getattr(getattr(self.agent, "agent", None), "model", "default")
+        for m in models:
+            ctx = m.get("contextWindow") or m.get("context_window") or resolve_model_context_window(m.get("id", ""))
+            m["contextWindow"] = ctx
+            m["context_window"] = ctx
+
+        curr = self._get_current_model_name()
         return self.send_response(
             req_id,
             result={
@@ -2527,26 +2607,14 @@ class RpcServer:
                 self.agent.agent.messages.insert(0, Message(role="system", content=new_sys_content))
 
         # 3. 重载 skills
-        skill_dirs = [
-            paths.skills_dir,
-            paths.project_skills_dir(workspace_path),
-            paths.project_agents_skills_dir(workspace_path),
-        ]
+        skill_dirs = get_all_skill_dirs(workspace_path, paths)
         skill_mgr = SkillManager(dirs=skill_dirs)
         if self.agent and hasattr(self.agent.agent, "skill_manager"):
             self.agent.agent.skill_manager = skill_mgr
         skill_count = len(skill_mgr.skills)
 
-        # 4. 统计 templates
-        template_count = 0
-        for p_dir in (
-            paths.prompts_dir,
-            paths.project_agent_dir(workspace_path) / "prompts",
-            workspace_path / ".agents" / "prompts",
-        ):
-            if p_dir.exists():
-                template_count += len(list(p_dir.glob("*.md")))
-
+        resources = scan_loaded_resources(workspace_path, paths)
+        template_count = len(resources.get("prompts", []))
         summary = f"Reloaded settings, project context, {skill_count} skills, and {template_count} prompt templates."
         return self.send_response(
             req_id,
@@ -2555,6 +2623,7 @@ class RpcServer:
                 "summary": summary,
                 "skills_count": skill_count,
                 "templates_count": template_count,
+                "resources": resources,
             },
         )
 
@@ -2770,7 +2839,6 @@ class RpcServer:
 
 
 async def main() -> None:
-    load_dotenv(find_dotenv(usecwd=True))
     parser = argparse.ArgumentParser(description="my-coding-agent stdio JSON-RPC server")
     parser.add_argument("-w", "--workspace", default=".", help="工作区路径")
     parser.add_argument("-m", "--model", default=None, help="LLM 模型标识符")

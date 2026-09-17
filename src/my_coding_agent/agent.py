@@ -53,7 +53,20 @@ class CodingAgent:
             session = Session(path=Path(session), cwd=str(self.workspace))
 
         # 1. 自动生成或应用系统提示词
-        effective_prompt = system_prompt if system_prompt is not None else build_default_coding_prompt(self.workspace)
+        global_agents = (
+            (Path.home() / ".pi" / "agent" / "AGENTS.md")
+            if (Path.home() / ".pi" / "agent" / "AGENTS.md").is_file()
+            else (
+                (Path.home() / ".my-pi-agent" / "AGENTS.md")
+                if (Path.home() / ".my-pi-agent" / "AGENTS.md").is_file()
+                else None
+            )
+        )
+        effective_prompt = (
+            system_prompt
+            if system_prompt is not None
+            else build_default_coding_prompt(self.workspace, global_instructions_path=global_agents)
+        )
 
         # 2. 构造框架通用 Agent
         self.agent = Agent(
@@ -70,14 +83,10 @@ class CodingAgent:
 
         # 4. 装配 FileReferenceParser 并注册到 UserInputHook
         self.file_reference_parser = FileReferenceParser(self.workspace)
-
-        def _expand_file_refs(hook: UserInputHook) -> HookResult | None:
-            expanded = self.file_reference_parser.expand_references(hook.input_text)
-            if expanded != hook.input_text:
-                return HookResult(updated_input=expanded)
-            return None
-
-        self.agent.hooks.register(UserInputHook, _expand_file_refs)
+        self.agent.hooks.register(
+            UserInputHook,
+            lambda hook: self._expand_refs(self.file_reference_parser, hook),
+        )
 
         # 5. 装配 7 大编码专属工具
         coding_tools = build_coding_tools(
@@ -87,6 +96,13 @@ class CodingAgent:
         )
         for t in coding_tools:
             self.agent.registry.register(t)
+
+    @staticmethod
+    def _expand_refs(parser: FileReferenceParser, hook: UserInputHook) -> HookResult | None:
+        expanded = parser.expand_references(hook.input_text)
+        if expanded != hook.input_text:
+            return HookResult(updated_input=expanded)
+        return None
 
     @property
     def permission_gate(self) -> PermissionGate | None:
@@ -199,7 +215,7 @@ class CodingAgent:
         try:
             asyncio.get_running_loop()
             self.agent.abort()
-        except (RuntimeError,):
+        except Exception:
             self.agent._aborted = True
             if self.agent._current_signal is not None:
                 self.agent._current_signal.cancel()
