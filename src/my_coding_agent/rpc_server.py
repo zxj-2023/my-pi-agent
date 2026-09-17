@@ -14,18 +14,12 @@ from typing import Any, TextIO
 from my_agent_core.events import MessageEnd
 from my_agent_core.session import Session, SessionInfoEntry
 from my_agent_core.session.entries import (
-    BranchSummaryEntry,
-    CompactionEntry,
-    MessageEntry,
     ModelChangeEntry,
     ThinkingLevelChangeEntry,
 )
-from my_agent_core.session.tree import lowest_common_ancestor
 from my_agent_core.skills import SkillManager
-from my_agent_core.tool_history import repair_tool_history
-from my_agent_llm import LLM, Config, Message
+from my_agent_llm import LLM, Message
 from my_agent_llm.auth.manager import AuthManager
-from my_agent_llm.auth.schema import ApiKeyCredential, OAuthCredential
 from my_coding_agent.agent import CodingAgent
 from my_coding_agent.macro import MacroEngine
 from my_coding_agent.model_catalog import (
@@ -35,6 +29,7 @@ from my_coding_agent.model_catalog import (
     get_deepseek_catalog,
     resolve_initial_llm,
     resolve_model_context_window,
+    switch_llm_model,
 )
 from my_coding_agent.paths import AgentPaths
 from my_coding_agent.permissions import PermissionGate
@@ -46,9 +41,12 @@ from my_coding_agent.serialization import (
     uuid7_str,
 )
 from my_coding_agent.session_ops import (
+    branch_session_tree,
     build_tree_nodes,
+    clone_session_tree,
     compute_session_stats,
     compute_session_usage,
+    fork_session_tree,
     list_project_sessions,
     resolve_session_file,
 )
@@ -67,6 +65,10 @@ __all__ = [
     "list_project_sessions",
     "resolve_session_file",
     "build_tree_nodes",
+    "fork_session_tree",
+    "clone_session_tree",
+    "branch_session_tree",
+    "switch_llm_model",
 ]
 
 logger = logging.getLogger(__name__)
@@ -832,97 +834,25 @@ class RpcServer:
                 error={"code": -32004, "message": f"Entry '{target_id}' not found in session"},
             )
 
-        target_entry = session.tree.entries[target_id]
-        is_user = getattr(target_entry, "role", None) == "user" or (
-            isinstance(target_entry, MessageEntry) and target_entry.message.role == "user"
-        )
-
         self.agent.abort()
-        old_leaf_id = session.tree.current_id
         summarize = bool(params.get("summarize", False))
-        branch_summary_text = ""
 
-        if is_user:
-            new_leaf_id = target_entry.parent_id
-            editor_text = (
-                getattr(target_entry, "content", "")
-                or (target_entry.message.content if isinstance(target_entry, MessageEntry) else "")
-                or ""
+        try:
+            system_msgs = [m for m in self.agent.agent.messages if m.role == "system"]
+            new_leaf_id, editor_text, branch_summary_text, repaired_messages = await branch_session_tree(
+                session=session,
+                target_id=target_id,
+                summarize=summarize,
+                llm=self.agent.agent.llm,
+                system_messages=system_msgs,
             )
-        else:
-            new_leaf_id = target_id
-            editor_text = ""
-
-        if new_leaf_id is not None and session.compaction_floor is not None:
-            if not session._after_floor(new_leaf_id):
-                return self.send_response(
-                    req_id,
-                    error={
-                        "code": -32005,
-                        "message": f"Cannot branch past compaction floor {session.compaction_floor}: entry {new_leaf_id} is prior to compacted history",
-                    },
-                )
-        elif new_leaf_id is None and session.compaction_floor is not None:
+        except ValueError as exc:
             return self.send_response(
                 req_id,
-                error={
-                    "code": -32005,
-                    "message": f"Cannot branch past compaction floor {session.compaction_floor}: root is prior to compacted history",
-                },
+                error={"code": -32005, "message": str(exc)},
             )
 
-        if summarize and old_leaf_id and old_leaf_id != new_leaf_id:
-            old_path = session.tree.get_path_to_entry(old_leaf_id)
-            new_path_ids = (
-                {e.id for e in session.tree.get_path_to_entry(new_leaf_id)}
-                if new_leaf_id and new_leaf_id in session.tree.entries
-                else set()
-            )
-            abandoned_entries = [e for e in old_path if e.id not in new_path_ids]
-
-            if abandoned_entries:
-                lca = lowest_common_ancestor(session.tree.entries, old_leaf_id, new_leaf_id) if new_leaf_id else None
-                summary_prompt = (
-                    "Please concisely summarize the key decisions, code changes, and exploration from this abandoned conversation branch in 1-2 sentences:\n"
-                    + "\n".join(
-                        f"{getattr(e, 'role', 'entry')}: {getattr(e, 'content', '')}"
-                        for e in abandoned_entries
-                        if hasattr(e, "content") or hasattr(e, "message")
-                    )
-                )
-                try:
-                    llm = self.agent.agent.llm
-                    resp = await llm.achat([Message(role="user", content=summary_prompt)])
-                    branch_summary_text = getattr(resp, "content", "") or "Branch summary"
-                except Exception:
-                    branch_summary_text = "Branch exploration summary"
-
-                summary_entry = BranchSummaryEntry(
-                    parent_id=new_leaf_id,
-                    summary=branch_summary_text,
-                    details={
-                        "abandoned_from": old_leaf_id,
-                        "abandoned_count": len(abandoned_entries),
-                        "lca": lca,
-                    },
-                )
-                session.tree.entries[summary_entry.id] = summary_entry
-                session.tree.current_id = summary_entry.id
-                session.save()
-                new_leaf_id = summary_entry.id
-
-        if not (summarize and branch_summary_text):
-            if new_leaf_id is None:
-                session.tree.current_id = None
-                session.save()
-            else:
-                session.tree.current_id = new_leaf_id
-                session.save()
-
-        system = [m for m in self.agent.agent.messages if m.role == "system"]
-        restored = system + session.get_full_history_messages()
-        self.agent.agent.messages = list(repair_tool_history(restored).messages)
-
+        self.agent.agent.messages = repaired_messages
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
         actual_model = self._get_current_model_name()
@@ -965,59 +895,16 @@ class RpcServer:
                 error={"code": -32004, "message": f"Entry '{entry_id}' not found in session"},
             )
 
-        target_entry = session.tree.entries[entry_id]
-        prompt_text = (
-            getattr(target_entry, "content", "")
-            or (target_entry.message.content if isinstance(target_entry, MessageEntry) else "")
-            or ""
-        )
-
-        cutoff_id = target_entry.parent_id
-        path_entries = (
-            session.tree.get_path_to_entry(cutoff_id) if cutoff_id and cutoff_id in session.tree.entries else []
-        )
-
         self.agent.abort()
         workspace_path = Path(self.agent.workspace).resolve()
         paths = self.paths or AgentPaths()
-        session_dir = paths.project_session_dir(workspace_path)
-        new_session_id = uuid7_str()
-        new_session_file = session_dir / f"{new_session_id}.jsonl"
 
-        new_session = Session(path=new_session_file, cwd=str(workspace_path))
-        new_session.id = new_session_id
-        new_session.metadata["parent_session_id"] = session.id
-        new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
-        new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
-        new_session.metadata["forked_from_entry_id"] = entry_id
-        if prompt_text:
-            fork_title = prompt_text.strip().splitlines()[0][:60]
-            new_session.metadata["name"] = fork_title
-            new_session.metadata["title"] = fork_title
-
-        for entry in path_entries:
-            if isinstance(entry, MessageEntry):
-                new_session.add_message(entry.role, entry.content, **(entry.metadata or {}))
-            elif isinstance(entry, CompactionEntry):
-                new_compaction = CompactionEntry(
-                    parent_id=new_session.tree.current_id,
-                    summary=entry.summary,
-                    replaces_entry_ids=list(entry.replaces_entry_ids),
-                    metadata=dict(entry.metadata),
-                )
-                new_session.append_entry(new_compaction)
-            elif isinstance(entry, BranchSummaryEntry):
-                new_bs = BranchSummaryEntry(
-                    parent_id=new_session.tree.current_id,
-                    summary=entry.summary,
-                    details=dict(entry.details),
-                )
-                new_session.append_entry(new_bs)
-            else:
-                copied = entry.model_copy(update={"parent_id": new_session.tree.current_id})
-                new_session.append_entry(copied)
-
-        new_session.save()
+        new_session, prompt_text, new_session_file = fork_session_tree(
+            session=session,
+            entry_id=entry_id,
+            paths=paths,
+            workspace_path=workspace_path,
+        )
 
         mode = getattr(self.settings, "default_permission_mode", None)
         gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
@@ -1038,8 +925,8 @@ class RpcServer:
             req_id,
             result={
                 "status": "ok",
-                "new_session_id": new_session_id,
-                "session_id": new_session_id,
+                "new_session_id": new_session.id,
+                "session_id": new_session.id,
                 "session_name": new_session.metadata.get("name") or new_session.id,
                 "session_file": str(new_session_file),
                 "context_window": ctx_win,
@@ -1057,52 +944,15 @@ class RpcServer:
                 error={"code": -32001, "message": "Agent not initialized"},
             )
 
-        session = self.agent.session
-        active_leaf_id = session.tree.current_id
-        path_entries = session.tree.get_current_path() if active_leaf_id else []
-
         self.agent.abort()
         workspace_path = Path(self.agent.workspace).resolve()
         paths = self.paths or AgentPaths()
-        session_dir = paths.project_session_dir(workspace_path)
-        new_session_id = uuid7_str()
-        new_session_file = session_dir / f"{new_session_id}.jsonl"
 
-        new_session = Session(path=new_session_file, cwd=str(workspace_path))
-        new_session.id = new_session_id
-        new_session.metadata["parent_session_id"] = session.id
-        new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
-        new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
-        cur_name = session.metadata.get("name") or session.metadata.get("title")
-        clone_title = f"{cur_name} (clone)" if cur_name else f"Clone of {session.id[:8]}"
-        new_session.metadata["name"] = clone_title
-        new_session.metadata["title"] = clone_title
-        if active_leaf_id:
-            new_session.metadata["cloned_from_leaf_id"] = active_leaf_id
-
-        for entry in path_entries:
-            if isinstance(entry, MessageEntry):
-                new_session.add_message(entry.role, entry.content, **(entry.metadata or {}))
-            elif isinstance(entry, CompactionEntry):
-                new_compaction = CompactionEntry(
-                    parent_id=new_session.tree.current_id,
-                    summary=entry.summary,
-                    replaces_entry_ids=list(entry.replaces_entry_ids),
-                    metadata=dict(entry.metadata),
-                )
-                new_session.append_entry(new_compaction)
-            elif isinstance(entry, BranchSummaryEntry):
-                new_bs = BranchSummaryEntry(
-                    parent_id=new_session.tree.current_id,
-                    summary=entry.summary,
-                    details=dict(entry.details),
-                )
-                new_session.append_entry(new_bs)
-            else:
-                copied = entry.model_copy(update={"parent_id": new_session.tree.current_id})
-                new_session.append_entry(copied)
-
-        new_session.save()
+        new_session, clone_title, new_session_file = clone_session_tree(
+            session=self.agent.session,
+            paths=paths,
+            workspace_path=workspace_path,
+        )
 
         mode = getattr(self.settings, "default_permission_mode", None)
         gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
@@ -1123,8 +973,8 @@ class RpcServer:
             req_id,
             result={
                 "status": "ok",
-                "new_session_id": new_session_id,
-                "session_id": new_session_id,
+                "new_session_id": new_session.id,
+                "session_id": new_session.id,
                 "session_name": clone_title,
                 "session_file": str(new_session_file),
                 "context_window": ctx_win,
@@ -1228,101 +1078,31 @@ class RpcServer:
                 req_id,
                 error={"code": -32602, "message": "Missing 'model' parameter"},
             )
-        raw_model = raw_model.strip()
 
         provider = params.get("provider")
-        if isinstance(provider, str):
-            provider = provider.strip() or None
+        paths = self.paths or AgentPaths()
+        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
+        default_prov = (self.settings.default_provider if self.settings else "openai") or "openai"
 
-        if "/" in raw_model:
-            prov_part, model_name = raw_model.split("/", 1)
-            provider = provider or prov_part.strip()
-            model_name = model_name.strip()
-        else:
-            model_name = raw_model
-            if not provider:
-                if model_name.startswith("gemini-"):
-                    provider = "antigravity"
-                elif "deepseek" in model_name:
-                    provider = "deepseek"
-                elif "gpt-" in model_name or "o1" in model_name or "o3" in model_name:
-                    provider = "openai"
-                elif "claude-" in model_name:
-                    provider = "anthropic"
-                else:
-                    current_llm = getattr(self.agent.agent, "llm", None)
-                    current_config = getattr(current_llm, "config", None)
-                    if current_config and hasattr(current_config, "provider"):
-                        provider = current_config.provider
-                    elif self.settings and self.settings.default_provider:
-                        provider = self.settings.default_provider
-                    else:
-                        provider = "openai"
+        new_llm, model_name, resolved_prov, err = switch_llm_model(
+            current_llm=self.agent.agent.llm,
+            raw_model=raw_model,
+            provider=provider,
+            paths=paths,
+            auth_mgr=auth_mgr,
+            default_provider=default_prov,
+        )
+        if err:
+            code = -32602 if "Missing" in err else (-32002 if "未检测到" in err else -32000)
+            return self.send_response(req_id, error={"code": code, "message": err})
 
-        # 更新 Agent 当前模型标识
         self.agent.agent.model = model_name
-
-        llm_inst = getattr(self.agent.agent, "llm", None)
-        if hasattr(llm_inst, "config"):
-            paths = self.paths or AgentPaths()
-            auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
-            api_key = None
-            base_url = None
-            if provider:
-                # 1. 优先从全局凭据中心读取
-                cred = auth_mgr.get_credential(provider)
-                if cred is not None:
-                    if isinstance(cred, ApiKeyCredential):
-                        api_key = cred.resolve_key()
-                        if cred.base_url:
-                            base_url = cred.base_url
-                    elif isinstance(cred, OAuthCredential):
-                        api_key = cred.access
-
-                # 2. 次选环境变量兜底
-                if not api_key:
-                    api_key = os.environ.get(f"{provider.upper()}_API_KEY")
-                    base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
-                    if provider == "antigravity":
-                        api_key = (
-                            api_key
-                            or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN")
-                            or os.environ.get("GOOGLE_ACCESS_TOKEN")
-                        )
-
-                if provider == "deepseek" and not base_url:
-                    base_url = "https://api.deepseek.com"
-
-            # 3. 严格校验凭据，绝不塞假 Key 蒙混过关
-            if not api_key and provider != "antigravity":
-                return self.send_response(
-                    req_id,
-                    error={
-                        "code": -32002,
-                        "message": f"未检测到 {provider} 的有效 API Key。请使用 /login {provider} <key> 绑定凭据，或在系统环境变量中配置 {provider.upper()}_API_KEY。",
-                    },
-                )
-
-            try:
-                new_config = Config(
-                    provider=provider or "openai",
-                    model=model_name,
-                    api_key=api_key,
-                    base_url=base_url,
-                )
-                self.agent.agent.llm = LLM(config=new_config)
-            except Exception as exc:
-                return self.send_response(
-                    req_id,
-                    error={"code": -32000, "message": f"构造模型实例失败: {exc}"},
-                )
-        elif llm_inst is not None and hasattr(llm_inst, "model"):
-            setattr(llm_inst, "model", model_name)
+        self.agent.agent.llm = new_llm
 
         # 向 Session 追加 ModelChangeEntry
         entry = ModelChangeEntry(
             model=model_name,
-            provider=provider,
+            provider=resolved_prov,
             parent_id=self.agent.session.tree.current_id,
         )
         self.agent.session.append_entry(entry)
@@ -1330,12 +1110,11 @@ class RpcServer:
         # 若 persist=True，更新并持久化 settings.json
         persist = bool(params.get("persist", False))
         if persist:
-            paths = self.paths or AgentPaths()
             if self.settings is None:
                 self.settings = load_settings(paths)
             self.settings.default_model = model_name
-            if provider:
-                self.settings.default_provider = provider
+            if resolved_prov:
+                self.settings.default_provider = resolved_prov
             save_settings(self.settings, paths.settings_path)
 
         ctx_win = resolve_model_context_window(model_name)
@@ -1344,7 +1123,7 @@ class RpcServer:
             result={
                 "status": "ok",
                 "model": model_name,
-                "provider": provider,
+                "provider": resolved_prov,
                 "context_window": ctx_win,
                 "contextWindow": ctx_win,
             },

@@ -21,7 +21,11 @@ from my_agent_core.session.entries import (
     ModelChangeEntry,
     ThinkingLevelChangeEntry,
 )
+from my_agent_core.session.tree import lowest_common_ancestor
+from my_agent_core.tool_history import repair_tool_history
+from my_agent_llm import Message
 from my_coding_agent.paths import AgentPaths
+from my_coding_agent.serialization import uuid7_str
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +47,7 @@ def compute_session_usage(session: Session, model_name: str) -> dict[str, Any]:
             if usage and isinstance(usage, dict):
                 prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
                 comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
-                cache_read = (
-                    usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
-                )
+                cache_read = usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
                 cache_write = (
                     usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
                 )
@@ -83,9 +85,7 @@ def compute_session_usage(session: Session, model_name: str) -> dict[str, Any]:
             if usage and isinstance(usage, dict):
                 prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
                 comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
-                cache_read = (
-                    usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
-                )
+                cache_read = usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
                 cache_write = (
                     usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
                 )
@@ -149,9 +149,7 @@ def compute_session_stats(
                 try:
                     in_t = int(usage.get("prompt_tokens") or usage.get("input") or 0)
                     out_t = int(usage.get("completion_tokens") or usage.get("output") or 0)
-                    cr_t = int(
-                        usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
-                    )
+                    cr_t = int(usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0)
                     cw_t = int(
                         usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
                     )
@@ -274,9 +272,7 @@ def list_project_sessions(
                     cwd_val = header.get("cwd", "")
                     created_val = header.get("createdAt") or header.get("created_at") or os.path.getctime(f)
                     meta_obj = header.get("metadata") or {}
-                    s_name = (
-                        header.get("name") or header.get("title") or meta_obj.get("name") or meta_obj.get("title")
-                    )
+                    s_name = header.get("name") or header.get("title") or meta_obj.get("name") or meta_obj.get("title")
                     parent_session = (
                         header.get("parentSession")
                         or header.get("parent_session")
@@ -470,3 +466,204 @@ def build_tree_nodes(session: Session) -> tuple[list[dict[str, Any]], str | None
         )
 
     return nodes, active_leaf_id, root_id
+
+
+def _copy_entries_to_session(entries: list[Any], target_session: Session) -> None:
+    """深度复制历史条目到目标会话树中。"""
+    for entry in entries:
+        if isinstance(entry, MessageEntry):
+            target_session.add_message(entry.role, entry.content, **(entry.metadata or {}))
+        elif isinstance(entry, CompactionEntry):
+            new_compaction = CompactionEntry(
+                parent_id=target_session.tree.current_id,
+                summary=entry.summary,
+                replaces_entry_ids=list(entry.replaces_entry_ids),
+                metadata=dict(entry.metadata),
+            )
+            target_session.append_entry(new_compaction)
+        elif isinstance(entry, BranchSummaryEntry):
+            new_bs = BranchSummaryEntry(
+                parent_id=target_session.tree.current_id,
+                summary=entry.summary,
+                details=dict(entry.details),
+            )
+            target_session.append_entry(new_bs)
+        else:
+            copied = entry.model_copy(update={"parent_id": target_session.tree.current_id})
+            target_session.append_entry(copied)
+
+
+def fork_session_tree(
+    session: Session,
+    entry_id: str,
+    paths: AgentPaths,
+    workspace_path: Path,
+) -> tuple[Session, str, Path]:
+    """从指定 entry_id 分叉开辟新会话，复制截止至该 entry_id 父节点的历史路径。
+
+    返回 (new_session, prompt_text, new_session_file)。
+    """
+    if entry_id not in session.tree.entries:
+        raise KeyError(f"Entry '{entry_id}' not found in session")
+
+    target_entry = session.tree.entries[entry_id]
+    prompt_text = (
+        getattr(target_entry, "content", "")
+        or (target_entry.message.content if isinstance(target_entry, MessageEntry) else "")
+        or ""
+    )
+
+    cutoff_id = target_entry.parent_id
+    path_entries = session.tree.get_path_to_entry(cutoff_id) if cutoff_id and cutoff_id in session.tree.entries else []
+
+    session_dir = paths.project_session_dir(workspace_path)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    new_session_id = uuid7_str()
+    new_session_file = session_dir / f"{new_session_id}.jsonl"
+
+    new_session = Session(path=new_session_file, cwd=str(workspace_path))
+    new_session.id = new_session_id
+    new_session.metadata["parent_session_id"] = session.id
+    new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
+    new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
+    new_session.metadata["forked_from_entry_id"] = entry_id
+    if prompt_text:
+        fork_title = prompt_text.strip().splitlines()[0][:60]
+        new_session.metadata["name"] = fork_title
+        new_session.metadata["title"] = fork_title
+
+    _copy_entries_to_session(path_entries, new_session)
+    new_session.save()
+
+    return new_session, prompt_text, new_session_file
+
+
+def clone_session_tree(
+    session: Session,
+    paths: AgentPaths,
+    workspace_path: Path,
+) -> tuple[Session, str, Path]:
+    """完整克隆当前活跃路径的所有条目并生成全新独立会话副本。
+
+    返回 (new_session, clone_title, new_session_file)。
+    """
+    active_leaf_id = session.tree.current_id
+    path_entries = session.tree.get_current_path() if active_leaf_id else []
+
+    session_dir = paths.project_session_dir(workspace_path)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    new_session_id = uuid7_str()
+    new_session_file = session_dir / f"{new_session_id}.jsonl"
+
+    new_session = Session(path=new_session_file, cwd=str(workspace_path))
+    new_session.id = new_session_id
+    new_session.metadata["parent_session_id"] = session.id
+    new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
+    new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
+    cur_name = session.metadata.get("name") or session.metadata.get("title")
+    clone_title = f"{cur_name} (clone)" if cur_name else f"Clone of {session.id[:8]}"
+    new_session.metadata["name"] = clone_title
+    new_session.metadata["title"] = clone_title
+    if active_leaf_id:
+        new_session.metadata["cloned_from_leaf_id"] = active_leaf_id
+
+    _copy_entries_to_session(path_entries, new_session)
+    new_session.save()
+
+    return new_session, clone_title, new_session_file
+
+
+async def branch_session_tree(
+    session: Session,
+    target_id: str,
+    summarize: bool = False,
+    llm: Any = None,
+    system_messages: list[Any] | None = None,
+) -> tuple[str | None, str, str | None, list[Any]]:
+    """在现有 SessionTree 中切换分支点，可选生成废弃分支摘要，并修复重放消息。
+
+    返回 (new_leaf_id, editor_text, branch_summary_text, repaired_messages)。
+    """
+    if target_id not in session.tree.entries:
+        raise KeyError(f"Entry '{target_id}' not found in session")
+
+    target_entry = session.tree.entries[target_id]
+    is_user = getattr(target_entry, "role", None) == "user" or (
+        isinstance(target_entry, MessageEntry) and target_entry.message.role == "user"
+    )
+
+    old_leaf_id = session.tree.current_id
+    branch_summary_text: str | None = None
+
+    if is_user:
+        new_leaf_id = target_entry.parent_id
+        editor_text = (
+            getattr(target_entry, "content", "")
+            or (target_entry.message.content if isinstance(target_entry, MessageEntry) else "")
+            or ""
+        )
+    else:
+        new_leaf_id = target_id
+        editor_text = ""
+
+    if new_leaf_id is not None and session.compaction_floor is not None:
+        if not session._after_floor(new_leaf_id):
+            raise ValueError(
+                f"Cannot branch past compaction floor {session.compaction_floor}: entry {new_leaf_id} is prior to compacted history"
+            )
+    elif new_leaf_id is None and session.compaction_floor is not None:
+        raise ValueError(
+            f"Cannot branch past compaction floor {session.compaction_floor}: root is prior to compacted history"
+        )
+
+    if summarize and old_leaf_id and old_leaf_id != new_leaf_id:
+        old_path = session.tree.get_path_to_entry(old_leaf_id)
+        new_path_ids = (
+            {e.id for e in session.tree.get_path_to_entry(new_leaf_id)}
+            if new_leaf_id and new_leaf_id in session.tree.entries
+            else set()
+        )
+        abandoned_entries = [e for e in old_path if e.id not in new_path_ids]
+
+        if abandoned_entries:
+            lca = lowest_common_ancestor(session.tree.entries, old_leaf_id, new_leaf_id) if new_leaf_id else None
+            summary_prompt = (
+                "Please concisely summarize the key decisions, code changes, and exploration from this abandoned conversation branch in 1-2 sentences:\n"
+                + "\n".join(
+                    f"{getattr(e, 'role', 'entry')}: {getattr(e, 'content', '')}"
+                    for e in abandoned_entries
+                    if hasattr(e, "content") or hasattr(e, "message")
+                )
+            )
+            try:
+                if llm is not None and hasattr(llm, "achat"):
+                    resp = await llm.achat([Message(role="user", content=summary_prompt)])
+                    branch_summary_text = getattr(resp, "content", "") or "Branch summary"
+                else:
+                    branch_summary_text = "Branch exploration summary"
+            except Exception:
+                branch_summary_text = "Branch exploration summary"
+
+            summary_entry = BranchSummaryEntry(
+                parent_id=new_leaf_id,
+                summary=branch_summary_text,
+                details={
+                    "abandoned_from": old_leaf_id,
+                    "abandoned_count": len(abandoned_entries),
+                    "lca": lca,
+                },
+            )
+            session.tree.entries[summary_entry.id] = summary_entry
+            session.tree.current_id = summary_entry.id
+            session.save()
+            new_leaf_id = summary_entry.id
+
+    if not (summarize and branch_summary_text):
+        session.tree.current_id = new_leaf_id
+        session.save()
+
+    system = system_messages or []
+    restored = system + session.get_full_history_messages()
+    repaired_messages = list(repair_tool_history(restored).messages)
+
+    return new_leaf_id, editor_text, branch_summary_text, repaired_messages
