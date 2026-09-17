@@ -18,6 +18,7 @@ import {
 import { KernelBridge } from "../bridge/kernel-bridge.js";
 import { AssistantMessageComponent } from "../components/assistant-message.js";
 import { CompactionSummaryMessageComponent } from "../components/compaction-summary-message.js";
+import { CustomEditor } from "../components/custom-editor.js";
 import { DynamicBorder } from "../components/dynamic-border.js";
 import { FooterComponent, formatTokens } from "../components/footer.js";
 import { HeaderComponent } from "../components/header.js";
@@ -35,6 +36,11 @@ import {
   SessionSelectorComponent,
 } from "../components/session-selector.js";
 import { SettingsSelectorComponent } from "../components/settings-selector.js";
+import {
+  CompactionStatusIndicator,
+  StatusIndicator,
+  WorkingStatusIndicator,
+} from "../components/status-indicator.js";
 import { ThemeSelectorComponent } from "../components/theme-selector.js";
 import { ThinkingSelectorComponent } from "../components/thinking-selector.js";
 import { ToolExecutionComponent } from "../components/tool-execution.js";
@@ -163,7 +169,7 @@ export class InteractiveMode {
   public readonly pendingMessagesContainer: Container;
   public readonly statusContainer: Container;
   public readonly editorContainer: Container;
-  public readonly defaultEditor: Editor;
+  public readonly defaultEditor: CustomEditor;
   public readonly footer: FooterComponent;
   public readonly header: HeaderComponent;
   public readonly dynamicBorder: DynamicBorder;
@@ -312,13 +318,13 @@ export class InteractiveMode {
         this.isWorking = true;
         this.activeToolCalls.clear();
         this.currentStreamingAssistant = undefined;
-        this.updateStatusDisplay("思考与规划中...");
+        this.updateStatusDisplay("Working");
         break;
       }
 
       case "turn_start": {
         this.isWorking = true;
-        this.updateStatusDisplay(`执行迭代轮次: ${event.iteration ?? 1}`);
+        this.updateStatusDisplay("Working");
         break;
       }
 
@@ -408,7 +414,9 @@ export class InteractiveMode {
           toolComponent.updateResult(event.result, Boolean(event.isError));
           this.toolStartTimes.delete(id);
         }
-        this.clearStatusDisplay();
+        if (this.isWorking) {
+          this.updateStatusDisplay("Working");
+        }
         break;
       }
 
@@ -481,7 +489,7 @@ export class InteractiveMode {
   // 编辑器与输入提交
   // --------------------------------------------------------------------------
 
-  private createEditor(): Editor {
+  private createEditor(): CustomEditor {
     const editorTheme: EditorTheme = {
       borderColor: (str: string) => theme.fg("borderMuted", str),
       selectList: {
@@ -493,7 +501,9 @@ export class InteractiveMode {
       },
     };
 
-    const editor = new Editor(this.ui, editorTheme);
+    const editor = new CustomEditor(this.ui, editorTheme, {
+      embedWorkingStatus: true,
+    });
 
     editor.onChange = (text: string) => {
       const isBash = text.startsWith("!");
@@ -754,7 +764,9 @@ export class InteractiveMode {
             try {
               this.currentModelName = selected.id;
               const supported = this.getSupportedThinkingLevels();
-              if (!supported.includes(this.currentThinkingLevel.toLowerCase())) {
+              if (
+                !supported.includes(this.currentThinkingLevel.toLowerCase())
+              ) {
                 this.currentThinkingLevel = supported[0] || "off";
                 void this.bridge.setThinking(this.currentThinkingLevel);
               }
@@ -786,7 +798,9 @@ export class InteractiveMode {
             try {
               this.currentModelName = defaultModel.id;
               const supported = this.getSupportedThinkingLevels();
-              if (!supported.includes(this.currentThinkingLevel.toLowerCase())) {
+              if (
+                !supported.includes(this.currentThinkingLevel.toLowerCase())
+              ) {
                 this.currentThinkingLevel = supported[0] || "off";
                 void this.bridge.setThinking(this.currentThinkingLevel);
               }
@@ -1450,7 +1464,11 @@ export class InteractiveMode {
           break;
         }
         case "compact": {
-          this.updateStatusDisplay("Compacting context... (Esc to cancel)");
+          this.clearStatusDisplay();
+          const compIndicator = new CompactionStatusIndicator(this.ui, "manual");
+          compIndicator.start();
+          this.activeStatusIndicator = compIndicator;
+          this.defaultEditor.setWorkingStatusIndicator(compIndicator as any);
           this.footer.update({ isBusy: true });
           this.ui.requestRender();
           try {
@@ -1898,30 +1916,35 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
-  private activeLoader: Loader | null = null;
+  private activeStatusIndicator: StatusIndicator | null = null;
 
-  private updateStatusDisplay(text: string): void {
+  public showWorkingStatusIndicator(message = "Working"): void {
     this.clearStatusDisplay();
-    this.activeLoader = new Loader(
+    const colorFn = (str: string) =>
+      theme.getThinkingBorderColor(this.currentThinkingLevel)(str);
+    const indicator = new WorkingStatusIndicator(
       this.ui,
-      (spinner) => theme.fg("accent", spinner),
-      (msg) => theme.fg("muted", msg),
-      text,
+      message,
+      undefined,
+      colorFn,
     );
-    this.activeLoader.start();
-    const timer = (this.activeLoader as any).intervalId;
-    if (timer && typeof timer.unref === "function") {
-      timer.unref();
-    }
-    this.statusContainer.addChild(this.activeLoader);
+    indicator.start();
+    this.activeStatusIndicator = indicator;
+    this.defaultEditor.setWorkingStatusIndicator(indicator);
+    this.footer.update({ isBusy: true });
     this.ui.requestRender();
   }
 
-  private clearStatusDisplay(): void {
-    if (this.activeLoader) {
-      this.activeLoader.stop();
-      this.activeLoader = null;
+  private updateStatusDisplay(text: string = "Working"): void {
+    this.showWorkingStatusIndicator(text);
+  }
+
+  public clearStatusDisplay(): void {
+    if (this.activeStatusIndicator) {
+      this.activeStatusIndicator.dispose();
+      this.activeStatusIndicator = null;
     }
+    this.defaultEditor.setWorkingStatusIndicator(undefined);
     this.statusContainer.clear();
     this.ui.requestRender();
   }
