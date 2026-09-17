@@ -1,5 +1,5 @@
 import { Editor, visibleWidth } from "@earendil-works/pi-tui";
-import { type WorkingStatusIndicator } from "./status-indicator.js";
+import { type StatusIndicator } from "./status-indicator.js";
 
 export interface CustomEditorOptions {
   embedWorkingStatus?: boolean;
@@ -13,14 +13,14 @@ export interface CustomEditorOptions {
  */
 export class CustomEditor extends Editor {
   public embedWorkingStatus: boolean;
-  private workingStatusIndicator?: WorkingStatusIndicator;
+  private workingStatusIndicator?: StatusIndicator;
 
   constructor(tui: any, theme: any, options?: CustomEditorOptions) {
     super(tui, theme, options);
     this.embedWorkingStatus = options?.embedWorkingStatus ?? true;
   }
 
-  public setWorkingStatusIndicator(indicator?: WorkingStatusIndicator): void {
+  public setWorkingStatusIndicator(indicator?: StatusIndicator): void {
     this.workingStatusIndicator = indicator;
     this.tui.requestRender();
   }

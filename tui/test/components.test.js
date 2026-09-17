@@ -4,6 +4,11 @@ import { UserMessageComponent } from "../dist/components/user-message.js";
 import { AssistantMessageComponent } from "../dist/components/assistant-message.js";
 import { ToolExecutionComponent } from "../dist/components/tool-execution.js";
 import { FooterComponent } from "../dist/components/footer.js";
+import { CustomEditor } from "../dist/components/custom-editor.js";
+import {
+  WorkingStatusIndicator,
+  CompactionStatusIndicator,
+} from "../dist/components/status-indicator.js";
 
 test("UserMessageComponent renders message inside styled box", () => {
   const comp = new UserMessageComponent("Hello from user");
@@ -60,4 +65,35 @@ test("FooterComponent formats cwd, branch, and tokens properly", () => {
   assert.ok(lines.some((l) => l.includes("feat/tui")));
   assert.ok(lines.some((l) => l.includes("gemini-3.8-flash")));
   assert.ok(lines.some((l) => l.includes("14k")));
+});
+
+test("CustomEditor renders embedded WorkingStatusIndicator and CompactionStatusIndicator in top border", () => {
+  const fakeTui = { requestRender: () => {} };
+  const editor = new CustomEditor(fakeTui, {
+    borderColor: (s) => s,
+  });
+
+  // 1. 无 indicator 时渲染普通边框
+  const normalBorder = editor.renderTopBorder(80, 0);
+  assert.ok(normalBorder.includes("─"));
+  assert.ok(!normalBorder.includes("Working"));
+
+  // 2. 嵌入 WorkingStatusIndicator
+  const working = new WorkingStatusIndicator(fakeTui, "Working");
+  editor.setWorkingStatusIndicator(working);
+  const workingBorder = editor.renderTopBorder(80, 0);
+  assert.ok(workingBorder.includes("Working"));
+  working.dispose();
+
+  // 3. 嵌入 CompactionStatusIndicator (验证不会报 renderInBorder is not a function)
+  const compacting = new CompactionStatusIndicator(fakeTui, "manual");
+  editor.setWorkingStatusIndicator(compacting);
+  const compactBorder = editor.renderTopBorder(80, 0);
+  assert.ok(compactBorder.includes("Compacting"));
+  compacting.dispose();
+
+  // 4. 清除后恢复普通边框
+  editor.setWorkingStatusIndicator(undefined);
+  const clearedBorder = editor.renderTopBorder(80, 0);
+  assert.ok(!clearedBorder.includes("Compacting"));
 });

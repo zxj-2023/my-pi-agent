@@ -1464,6 +1464,7 @@ export class InteractiveMode {
           break;
         }
         case "compact": {
+          this.isStreaming = true;
           this.clearStatusDisplay();
           const compIndicator = new CompactionStatusIndicator(
             this.ui,
@@ -1471,7 +1472,7 @@ export class InteractiveMode {
           );
           compIndicator.start();
           this.activeStatusIndicator = compIndicator;
-          this.defaultEditor.setWorkingStatusIndicator(compIndicator as any);
+          this.defaultEditor.setWorkingStatusIndicator(compIndicator);
           this.footer.update({ isBusy: true });
           this.ui.requestRender();
           try {
@@ -1485,11 +1486,9 @@ export class InteractiveMode {
               })) ||
               (await (this.bridge as any).compact?.(args));
 
-            this.clearStatusDisplay();
-            this.footer.update({
-              isBusy: false,
-              contextTokens: res?.tokens_after,
-            });
+            if (res?.tokens_after !== undefined) {
+              this.footer.update({ contextTokens: res.tokens_after });
+            }
 
             if (res?.summary) {
               const compComponent = new CompactionSummaryMessageComponent({
@@ -1500,11 +1499,13 @@ export class InteractiveMode {
               this.chatContainer.addChild(compComponent);
             }
           } catch (err: any) {
+            this.appendErrorMessage(`压缩失败: ${err.message || String(err)}`);
+          } finally {
+            this.isStreaming = false;
             this.clearStatusDisplay();
             this.footer.update({ isBusy: false });
-            this.appendErrorMessage(`压缩失败: ${err.message || String(err)}`);
+            this.ui.requestRender();
           }
-          this.ui.requestRender();
           break;
         }
         case "clone": {

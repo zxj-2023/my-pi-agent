@@ -26,7 +26,7 @@ def build_coding_tools(
     mutation_queue: FileMutationQueue | None = None,
     background_runner: "BackgroundRunner | None" = None,
 ) -> list[Tool]:
-    """返回 6 个核心文件工具（read/write/edit/bash/grep/find），各绑定 workspace。"""
+    """返回 7 个核心文件工具（read/write/edit/bash/grep/find/ls），各绑定 workspace。"""
     workspace_path = Path(workspace).resolve()
     queue = mutation_queue or FileMutationQueue()
     return [

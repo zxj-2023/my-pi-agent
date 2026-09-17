@@ -65,7 +65,7 @@
 ### 1. 模型边界层 `my-agent-llm`（[学习笔记](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/)）
 
 - **统一 `LLM` 门面**：`chat` / `stream` / `achat` / `achat_stream` 四组接口，屏蔽多供应商差异
-- **三大 Provider**：`openai`（基准翻译）/ `deepseek`（继承 + reasoning 提取）/ `anthropic`（block 翻译 + web_search 过滤）
+- **四大 Provider**：`openai`（基准翻译）/ `deepseek`（继承 + reasoning 提取 + 动态模型发现）/ `anthropic`（block 翻译 + web_search 过滤）/ `antigravity`（Google internal SSE 原生直连 + OAuth 自省）
 - **流式增量聚合**：`StreamChunk` 流式 tool_calls 增量拼装 + usage 捕获（末块携带完整统计）
 - **核心模型**：不可变 `Config`（Pydantic frozen）、`Message`、`Response`
 
@@ -153,7 +153,7 @@
 
 ### 3. 产品层 `my-coding-agent`
 
-- **内置 Coding 工具集与细粒度并发锁**：`read`、`write`、`edit`、`bash`，包含 `_safe_path` 路径逃逸安全防护、`FileMutationQueue` 单文件细粒度并发写锁与 Prompt-Quality 精细化纠错提示（带行数、未找到建议与超时日志捕获）
+- **7 大工作区编码工具与细粒度并发锁**：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`，采用 Pi 宽松 CWD 路径解析（`resolve_path`）、`FileMutationQueue` 单文件细粒度并发写锁与 Prompt-Quality 精细化纠错提示（带行数、未找到建议与超时日志捕获）
 - **MCP 客户端扩展（`mcp.py`）**：
   - 采用 Extension 插件形式实现，通过 `.mcp.json` 读取配置
   - `AsyncExitStack` 管理物理传输层（`stdio_client` 子进程）与协议层（`ClientSession`）的异步生命周期
@@ -165,9 +165,7 @@
 
 ### 4. 架构设计与外部对标分析
 
-- **[docs/ 技术设计文档库](docs/README.md)**：包含 17 篇模块级技术架构规范（模型层、核心层、产品层、Tau 深度对标分析、重构路线与缺陷修复规范）。
-  - 新增 `docs/core/13-tau-alignment-architecture-redesign.md`：Tau 对齐与核心框架深度重构设计（纯函数微内核、历史自愈、纯内存会话存储）。
-  - 新增 `docs/core/14-codebase-cleanup-and-defect-repair.md`：双路子 Agent 对抗式审查与关键缺陷修复规范（P0 进程组安全、P0 异步 Hook 协程包装、P1 L3 写放大消除等）。
+- **[docs/ 技术设计文档库](docs/README.md)**：包含 30 余篇模块级技术架构规范（模型层、核心层、产品层、Tau 深度对标分析、重构路线与缺陷修复规范）。
 - **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**：深度解构 Python 版 Pi Harness 框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、会话历史自愈机制与演进路线。
 
 ---
@@ -244,7 +242,7 @@ my-pi-agent/
 ├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
 │   ├── llm/                        # LLM 层单元测试 (76 tests)
 │   ├── core/                       # 框架内核单元测试 (337 tests)
-│   └── coding/                     # 业务与工具测试 (171 tests)
+│   └── coding/                     # 业务与工具测试 (252 tests)
 │
 ├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
@@ -256,7 +254,7 @@ my-pi-agent/
 │   │   ├── client.ts               # PythonKernelClient (管理 uv run python 子进程)
 │   │   ├── components/             # Pi 原厂 UI 组件 (CustomEditor, status-indicator, footer...)
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
-│   └── test/                       # 前端 57 个自动化测试与端到端测试套件
+│   └── test/                       # 前端 58 个自动化测试与端到端测试套件
 │
 ├── docs/                           # 架构与技术设计文档中心
 ├── package.json                    # 根目录 npm 工作区配置与一键启动脚本

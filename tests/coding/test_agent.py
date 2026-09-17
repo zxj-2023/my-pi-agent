@@ -34,13 +34,35 @@ async def test_coding_agent_dual_api_run(tmp_path: Path):
     session = Session(path=tmp_path / "session.jsonl")
     agent = CodingAgent(workspace=tmp_path, llm=fake_llm, session=session)
 
-    # 验证 6 个工具已自动装配
+    # 验证 7 个工具已自动装配
     tool_names = set(agent.agent.registry._tools.keys())
-    assert {"read", "write", "edit", "bash", "grep", "find"}.issubset(tool_names)
+    assert {"read", "write", "edit", "bash", "grep", "find", "ls"}.issubset(tool_names)
 
     # 验证 run() 返回最终文本
     res = await agent.run("Hello")
     assert res == "I am ready to code"
+
+
+async def test_coding_agent_file_reference_expansion(tmp_path: Path):
+    target_file = tmp_path / "sample.py"
+    target_file.write_text("print('hello')", encoding="utf-8")
+
+    captured_prompt: list[str] = []
+
+    class CapturingLLM(FakeCodingLLM):
+        async def achat(self, messages, tools=None, **kwargs):
+            captured_prompt.append(messages[-1].content)
+            return await super().achat(messages, tools, **kwargs)
+
+    fake_llm = CapturingLLM([Response(content="done", model="fake")])
+    session = Session(path=tmp_path / "session_ref.jsonl")
+    agent = CodingAgent(workspace=tmp_path, llm=fake_llm, session=session)
+
+    await agent.run("Please check @sample.py")
+    assert len(captured_prompt) == 1
+    assert "Please check @sample.py" in captured_prompt[0]
+    assert '<referenced_file path="sample.py">' in captured_prompt[0]
+    assert "print('hello')" in captured_prompt[0]
 
 
 async def test_coding_agent_dual_api_run_stream(tmp_path: Path):

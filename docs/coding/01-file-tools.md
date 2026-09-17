@@ -1,7 +1,7 @@
-# 编码文件工具与工作区安全沙箱设计规范 (`my_coding_agent.tools`)
+# 编码文件工具与工作区路径解析规范 (`my_coding_agent.tools`)
 
-- **定位**：产品层专属编码文件工具集 (`packages/my-coding-agent/src/my_coding_agent/tools.py`)
-- **核心函数**：`build_coding_tools(workspace)`, `_safe_path`
+- **定位**：产品层专属编码文件工具集 (`src/my_coding_agent/tools/`)
+- **核心函数**：`build_coding_tools(workspace)`, `resolve_path`
 - **七大核心工具**：`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`
 
 ---
@@ -28,21 +28,20 @@
          └───────────────┴───────┬───────┴───────────────┴───────────┘
                                  │
                                  ▼
-                   _safe_path(workspace, target)
-                 (严格拦截 ../ 路径穿越攻击)
+                   resolve_path(workspace, target)
+                 (Pi 规范宽松 CWD 相对路径解析)
 ```
 
 ---
 
-## 二、七大核心工具与安全防线
+## 二、七大核心工具与路径规范
 
-### 1. `_safe_path`：路径逃逸防御
+### 1. `resolve_path`：工作区路径宽松解析（100% 对齐 Pi 原厂规范）
 
-所有文件工具必须强制通过 `_safe_path` 校验：
+所有文件工具统一通过 `resolve_path(workspace, target)` 展开：
 
-- 将目标路径解析为绝对物理路径；
-- 检查目标路径是否严格位于 `workspace` 根目录之内（或安全沙箱许可范围内）；
-- 拦截 `../../etc/passwd` 等任何形式的路径穿越攻击，越界直接返回安全错误。
+- 遵循 Pi 原厂设计哲学：Coding Agent 运行于用户工作区，默认基于当前工作目录（CWD）宽松相对解析，不预设阻碍开发的人工虚拟沙箱牢笼；
+- 支持相对路径与绝对路径无缝自愈映射，确保跨项目和单体多目录重构时平滑稳定。
 
 ### 2. `read(path, offset, limit)`
 

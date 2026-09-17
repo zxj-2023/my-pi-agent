@@ -24,6 +24,28 @@ export class StatusIndicator extends Loader {
     }
   }
 
+  public override start(): void {
+    super.start();
+    const timer = (this as any).intervalId;
+    if (timer && typeof timer.unref === "function") {
+      timer.unref();
+    }
+  }
+
+  public renderInBorder(width: number): string {
+    const lines = super.render(width + 2);
+    const line = lines[1] ?? lines[0] ?? "";
+    const clean = line.startsWith(" ")
+      ? line.slice(1).trimEnd()
+      : line.trimEnd();
+    return truncateToWidth(clean, width, "");
+  }
+
+  public renderSpinnerInBorder(width: number): string {
+    const ind = (this as any).getRenderedIndicator?.() ?? "⠋";
+    return truncateToWidth(ind, width, "");
+  }
+
   public dispose(): void {
     this.stop();
   }
@@ -49,28 +71,6 @@ export class WorkingStatusIndicator extends StatusIndicator {
       indicator,
     );
   }
-
-  public override start(): void {
-    super.start();
-    const timer = (this as any).intervalId;
-    if (timer && typeof timer.unref === "function") {
-      timer.unref();
-    }
-  }
-
-  public renderInBorder(width: number): string {
-    const lines = super.render(width + 2);
-    const line = lines[1] ?? lines[0] ?? "";
-    const clean = line.startsWith(" ")
-      ? line.slice(1).trimEnd()
-      : line.trimEnd();
-    return truncateToWidth(clean, width, "");
-  }
-
-  public renderSpinnerInBorder(width: number): string {
-    const ind = (this as any).getRenderedIndicator?.() ?? "⠋";
-    return truncateToWidth(ind, width, "");
-  }
 }
 
 /**
@@ -90,13 +90,5 @@ export class CompactionStatusIndicator extends StatusIndicator {
       (text: string) => theme.fg("muted", text),
       label,
     );
-  }
-
-  public override start(): void {
-    super.start();
-    const timer = (this as any).intervalId;
-    if (timer && typeof timer.unref === "function") {
-      timer.unref();
-    }
   }
 }

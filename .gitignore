@@ -5,6 +5,7 @@ __pycache__/
 .coverage
 htmlcov/
 .my_agent_core/
+.ruff_cache/
 
 # 本地工具配置（Claude Code / Codex / Superpowers / MCP / Pi）
 node_modules/

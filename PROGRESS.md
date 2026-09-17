@@ -31,7 +31,7 @@ my-pi-agent/
 │   │
 │   └── my_coding_agent/            # 3. 业务工具与 stdio RPC 服务端 (纯无头架构)
 │       ├── agent.py                # CodingAgent 门面 (Dual API: run & run_stream)
-│       ├── tools/                  # 6 大编码工具 (read/write/edit/bash/grep/find)
+│       ├── tools/                  # 7 大编码工具 (read/write/edit/bash/grep/find/ls)
 │       ├── mutation_queue.py       # FileMutationQueue 细粒度单文件并发互斥锁
 │       ├── permissions.py          # PermissionGate 业务权限审查门禁 (Accept-on-Diff)
 │       ├── mcp.py                  # Turnkey MCP 客户端自动加载与回收
@@ -41,7 +41,7 @@ my-pi-agent/
 ├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 跑完全部)
 │   ├── llm/                        # LLM 层单元测试 (76 tests)
 │   ├── core/                       # 框架内核单元测试 (337 tests)
-│   └── coding/                     # 业务与工具测试 (162 tests)
+│   └── coding/                     # 业务与工具测试 (252 tests)
 │
 ├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
@@ -51,9 +51,9 @@ my-pi-agent/
 │   ├── src/
 │   │   ├── app.ts                  # TuiMainScreen 状态机与组件树组装
 │   │   ├── client.ts               # PythonKernelClient (管理 uv run python 子进程)
-│   │   ├── components/             # Pi 原厂 UI 组件 (assistant-message, tool-execution, footer...)
+│   │   ├── components/             # Pi 原厂 UI 组件 (CustomEditor, status-indicator, footer...)
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
-│   └── test/                       # 前端 9 个自动化与端到端测试用例
+│   └── test/                       # 前端 58 个自动化与端到端测试用例
 │
 ├── docs/                           # 统一设计文档中心
 ├── package.json                    # 根目录 npm 工作区配置与一键启动脚本

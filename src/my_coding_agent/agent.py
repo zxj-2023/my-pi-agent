@@ -1,4 +1,4 @@
-"""生产级编码智能体门面 (Dual API 架构与 6 大工具自动装配)。"""
+"""生产级编码智能体门面 (Dual API 架构与 7 大工具自动装配)。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 from my_agent_core import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.events import Event  # pyright: ignore[reportMissingImports]
-from my_agent_core.hooks import ToolCallHook  # pyright: ignore[reportMissingImports]
+from my_agent_core.hooks import HookResult, ToolCallHook, UserInputHook  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
 
+from my_coding_agent.file_reference import FileReferenceParser
 from my_coding_agent.mcp import MCPClientManager
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.prompt import build_default_coding_prompt
@@ -67,7 +68,18 @@ class CodingAgent:
         if self._permission_gate is not None:
             self.agent.hooks.register(ToolCallHook, self._permission_gate)
 
-        # 4. 装配 6 大编码专属工具
+        # 4. 装配 FileReferenceParser 并注册到 UserInputHook
+        self.file_reference_parser = FileReferenceParser(self.workspace)
+
+        def _expand_file_refs(hook: UserInputHook) -> HookResult | None:
+            expanded = self.file_reference_parser.expand_references(hook.input_text)
+            if expanded != hook.input_text:
+                return HookResult(updated_input=expanded)
+            return None
+
+        self.agent.hooks.register(UserInputHook, _expand_file_refs)
+
+        # 5. 装配 7 大编码专属工具
         coding_tools = build_coding_tools(
             self.workspace,
             mutation_queue=self.mutation_queue,
