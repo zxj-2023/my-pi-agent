@@ -48,8 +48,8 @@ def build_default_coding_prompt(
             except Exception:
                 logger.debug("Failed to read global context file: %s", gp, exc_info=True)
 
-    # 2. 扫描并注入工作区局部指导文件
-    context_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", "README.md"]
+    # 2. 扫描并注入工作区局部指导文件（忽略 CLAUDE.md，仅保留 AGENTS 体系与 README）
+    context_files = ["AGENTS.override.md", "AGENTS.md", "README.md"]
     for fname in context_files:
         fpath = workspace_path / fname
         if fpath.is_file() and str(fpath.resolve()) not in seen_paths:

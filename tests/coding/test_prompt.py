@@ -34,13 +34,16 @@ def test_build_prompt_without_context_files_has_no_project_context(tmp_path: Pat
 
 
 def test_build_prompt_injects_multiple_context_files(tmp_path: Path):
+    (tmp_path / "AGENTS.override.md").write_text("Override guide", encoding="utf-8")
     (tmp_path / "AGENTS.md").write_text("Agents guide", encoding="utf-8")
     (tmp_path / "CLAUDE.md").write_text("Claude guide", encoding="utf-8")
     (tmp_path / "README.md").write_text("Readme guide", encoding="utf-8")
     prompt = build_default_coding_prompt(tmp_path)
+    assert "Override guide" in prompt
     assert "Agents guide" in prompt
-    assert "Claude guide" in prompt
     assert "Readme guide" in prompt
+    # CLAUDE.md is intentionally ignored and not injected into context
+    assert "Claude guide" not in prompt
     assert prompt.count("<project_instructions") == 3
 
 

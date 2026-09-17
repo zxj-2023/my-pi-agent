@@ -127,8 +127,8 @@ def scan_loaded_resources(
     if global_agents:
         context_files.append(_format_display_path(global_agents))
 
-    # 工作区指令
-    for fname in ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md"]:
+    # 工作区指令（仅识别 AGENTS 体系，不读取 CLAUDE.md）
+    for fname in ["AGENTS.override.md", "AGENTS.md"]:
         candidate = ws / fname
         if candidate.is_file():
             if global_agents is None or candidate.resolve() != global_agents:
