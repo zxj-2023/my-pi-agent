@@ -48,6 +48,7 @@ from my_coding_agent.session_ops import (
     resolve_session_file,
 )
 from my_coding_agent.settings import Settings, load_settings, save_settings
+from my_coding_agent.tracer import DebugEventTracer, export_debug_dump
 
 __all__ = [
     "RpcServer",
@@ -111,6 +112,8 @@ class RpcServer:
             "cost": 0.0,
             "latestCacheHitRate": 0.0,
         }
+        self.debug_mode: bool = False
+        self.tracer: DebugEventTracer | None = None
 
     def emit_json(self, payload: dict[str, Any]) -> None:
         """向 stdout 写入单行 JSON 并强制 flush。"""
@@ -269,6 +272,13 @@ class RpcServer:
 
         self.macro_engine = MacroEngine(workspace=workspace_path, paths=paths)
 
+        debug_param = bool(params.get("debug", False) or os.environ.get("MY_AGENT_DEBUG"))
+        self.debug_mode = debug_param
+        if self.debug_mode:
+            log_file = paths.logs_dir / "debug.log"
+            self.tracer = DebugEventTracer(log_path=log_file)
+            self.agent.subscribe(self.tracer)
+
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
         actual_model = getattr(getattr(self.agent.agent.llm, "config", None), "model", "default")
@@ -294,6 +304,7 @@ class RpcServer:
                 or target_session.metadata.get("title")
                 or target_session.id,
                 "resources": resources,
+                "debug": self.debug_mode,
                 "messages": messages_repr,
             },
         )
@@ -598,6 +609,8 @@ class RpcServer:
             permission_gate=gate,
             skill_dirs=skill_dirs,
         )
+        if self.debug_mode and self.tracer:
+            self.agent.subscribe(self.tracer)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -760,6 +773,9 @@ class RpcServer:
             skill_dirs=skill_dirs,
         )
 
+        if self.debug_mode and self.tracer:
+            self.agent.subscribe(self.tracer)
+
         # 彻底重置会话统计指标为 0
         self.session_usage = {
             "input": 0,
@@ -909,6 +925,8 @@ class RpcServer:
             session=new_session,
             permission_gate=gate,
         )
+        if self.debug_mode and self.tracer:
+            self.agent.subscribe(self.tracer)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -957,6 +975,8 @@ class RpcServer:
             session=new_session,
             permission_gate=gate,
         )
+        if self.debug_mode and self.tracer:
+            self.agent.subscribe(self.tracer)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -1375,8 +1395,30 @@ class RpcServer:
             },
         )
 
+    def _handle_debug_dump(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        paths = self.paths or AgentPaths()
+        paths.logs_dir.mkdir(parents=True, exist_ok=True)
+        dump_path = paths.logs_dir / "debug-dump.json"
+        data = export_debug_dump(self.agent, dump_path)
+        return self.send_response(
+            req_id,
+            result={
+                "status": "ok",
+                "dump_file": str(dump_path),
+                "snapshot": data,
+            },
+        )
+
     async def _handle_shutdown(self, req_id: Any) -> dict[str, Any]:
         self.is_shutting_down = True
+        if self.tracer:
+            self.tracer.close()
+            self.tracer = None
         if self.agent and hasattr(self.agent, "close_mcp"):
             res = self.agent.close_mcp()
             if inspect.isawaitable(res):
@@ -1446,6 +1488,8 @@ class RpcServer:
                 return self._handle_settings_set(req_id, params)
             elif method == "trust_set":
                 return self._handle_trust_set(req_id, params)
+            elif method == "debug_dump":
+                return self._handle_debug_dump(req_id, params)
             elif method == "shutdown":
                 return await self._handle_shutdown(req_id)
             else:
@@ -1503,6 +1547,7 @@ async def main() -> None:
     parser.add_argument("--thinking", default=None, help="思考深度等级")
     parser.add_argument("--no-session", action="store_true", help="内存无痕模式")
     parser.add_argument("--new-session", action="store_true", help="强制开启新会话")
+    parser.add_argument("-d", "--debug", action="store_true", help="启用事件级 Debug 日志落盘模式")
     args = parser.parse_args()
 
     server = RpcServer()
@@ -1529,6 +1574,7 @@ async def main() -> None:
                     "name": args.name,
                     "thinking": args.thinking,
                     "no_session": args.no_session,
+                    "debug": args.debug,
                 },
             }
         )

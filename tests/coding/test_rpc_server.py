@@ -405,3 +405,62 @@ async def test_rpc_server_session_delete(tmp_path: Path, monkeypatch):
     )
     assert del_resp["result"]["status"] == "ok"
     assert not other_session_file.exists()
+
+
+@pytest.mark.anyio
+async def test_rpc_server_debug_mode_and_dump(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "custom_agent_home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace_dir = tmp_path / "user_project"
+    workspace_dir.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    init_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace_dir), "debug": True},
+        }
+    )
+    assert init_resp["result"]["status"] == "ok"
+    assert init_resp["result"]["debug"] is True
+    assert server.debug_mode is True
+    assert server.tracer is not None
+
+    # 产生一次交互
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "prompt",
+            "params": {"text": "hello debug"},
+        }
+    )
+
+    # 验证日志文件生成
+    paths = AgentPaths(home=custom_home)
+    debug_log = paths.logs_dir / "debug.log"
+    assert debug_log.is_file()
+    content = debug_log.read_text(encoding="utf-8")
+    assert "[AGENT_START]" in content
+
+    # 导出 debug_dump
+    dump_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "debug_dump",
+            "params": {},
+        }
+    )
+    assert dump_resp["result"]["status"] == "ok"
+    dump_file = Path(dump_resp["result"]["dump_file"])
+    assert dump_file.is_file()
+    snapshot = dump_resp["result"]["snapshot"]
+    assert "messages" in snapshot
+    assert "system_prompt" in snapshot
+
+    # 关闭服务端
+    await server.handle_request({"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": {}})
+    assert server.tracer is None

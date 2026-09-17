@@ -146,6 +146,12 @@ export class AgentApp {
       this.interactiveMode.updateResources(initResult.resources);
     }
 
+    if (initResult?.debug !== undefined) {
+      this.footer.update({
+        debugMode: Boolean(initResult.debug),
+      });
+    }
+
     if (initResult?.messages && initResult.messages.length > 0) {
       this.interactiveMode.renderSessionHistory(initResult.messages);
     }

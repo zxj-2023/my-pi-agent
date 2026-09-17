@@ -40,6 +40,7 @@ export interface InitializeResult {
   session_id?: string;
   session_file?: string;
   session_name?: string;
+  debug?: boolean;
   messages?: SessionMessage[];
 }
 
@@ -54,6 +55,7 @@ export interface PythonKernelClientOptions {
   thinking?: string;
   noSession?: boolean;
   newSession?: boolean;
+  debug?: boolean;
 }
 
 export class PythonKernelClient extends EventEmitter {
@@ -161,6 +163,7 @@ export class PythonKernelClient extends EventEmitter {
       thinking: this.options.thinking,
       no_session: this.options.noSession,
       new_session: this.options.newSession,
+      debug: this.options.debug || false,
     })) as InitializeResult;
     return res;
   }
@@ -175,6 +178,9 @@ export class PythonKernelClient extends EventEmitter {
     const rpcArgs = ["-m", "my_coding_agent.rpc_server", "-w", workspace];
     if (this.options.model) {
       rpcArgs.push("-m", this.options.model);
+    }
+    if (this.options.debug) {
+      rpcArgs.push("-d");
     }
 
     // 1. 优先使用外部显式传入的 Python 解释器

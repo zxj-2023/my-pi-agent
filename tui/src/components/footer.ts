@@ -28,6 +28,7 @@ export interface FooterData {
   costUsd?: number;
   elapsedSeconds?: number;
   isBusy?: boolean;
+  debugMode?: boolean;
 }
 
 export function formatTokens(count: number): string {
@@ -187,6 +188,9 @@ export class FooterComponent extends Container {
     if (this.data.isBusy) {
       const char = SPINNER_FRAMES[this.spinnerFrame] || "⠋";
       statsParts.push(theme.fg("warning", char));
+    }
+    if (this.data.debugMode) {
+      statsParts.push(theme.fg("warning", "[DEBUG]"));
     }
 
     const statsLeft = statsParts.join(" ");

@@ -14,6 +14,7 @@ function parseArgs() {
     thinking: undefined,
     noSession: false,
     newSession: false,
+    debug: false,
     prompt: undefined,
     pythonExecutable: undefined,
   };
@@ -43,6 +44,8 @@ function parseArgs() {
       options.thinking = args[++i];
     } else if (arg === "--no-session") {
       options.noSession = true;
+    } else if (arg === "-d" || arg === "--debug") {
+      options.debug = true;
     } else if (arg === "--new-session") {
       options.newSession = true;
     } else if (arg === "-h" || arg === "--help") {
@@ -60,6 +63,7 @@ Options:
   -m, --model <model>     指定生效模型 (如 deepseek-chat, gemini-3.8-flash)
   --thinking <level>      指定思考深度等级 (off/minimal/low/medium/high/max)
   --no-session            内存无痕沙箱模式 (不持久化 session 文件)
+  -d, --debug             启用事件级 Debug 日志落盘模式
   -w, --workspace <dir>   指定工作区目录 (默认: 当前目录)
   --mode <mode>           权限安全模式: review (默认) | yolo | strict
   -h, --help              查看帮助说明

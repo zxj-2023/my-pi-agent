@@ -71,6 +71,7 @@ export interface InteractiveModeOptions extends InteractiveTuiOptions {
   continueSession?: boolean;
   resume?: string | boolean;
   resources?: LoadedResourcesData;
+  debug?: boolean;
 }
 
 export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
@@ -242,6 +243,7 @@ export class InteractiveMode {
         modelName: this.currentModelName,
         thinkingLevel: this.currentThinkingLevel,
         sessionName: options.sessionName,
+        debugMode: Boolean(options.debug),
       },
       () => this.ui.requestRender(),
     );
@@ -547,6 +549,13 @@ export class InteractiveMode {
             description: `Skill: ${s}`,
           }));
       },
+    });
+
+    // 添加调试快照导出命令
+    commands.push({
+      name: "debug",
+      description: "导出当前 Agent 瞬时运行态快照 (debug-dump.json)",
+      argumentHint: "",
     });
 
     // 为每个已发现的 skill 注入 /skill:<name> 形式的专用补全
@@ -1758,6 +1767,24 @@ export class InteractiveMode {
         }
         case "quota": {
           this.appendSystemNotice("当前配额状态：正常");
+          break;
+        }
+        case "debug": {
+          try {
+            const client = (this.bridge as any).client;
+            const res: any =
+              (await client?.request?.("debug_dump", {})) ||
+              (await client?.sendRequest?.("debug_dump", {}));
+            if (res?.dump_file) {
+              this.appendSystemNotice(`✓ 调试快照已导出至: ${res.dump_file}`);
+            } else {
+              this.appendErrorMessage("导出调试快照失败。");
+            }
+          } catch (err: any) {
+            this.appendErrorMessage(
+              `导出调试快照异常: ${err.message || String(err)}`,
+            );
+          }
           break;
         }
         case "steer": {

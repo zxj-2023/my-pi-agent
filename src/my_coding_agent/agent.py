@@ -200,6 +200,10 @@ class CodingAgent:
         async for event in self.agent.prompt_stream(user_input):
             yield event
 
+    def subscribe(self, listener: Any) -> Any:
+        """订阅底层 Agent 的全量不可变生命周期事件。"""
+        return self.agent.subscribe(listener)
+
     def steer(self, message: str) -> None:
         """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
         self.agent.steer(message)
@@ -213,7 +217,9 @@ class CodingAgent:
         try:
             asyncio.get_running_loop()
             self.agent.abort()
-        except RuntimeError:
+        except Exception as exc:
+            if not isinstance(exc, RuntimeError):
+                raise
             self.agent._aborted = True
             if self.agent._current_signal is not None:
                 self.agent._current_signal.cancel()
