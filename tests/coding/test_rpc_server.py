@@ -353,3 +353,55 @@ async def test_rpc_server_credentials_resolution_from_auth_store(tmp_path: Path,
     assert server.agent.agent.llm is not None
     assert server.agent.agent.llm.config.provider == "deepseek"
     assert server.agent.agent.llm.config.api_key == "sk-stored-in-auth-json"
+
+
+@pytest.mark.anyio
+async def test_rpc_server_session_delete(tmp_path: Path, monkeypatch):
+    custom_home = tmp_path / "custom_agent_home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace_dir = tmp_path / "user_project"
+    workspace_dir.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace_dir)},
+        }
+    )
+
+    paths = AgentPaths(home=custom_home)
+    s_dir = paths.project_session_dir(workspace_dir)
+
+    # 创建一个额外的非活跃历史会话文件
+    other_session_file = s_dir / "old-session-123.jsonl"
+    other_session_file.write_text('{"type": "session_info", "id": "old-session-123"}\n', encoding="utf-8")
+    assert other_session_file.exists()
+
+    # 1. 尝试删除当前活跃会话 -> 必须被拒绝 (对标 Pi 规范)
+    assert server.agent is not None
+    active_id = server.agent.session.id
+    err_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session_delete",
+            "params": {"session_id": active_id},
+        }
+    )
+    assert "error" in err_resp
+    assert err_resp["error"]["code"] == -32005
+
+    # 2. 删除非活跃会话 -> 成功删除
+    del_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "session_delete",
+            "params": {"session_id": "old-session-123"},
+        }
+    )
+    assert del_resp["result"]["status"] == "ok"
+    assert not other_session_file.exists()

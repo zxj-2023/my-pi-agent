@@ -72,6 +72,7 @@ def make_bash_tool(
         command: str,
         timeout: int = 120,
         run_in_background: bool = False,
+        on_update: Callable[[Any], None] | None = None,
     ) -> str:
         for blocked in BLOCKED_COMMANDS:
             if blocked in command:
@@ -96,13 +97,31 @@ def make_bash_tool(
 
             proc = await asyncio.create_subprocess_shell(command, **kwargs)
 
+            output_chunks: list[str] = []
+            loop = asyncio.get_running_loop()
+            last_update_time = loop.time()
+
+            async def _read_stream() -> None:
+                nonlocal last_update_time
+                if proc.stdout is None:
+                    return
+                while True:
+                    line_bytes = await proc.stdout.readline()
+                    if not line_bytes:
+                        break
+                    text = line_bytes.decode("utf-8", errors="replace")
+                    output_chunks.append(text)
+                    now = loop.time()
+                    if on_update is not None and (now - last_update_time >= 0.1):
+                        last_update_time = now
+                        tail_preview = "".join(output_chunks[-5:]).strip()
+                        if tail_preview:
+                            on_update(tail_preview)
+
             try:
-                stdout_data, _ = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
-                )
-                output = (
-                    stdout_data.decode("utf-8", errors="replace") if stdout_data else ""
-                )
+                await asyncio.wait_for(_read_stream(), timeout=timeout)
+                await proc.wait()
+                output = "".join(output_chunks)
             except asyncio.TimeoutError:
                 if proc.pid:
                     _kill_process_tree(proc.pid)
@@ -122,9 +141,7 @@ def make_bash_tool(
             lines = output.splitlines()
             total_lines = len(lines)
             encoded = output.encode("utf-8")
-            is_overflow = (
-                total_lines > DEFAULT_MAX_LINES or len(encoded) > DEFAULT_MAX_BYTES
-            )
+            is_overflow = total_lines > DEFAULT_MAX_LINES or len(encoded) > DEFAULT_MAX_BYTES
 
             if is_overflow:
                 with tempfile.NamedTemporaryFile(

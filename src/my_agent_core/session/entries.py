@@ -72,11 +72,20 @@ class MessageEntry(BaseSessionEntry):
 
 
 class ModelChangeEntry(BaseSessionEntry):
-    """记录运行时大模型变更。"""
+    """记录运行时大模型变更（兼容 Pi 原厂 modelId 字段）。"""
 
     type: Literal["model_change", "modelChange"] = "model_change"
-    model: str
+    model: str | None = None
+    model_id: str | None = Field(default=None, alias="modelId")
     provider: str | None = None
+
+    @model_validator(mode="after")
+    def _sync_model_fields(self) -> ModelChangeEntry:
+        if self.model_id and not self.model:
+            self.model = self.model_id
+        elif self.model and not self.model_id:
+            self.model_id = self.model
+        return self
 
 
 class ThinkingLevelChangeEntry(BaseSessionEntry):
@@ -87,10 +96,12 @@ class ThinkingLevelChangeEntry(BaseSessionEntry):
 
 
 class CompactionEntry(BaseSessionEntry):
-    """记录上下文压缩覆盖的条目 ID 清单与折叠摘要。"""
+    """记录上下文压缩覆盖的条目 ID 清单与折叠摘要（兼容 Pi 原厂 firstKeptEntryId 与 tokensBefore）。"""
 
     type: Literal["compaction"] = "compaction"
     summary: str
+    first_kept_entry_id: str | None = Field(default=None, alias="firstKeptEntryId")
+    tokens_before: int | None = Field(default=None, alias="tokensBefore")
     replaces_entry_ids: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -130,12 +141,33 @@ class CustomEntry(BaseSessionEntry):
     """扩展与遥测隔离槽位。"""
 
     type: Literal["custom"] = "custom"
-    namespace: str
+    namespace: str | None = None
+    custom_type: str | None = Field(default=None, alias="customType")
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class CustomMessageEntry(BaseSessionEntry):
+    """扩展上下文注入消息条目（对标 Pi 原厂 CustomMessageEntry）。"""
+
+    type: Literal["custom_message", "customMessage"] = "custom_message"
+    custom_type: str = Field(default="custom", alias="customType")
+    content: str | list[Any] = ""
+    display: bool = True
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class SessionHeaderEntry(BaseSessionEntry):
+    """Pi 原厂会话头节点。"""
+
+    type: Literal["session"] = "session"
+    version: int = 3
+    cwd: str = ""
+    parent_session: str | None = Field(default=None, alias="parentSession")
 
 
 SessionEntry = Annotated[
     SessionInfoEntry
+    | SessionHeaderEntry
     | MessageEntry
     | ModelChangeEntry
     | ThinkingLevelChangeEntry
@@ -143,13 +175,15 @@ SessionEntry = Annotated[
     | BranchSummaryEntry
     | LabelEntry
     | LeafEntry
-    | CustomEntry,
+    | CustomEntry
+    | CustomMessageEntry,
     Field(discriminator="type"),
 ]
 
 __all__ = [
     "BaseSessionEntry",
     "SessionInfoEntry",
+    "SessionHeaderEntry",
     "MessageEntry",
     "ModelChangeEntry",
     "ThinkingLevelChangeEntry",
@@ -158,5 +192,6 @@ __all__ = [
     "LabelEntry",
     "LeafEntry",
     "CustomEntry",
+    "CustomMessageEntry",
     "SessionEntry",
 ]

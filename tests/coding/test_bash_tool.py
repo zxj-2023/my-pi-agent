@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -162,3 +163,22 @@ async def test_bash_cancelled_kills_process(tmp_path: Path):
     else:
         with pytest.raises(OSError):
             os.kill(child_pid, 0)
+
+
+async def test_bash_on_update_streaming(tmp_path: Path):
+    """测试 bash 执行期间通过 on_update 回调实时回传输出流（对标 Pi 官方流式工具更新）。"""
+    tool = make_bash_tool(tmp_path)
+    updates: list[str] = []
+
+    def handle_update(chunk: Any) -> None:
+        updates.append(str(chunk))
+
+    cmd = "python -c \"import time; print('step1', flush=True); time.sleep(0.15); print('step2', flush=True)\""
+    res = await tool.execute(
+        {"command": cmd},
+        on_update=handle_update,
+    )
+    assert res.ok is True
+    assert "step1" in str(res.data)
+    assert "step2" in str(res.data)
+    assert len(updates) > 0

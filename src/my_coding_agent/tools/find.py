@@ -10,9 +10,12 @@ from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.tools.base import (
     DEFAULT_IGNORE_DIRS,
+    DEFAULT_MAX_BYTES,
     StringCompatibleToolResult,
     resolve_path,
 )
+
+DEFAULT_FIND_LIMIT = 1000
 
 
 class FindResult(StringCompatibleToolResult):
@@ -25,15 +28,16 @@ def make_find_tool(workspace: Path | str) -> Tool:
 
     @tool(
         name="find",
-        description="Find files matching a glob pattern, automatically filtering out cache and virtualenv directories.",
+        description="Search for files by glob pattern. Returns matching file paths relative to the search directory. Output is truncated to 1000 results or 50KB (whichever is hit first).",
         is_parallel_safe=True,
     )
-    async def find(pattern: str = "*", path: str = ".", limit: int = 100) -> str:
+    async def find(pattern: str = "*", path: str = ".", limit: int = DEFAULT_FIND_LIMIT) -> str:
         try:
             target_root = resolve_path(workspace, path)
             if not target_root.exists():
                 return f"Error: Path not found: {path}"
 
+            effective_limit = limit if (limit is not None and limit > 0) else DEFAULT_FIND_LIMIT
             matched_paths: list[str] = []
             norm_pattern = pattern.replace("\\", "/")
 
@@ -48,9 +52,6 @@ def make_find_tool(workspace: Path | str) -> Tool:
                     or fnmatch.fnmatch(target_root.name, pattern)
                 ):
                     matched_paths.append(rel)
-                    if len(matched_paths) >= limit:
-                        matched_paths.append(f"[Truncated at limit of {limit} results]")
-                        return "\n".join(matched_paths)
             else:
                 for root, dirs, files in os.walk(target_root):
                     dirs[:] = [d for d in dirs if d not in DEFAULT_IGNORE_DIRS]
@@ -68,17 +69,23 @@ def make_find_tool(workspace: Path | str) -> Tool:
                             or fnmatch.fnmatch(f, pattern)
                         ):
                             matched_paths.append(rel)
-                            if len(matched_paths) >= limit:
-                                matched_paths.append(
-                                    f"[Truncated at limit of {limit} results]"
-                                )
-                                return "\n".join(matched_paths)
+                            if len(matched_paths) >= effective_limit:
+                                matched_paths.append(f"[Truncated at limit of {effective_limit} results]")
+                                break
+                    if len(matched_paths) >= effective_limit:
+                        break
 
-            return (
-                "\n".join(matched_paths)
-                if matched_paths
-                else f"No files matching '{pattern}' found."
-            )
+            output = "\n".join(matched_paths) if matched_paths else f"No files matching '{pattern}' found."
+            encoded = output.encode("utf-8")
+            if len(encoded) > DEFAULT_MAX_BYTES:
+                encoded = encoded[:DEFAULT_MAX_BYTES]
+                last_nl = encoded.rfind(b"\n")
+                if last_nl != -1:
+                    encoded = encoded[:last_nl]
+                output = encoded.decode("utf-8", errors="ignore")
+                output += f"\n\n[Output truncated: exceeded {DEFAULT_MAX_BYTES // 1024}KB limit]"
+
+            return output
         except Exception as e:
             return f"Error: {e}"
 

@@ -122,3 +122,26 @@ async def test_grep_no_matches(tmp_path: Path):
     tool = make_grep_tool(tmp_path)
     res = await tool.execute(pattern="missing_needle")
     assert "No matches found for pattern 'missing_needle'." in res
+
+
+async def test_grep_context_lines_and_pi_params(tmp_path: Path):
+    """测试 context 上下文行输出以及 Pi 参数 (glob, context, ignoreCase, literal)。"""
+    f = tmp_path / "app.py"
+    f.write_text(
+        "line 1\nline 2\ntarget line\nline 4\nline 5\n",
+        encoding="utf-8",
+    )
+    tool = make_grep_tool(tmp_path)
+    res = await tool.execute(
+        {
+            "pattern": "TARGET",
+            "glob": "*.py",
+            "context": 1,
+            "ignoreCase": True,
+            "literal": True,
+        }
+    )
+    lines = str(res).splitlines()
+    assert "app.py-2: line 2" in lines
+    assert "app.py:3: target line" in lines
+    assert "app.py-4: line 4" in lines

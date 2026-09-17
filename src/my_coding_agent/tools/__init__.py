@@ -1,4 +1,4 @@
-"""文件工具包：6 个核心工具工厂 + build_coding_tools 装配入口。"""
+"""文件工具包：7 个核心工具工厂（对齐 Pi 原厂 read/write/edit/bash/grep/find/ls）+ build_coding_tools 装配入口。"""
 
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +16,7 @@ from my_coding_agent.tools.bash import make_bash_tool
 from my_coding_agent.tools.edit import EditBlock, make_edit_tool
 from my_coding_agent.tools.find import make_find_tool
 from my_coding_agent.tools.grep import make_grep_tool
+from my_coding_agent.tools.ls import make_ls_tool
 from my_coding_agent.tools.read import make_read_tool
 from my_coding_agent.tools.write import make_write_tool
 
@@ -35,6 +36,7 @@ def build_coding_tools(
         make_bash_tool(workspace_path, background_runner=background_runner),
         make_grep_tool(workspace_path),
         make_find_tool(workspace_path),
+        make_ls_tool(workspace_path),
     ]
 
 
@@ -49,4 +51,5 @@ __all__ = [
     "make_bash_tool",
     "make_grep_tool",
     "make_find_tool",
+    "make_ls_tool",
 ]

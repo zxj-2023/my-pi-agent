@@ -21,6 +21,7 @@ from .entries import (
     CompactionEntry,
     MessageEntry,
     SessionEntry,
+    SessionHeaderEntry,
     SessionInfoEntry,
 )
 from .jsonl import entry_from_json_line, entry_to_json_line
@@ -129,8 +130,8 @@ class Session:
         except Exception as exc:
             raise ValueError(f"Session file {path}: invalid header/info: {exc}") from exc
 
-        if not isinstance(first_entry, SessionInfoEntry):
-            raise ValueError(f"Session file {path}: line 1 must be a valid SessionInfoEntry")
+        if not isinstance(first_entry, (SessionInfoEntry, SessionHeaderEntry)):
+            raise ValueError(f"Session file {path}: line 1 must be a valid SessionHeaderEntry or SessionInfoEntry")
 
         tree_lines = lines[1:]
         if tree_lines and tree_lines[-1].strip():
@@ -140,11 +141,14 @@ class Session:
                 tree_lines = tree_lines[:-1]
 
         tree = SessionTree.from_jsonl_iter(tree_lines)
-        meta = dict(first_entry.metadata)
+        meta = dict(getattr(first_entry, "metadata", {}) or {})
         if getattr(first_entry, "name", None):
             meta["name"] = first_entry.name
         if getattr(first_entry, "title", None):
             meta["title"] = first_entry.title
+        if getattr(first_entry, "parent_session", None):
+            meta["parent_session"] = first_entry.parent_session
+            meta["parent_session_path"] = first_entry.parent_session
         for e in tree.entries.values():
             if isinstance(e, SessionInfoEntry):
                 sub_name = getattr(e, "name", None) or getattr(e, "title", None)

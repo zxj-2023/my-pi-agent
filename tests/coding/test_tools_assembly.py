@@ -1,4 +1,4 @@
-"""tools 装配测试：验证 build_coding_tools 返回 6 个核心工具。"""
+"""tools 装配测试：验证 build_coding_tools 返回 7 个核心工具（read/write/edit/bash/grep/find/ls）。"""
 
 from pathlib import Path
 
@@ -14,6 +14,7 @@ from my_coding_agent import (
     make_edit_tool,
     make_find_tool,
     make_grep_tool,
+    make_ls_tool,
     make_read_tool,
     make_write_tool,
     resolve_path,
@@ -21,29 +22,29 @@ from my_coding_agent import (
 from my_coding_agent.tools import build_coding_tools as tools_build_coding_tools
 
 
-def test_build_coding_tools_returns_six_tools(tmp_path: Path):
-    """build_coding_tools 返回恰好 6 个工具，名称为 read/write/edit/bash/grep/find。"""
+def test_build_coding_tools_returns_seven_tools(tmp_path: Path):
+    """build_coding_tools 返回恰好 7 个工具，名称为 read/write/edit/bash/grep/find/ls。"""
     queue = FileMutationQueue()
     tools = build_coding_tools(tmp_path, mutation_queue=queue)
     names = {t.name for t in tools}
-    assert names == {"read", "write", "edit", "bash", "grep", "find"}
+    assert names == {"read", "write", "edit", "bash", "grep", "find", "ls"}
 
 
 def test_build_coding_tools_from_tools_package(tmp_path: Path):
     """从 my_coding_agent.tools 直接导入的 build_coding_tools 与顶层等价。"""
     tools = tools_build_coding_tools(tmp_path)
     names = {t.name for t in tools}
-    assert names == {"read", "write", "edit", "bash", "grep", "find"}
+    assert names == {"read", "write", "edit", "bash", "grep", "find", "ls"}
 
 
 def test_build_coding_tools_accepts_str_workspace(tmp_path: Path):
     """build_coding_tools 接受 str 类型的 workspace 参数。"""
     tools = build_coding_tools(str(tmp_path))
-    assert len(tools) == 6
+    assert len(tools) == 7
 
 
 def test_build_coding_tools_parallel_safe_flags(tmp_path: Path):
-    """read/write/edit/grep/find 是并发安全的；bash 不是。"""
+    """read/write/edit/grep/find/ls 是并发安全的；bash 不是。"""
     tools = build_coding_tools(tmp_path)
     by_name = {t.name: t for t in tools}
     assert by_name["read"].is_parallel_safe is True
@@ -51,6 +52,7 @@ def test_build_coding_tools_parallel_safe_flags(tmp_path: Path):
     assert by_name["edit"].is_parallel_safe is True
     assert by_name["grep"].is_parallel_safe is True
     assert by_name["find"].is_parallel_safe is True
+    assert by_name["ls"].is_parallel_safe is True
     assert by_name["bash"].is_parallel_safe is False
 
 
@@ -67,6 +69,7 @@ def test_top_level_exports_present():
     assert callable(make_bash_tool)
     assert callable(make_grep_tool)
     assert callable(make_find_tool)
+    assert callable(make_ls_tool)
     assert CodingAgent is not None
 
 

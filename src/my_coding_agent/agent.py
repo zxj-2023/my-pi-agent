@@ -187,7 +187,7 @@ class CodingAgent:
         try:
             asyncio.get_running_loop()
             self.agent.abort()
-        except RuntimeError:
+        except (RuntimeError,):
             self.agent._aborted = True
             if self.agent._current_signal is not None:
                 self.agent._current_signal.cancel()

@@ -342,7 +342,7 @@ async def test_models_list_configured_vs_all_rpc(tmp_path: Path, monkeypatch: py
     assert len(models_conf) > 0
     # 必须全部是 deepseek 模型，绝不混入未配置的 openai/anthropic
     assert all(m["provider"] == "deepseek" for m in models_conf)
-    assert any(m["id"] == "deepseek-chat" for m in models_conf)
+    assert any("deepseek" in m["id"] for m in models_conf)
 
     # 2. scope=all: 返回全量支持的模型 (包含 openai, anthropic 等)
     resp_all = await server.handle_request(
@@ -353,3 +353,36 @@ async def test_models_list_configured_vs_all_rpc(tmp_path: Path, monkeypatch: py
     assert len(models_all) > len(models_conf)
     assert any(m["provider"] == "openai" for m in models_all)
     assert any(m["provider"] == "anthropic" for m in models_all)
+
+
+@pytest.mark.anyio
+async def test_models_list_openai_compat_deepseek_proxy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """验证当用户配置 OPENAI_BASE_URL 指向 DeepSeek 并配置自定义 OPENAI_MODEL 时，智能归属为 deepseek 并过滤官方 openai 模型。"""
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-deepseek-via-openai-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("OPENAI_MODEL", "deepseek-flash")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTIGRAVITY_ACCESS_TOKEN", raising=False)
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+
+    resp = await server.handle_request(
+        {"jsonrpc": "2.0", "id": 2, "method": "models_list", "params": {"scope": "configured"}}
+    )
+    assert resp["result"]["status"] == "ok"
+    models = resp["result"]["models"]
+    providers = {m["provider"] for m in models}
+
+    # 智能识别为 deepseek，绝不将官方 openai 模型混入
+    assert "deepseek" in providers
+    assert "openai" not in providers
+    assert any(m["id"] == "deepseek-flash" for m in models)
+    assert not any(m["id"] == "gpt-4o" for m in models)

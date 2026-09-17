@@ -211,3 +211,30 @@ async def test_edit_concurrency_serialization(tmp_path: Path):
     await asyncio.gather(op1(), op2())
 
     assert len(events) == 4
+
+
+async def test_edit_json_string_and_single_dict_compat(tmp_path: Path):
+    """测试 edits 传入 JSON 字符串与单 dict 对象的容错兼容（对标 Pi prepareEditArguments）。"""
+    f = tmp_path / "compat.txt"
+    f.write_text("aaa bbb ccc\n", encoding="utf-8")
+    tool = make_edit_tool(tmp_path)
+
+    # 1. edits 传入 JSON 字符串
+    res1 = await tool.execute(
+        {
+            "path": "compat.txt",
+            "edits": '[{"oldText": "aaa", "newText": "xxx"}]',
+        }
+    )
+    assert res1.ok is True
+    assert f.read_text(encoding="utf-8") == "xxx bbb ccc\n"
+
+    # 2. edits 传入单个 dict
+    res2 = await tool.execute(
+        {
+            "path": "compat.txt",
+            "edits": {"oldText": "bbb", "newText": "yyy"},
+        }
+    )
+    assert res2.ok is True
+    assert f.read_text(encoding="utf-8") == "xxx yyy ccc\n"

@@ -31,20 +31,14 @@ class AnthropicProvider(Provider):
         self.client = anthropic.Anthropic(**kwargs)
         self.async_client = anthropic.AsyncAnthropic(**kwargs)
 
-    def _convert_messages(
-        self, messages: list[Message]
-    ) -> tuple[str | None, list[dict]]:
+    def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict]]:
         """Message → Anthropic 格式。返回 (system, messages)。"""
         system_message = None
         anthropic_messages = []
         for msg in messages:
             if msg.role == "system":
                 system_message = msg.content
-            elif (
-                msg.role == "assistant"
-                and msg.metadata
-                and "tool_calls" in msg.metadata
-            ):
+            elif msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
                 content = []
                 if msg.content:
                     content.append({"type": "text", "text": msg.content})
@@ -143,11 +137,7 @@ class AnthropicProvider(Provider):
     @staticmethod
     def _extract_reasoning(blocks) -> str | None:
         """thinking blocks → reasoning_content。"""
-        parts = [
-            b.thinking
-            for b in blocks
-            if getattr(b, "type", None) == "thinking" and getattr(b, "thinking", None)
-        ]
+        parts = [b.thinking for b in blocks if getattr(b, "type", None) == "thinking" and getattr(b, "thinking", None)]
         return "".join(parts) or None
 
     @staticmethod
@@ -169,20 +159,27 @@ class AnthropicProvider(Provider):
 
     @staticmethod
     def _extract_usage(response) -> dict[str, int] | None:
-        """usage → OpenAI 形状。"""
+        """从 Anthropic 响应提取完整 usage（含 Prompt 缓存读取与写入）。"""
         u = getattr(response, "usage", None)
         if u is None:
             return None
         try:
             in_t = int(getattr(u, "input_tokens", 0) or 0)
             out_t = int(getattr(u, "output_tokens", 0) or 0)
+            cache_read = int(getattr(u, "cache_read_input_tokens", 0) or 0)
+            cache_write = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
         except (TypeError, ValueError):
-            in_t, out_t = 0, 0
-        return {
+            in_t, out_t, cache_read, cache_write = 0, 0, 0, 0
+        res = {
             "prompt_tokens": in_t,
             "completion_tokens": out_t,
-            "total_tokens": in_t + out_t,
+            "total_tokens": in_t + out_t + cache_read,
         }
+        if cache_read > 0:
+            res["cache_read_tokens"] = cache_read
+        if cache_write > 0:
+            res["cache_write_tokens"] = cache_write
+        return res
 
     def chat(self, messages, *, model, tools=None, **kwargs) -> Response:
         system, ant_messages = self._convert_messages(messages)
@@ -263,9 +260,7 @@ class AnthropicProvider(Provider):
             tool_calls=self._extract_tool_calls(response.content),
         )
 
-    async def achat_stream(
-        self, messages, *, model, tools=None, **kwargs
-    ) -> AsyncIterator[StreamChunk]:
+    async def achat_stream(self, messages, *, model, tools=None, **kwargs) -> AsyncIterator[StreamChunk]:
         if self.async_client is None:
             raise RuntimeError("async_client not provided; cannot run async methods")
         system, ant_messages = self._convert_messages(messages)

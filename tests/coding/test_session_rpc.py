@@ -363,3 +363,34 @@ async def test_initialize_loads_existing_session_history(tmp_path: Path, monkeyp
     assert "messages" in init_resp["result"]
     assert len(init_resp["result"]["messages"]) >= 2
     assert init_resp["result"]["messages"][0]["content"] == "initial message"
+
+
+@pytest.mark.anyio
+async def test_session_stats_rpc(tmp_path: Path, monkeypatch):
+    """测试 session_stats RPC 对齐 Pi 原厂数据结构 (Message/Token/Cost 统计)。"""
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "hello stats"}})
+
+    stats_resp = await server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "session_stats", "params": {}})
+    assert stats_resp["result"]["status"] == "ok"
+    assert server.agent is not None
+    assert server.agent.session is not None
+    stats = stats_resp["result"]["stats"]
+    assert stats["sessionId"] == server.agent.session.id
+    assert stats["totalMessages"] >= 2
+    assert stats["userMessages"] >= 1
+    assert stats["assistantMessages"] >= 1
+    assert "tokens" in stats
+    assert "input" in stats["tokens"]
+    assert "output" in stats["tokens"]
+    assert "cacheRead" in stats["tokens"]
+    assert "cost" in stats
+    assert "usageBreakdown" in stats

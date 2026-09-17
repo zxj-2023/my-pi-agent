@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,9 +22,7 @@ class EditBlock(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    old_text: str = Field(
-        ..., alias="oldText", description="Exact original code block to replace"
-    )
+    old_text: str = Field(..., alias="oldText", description="Exact original code block to replace")
     new_text: str = Field(..., alias="newText", description="New code block to insert")
 
 
@@ -31,9 +30,7 @@ class EditResult(StringCompatibleToolResult):
     """Edit 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
-def make_edit_tool(
-    workspace: Path, mutation_queue: FileMutationQueue | None = None
-) -> Tool:
+def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = None) -> Tool:
     """创建工作区绑定的 edit 工具。
 
     - workspace: 工作区根目录路径
@@ -62,33 +59,34 @@ def make_edit_tool(
             if is_binary_file(target):
                 return f"Error: Cannot edit binary file: {path}"
 
-            # 1. 规范化 edits 入参
+            # 1. 规范化 edits 入参 (对标 Pi 官方 prepareEditArguments 容错)
+            raw_edits = edits
+            if isinstance(raw_edits, str):
+                try:
+                    parsed = json.loads(raw_edits)
+                    if isinstance(parsed, (list, dict)):
+                        raw_edits = parsed
+                except Exception:
+                    pass
+            elif isinstance(raw_edits, dict):
+                raw_edits = [raw_edits]
+
             edit_blocks: list[EditBlock] = []
-            if edits is not None:
-                if len(edits) == 0:
+            if raw_edits is not None and isinstance(raw_edits, list):
+                if len(raw_edits) == 0:
                     return "Error: No edits provided."
-                for item in edits:
+                for item in raw_edits:
                     if isinstance(item, EditBlock):
                         edit_blocks.append(item)
                     elif isinstance(item, dict):
-                        old_val = (
-                            item.get("oldText")
-                            if "oldText" in item
-                            else item.get("old_text")
-                        )
-                        new_val = (
-                            item.get("newText")
-                            if "newText" in item
-                            else item.get("new_text")
-                        )
+                        old_val = item.get("oldText") if "oldText" in item else item.get("old_text")
+                        new_val = item.get("newText") if "newText" in item else item.get("new_text")
                         if old_val is None or new_val is None:
                             return (
                                 "Error: Each edit block must contain 'oldText' (or 'old_text') "
                                 "and 'newText' (or 'new_text')."
                             )
-                        edit_blocks.append(
-                            EditBlock(old_text=str(old_val), new_text=str(new_val))
-                        )
+                        edit_blocks.append(EditBlock(old_text=str(old_val), new_text=str(new_val)))
                     else:
                         return f"Error: Invalid edit block type: {type(item).__name__}"
             elif old_text is not None and new_text is not None:
@@ -136,9 +134,7 @@ def make_edit_tool(
                         )
 
                     idx = normalized_content.find(old_norm)
-                    matches.append(
-                        (idx, idx + len(old_norm), old_norm, new_norm, i + 1)
-                    )
+                    matches.append((idx, idx + len(old_norm), old_norm, new_norm, i + 1))
 
                 # 5. 校验区间非重叠
                 matches.sort(key=lambda m: (m[0], m[1]))
@@ -153,12 +149,8 @@ def make_edit_tool(
 
                 # 6. 逆序替换（Reverse replacement）
                 modified_content = normalized_content
-                for start, end, _, new_norm, _ in sorted(
-                    matches, key=lambda m: m[0], reverse=True
-                ):
-                    modified_content = (
-                        modified_content[:start] + new_norm + modified_content[end:]
-                    )
+                for start, end, _, new_norm, _ in sorted(matches, key=lambda m: m[0], reverse=True):
+                    modified_content = modified_content[:start] + new_norm + modified_content[end:]
 
                 # 7. 生成 Unified Diff
                 orig_lines = normalized_content.splitlines(keepends=True)
@@ -175,21 +167,14 @@ def make_edit_tool(
                 )
 
                 # 8. 还原换行符与 BOM
-                final_text = (
-                    modified_content.replace("\n", "\r\n")
-                    if is_crlf
-                    else modified_content
-                )
+                final_text = modified_content.replace("\n", "\r\n") if is_crlf else modified_content
                 out_bytes = final_text.encode("utf-8")
                 if has_bom:
                     out_bytes = b"\xef\xbb\xbf" + out_bytes
 
                 target.write_bytes(out_bytes)
 
-                return (
-                    f"Successfully applied {len(edit_blocks)} edit(s) to {path}.\n"
-                    f"Diff:\n```diff\n{diff}```"
-                )
+                return f"Successfully applied {len(edit_blocks)} edit(s) to {path}.\nDiff:\n```diff\n{diff}```"
         except Exception as e:
             return f"Error: {e}"
 
@@ -204,6 +189,21 @@ def make_edit_tool(
     ) -> EditResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+
+        # 规范化 edits 入参 (对标 Pi 官方 prepareEditArguments 容错)
+        raw_edits = call_args.get("edits")
+        if isinstance(raw_edits, str):
+            try:
+                parsed = json.loads(raw_edits)
+                if isinstance(parsed, (list, dict)):
+                    raw_edits = parsed
+            except Exception:
+                pass
+        if isinstance(raw_edits, dict):
+            raw_edits = [raw_edits]
+        if raw_edits is not None:
+            call_args["edits"] = raw_edits
+
         if "oldText" in call_args and "old_text" not in call_args:
             call_args["old_text"] = call_args.pop("oldText")
         if "newText" in call_args and "new_text" not in call_args:

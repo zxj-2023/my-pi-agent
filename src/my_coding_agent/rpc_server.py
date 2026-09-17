@@ -4,7 +4,9 @@ import argparse
 import asyncio
 import inspect
 import json
+import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -13,12 +15,6 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from dotenv import find_dotenv, load_dotenv
-
-if sys.platform == "win32":
-    for stream in (sys.stdin, sys.stdout, sys.stderr):
-        reconfigure_fn = getattr(stream, "reconfigure", None)
-        if callable(reconfigure_fn):
-            reconfigure_fn(encoding="utf-8", errors="replace")
 
 from my_agent_core.events import (
     AgentEnd,
@@ -46,6 +42,7 @@ from my_agent_core.session.entries import (
     ThinkingLevelChangeEntry,
 )
 from my_agent_core.session.tree import lowest_common_ancestor
+from my_agent_core.skills import SkillManager
 from my_agent_core.tool_history import repair_tool_history
 from my_agent_llm import LLM, Config, Message
 from my_agent_llm.auth.manager import AuthManager
@@ -56,7 +53,14 @@ from my_coding_agent.paths import AgentPaths
 from my_coding_agent.permissions import PermissionGate
 from my_coding_agent.prompt import build_default_coding_prompt
 from my_coding_agent.settings import Settings, load_settings, save_settings
-from my_agent_core.skills import SkillManager
+
+logger = logging.getLogger(__name__)
+
+if sys.platform == "win32":
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure_fn = getattr(stream, "reconfigure", None)
+        if callable(reconfigure_fn):
+            reconfigure_fn(encoding="utf-8", errors="replace")
 
 
 def uuid7_str() -> str:
@@ -104,7 +108,7 @@ def serialize_message(m: Message) -> dict[str, Any]:
     }
 
 
-def serialize_event(event: Event) -> dict[str, Any]:
+def serialize_event(event: Event, stats: dict[str, Any] | None = None) -> dict[str, Any]:
     """将 Python 内部不可变事实事件序列化为对标 Pi AgentEvent 规范的 JSON 字典。"""
     if isinstance(event, AgentStart):
         return {
@@ -113,21 +117,27 @@ def serialize_event(event: Event) -> dict[str, Any]:
             "user_input": event.user_input,
         }
     elif isinstance(event, AgentEnd):
-        return {
+        res: dict[str, Any] = {
             "type": "agent_end",
             "iterations": event.iterations,
             "stop_reason": event.stop_reason,
             "final_text": event.final_text or "",
         }
+        if stats:
+            res.update(stats)
+        return res
     elif isinstance(event, TurnStart):
         return {
             "type": "turn_start",
             "iteration": event.iteration,
         }
     elif isinstance(event, TurnEnd):
-        return {
+        res = {
             "type": "turn_end",
         }
+        if stats:
+            res.update(stats)
+        return res
     elif isinstance(event, MessageStart):
         msg = event.message
         return {
@@ -160,13 +170,21 @@ def serialize_event(event: Event) -> dict[str, Any]:
         }
     elif isinstance(event, MessageEnd):
         msg = event.message
-        return {
+        meta = getattr(msg, "metadata", None) or {}
+        usage = meta.get("usage")
+        out: dict[str, Any] = {
             "type": "message_end",
             "message": {
                 "role": msg.role,
                 "content": msg.content or "",
+                "metadata": meta,
             },
         }
+        if usage:
+            out["usage"] = usage
+        if stats:
+            out.update(stats)
+        return out
     elif isinstance(event, ToolExecutionStart):
         return {
             "type": "tool_execution_start",
@@ -206,10 +224,23 @@ def serialize_event(event: Event) -> dict[str, Any]:
     return {"type": type(event).__name__.lower()}
 
 
+def resolve_model_context_window(model_name: str) -> int:
+    """归一化解析模型的实际最大上下文窗口大小（Tokens）。"""
+    m = (model_name or "").lower()
+    if m.startswith("gemini-"):
+        return 1048576
+    if "opus" in m:
+        return 250000
+    if "sonnet" in m:
+        return 200000
+    if "gpt-4o" in m:
+        return 128000
+    if "deepseek" in m:
+        return 1000000 if ("v4" in m or "flash" in m) else 64000
+    return 128000
+
+
 KNOWN_MODEL_CATALOG: list[dict[str, Any]] = [
-    # DeepSeek
-    {"id": "deepseek-chat", "provider": "deepseek", "name": "DeepSeek-V3", "contextWindow": 64000},
-    {"id": "deepseek-reasoner", "provider": "deepseek", "name": "DeepSeek-R1", "contextWindow": 64000},
     # OpenAI
     {"id": "gpt-4o", "provider": "openai", "name": "GPT-4o", "contextWindow": 128000},
     {"id": "gpt-4o-mini", "provider": "openai", "name": "GPT-4o mini", "contextWindow": 128000},
@@ -219,11 +250,387 @@ KNOWN_MODEL_CATALOG: list[dict[str, Any]] = [
     {"id": "claude-3-5-sonnet-20241022", "provider": "anthropic", "name": "Claude 3.5 Sonnet", "contextWindow": 200000},
     {"id": "claude-3-5-haiku-20241022", "provider": "anthropic", "name": "Claude 3.5 Haiku", "contextWindow": 200000},
     {"id": "claude-3-opus-20240229", "provider": "anthropic", "name": "Claude 3 Opus", "contextWindow": 200000},
-    # Antigravity (Google)
-    {"id": "gemini-3.8-flash", "provider": "antigravity", "name": "Gemini 3.8 Flash", "contextWindow": 1000000},
-    {"id": "gemini-2.5-pro", "provider": "antigravity", "name": "Gemini 2.5 Pro", "contextWindow": 1000000},
-    {"id": "gemini-2.5-flash", "provider": "antigravity", "name": "Gemini 2.5 Flash", "contextWindow": 1000000},
 ]
+
+
+def discover_deepseek_models_remote(
+    base_url: str = "https://api.deepseek.com", timeout: float = 5.0
+) -> list[dict[str, Any]]:
+    """主动向 DeepSeek 官方或兼容端点的 /models 接口发起探测，实时获取当前账户可用的最新模型列表。"""
+    try:
+        import httpx
+        from my_agent_llm.auth.manager import AuthManager
+
+        paths = AgentPaths()
+        auth_mgr = AuthManager(auth_path=paths.auth_path)
+        cred = auth_mgr.get_credential("deepseek")
+        api_key = None
+        if isinstance(cred, ApiKeyCredential):
+            api_key = cred.resolve_key()
+        elif isinstance(cred, OAuthCredential):
+            api_key = cred.access
+        if not api_key:
+            api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return []
+
+        target_base = os.environ.get("OPENAI_BASE_URL") or base_url
+        target_base_clean = target_base.rstrip("/")
+        models_url = f"{target_base_clean}/models"
+
+        res = httpx.get(
+            models_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout,
+        )
+        if res.status_code != 200:
+            return []
+
+        data = res.json()
+        models_data = data.get("data", [])
+        if not isinstance(models_data, list) or not models_data:
+            return []
+
+        models: list[dict[str, Any]] = []
+        for item in models_data:
+            m_id = item.get("id")
+            if not m_id:
+                continue
+            ctx = 1000000 if ("v4" in m_id or "flash" in m_id) else 64000
+            name = m_id
+            if m_id == "deepseek-chat":
+                name = "DeepSeek-V3"
+            elif m_id == "deepseek-reasoner":
+                name = "DeepSeek-R1"
+            elif m_id == "deepseek-flash":
+                name = "DeepSeek-Flash"
+            elif m_id == "deepseek-v4-pro":
+                name = "DeepSeek-V4 Pro"
+
+            models.append(
+                {
+                    "id": m_id,
+                    "provider": "deepseek",
+                    "name": name,
+                    "contextWindow": ctx,
+                }
+            )
+
+        if models:
+            cache_file = Path.home() / ".my-pi-agent" / "deepseek-model-catalog.json"
+            try:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    checked_at_ts = int(time.time() * 1000)
+                except Exception:
+                    checked_at_ts = 0
+                cache_data = {"version": 1, "checkedAt": checked_at_ts, "models": models}
+                cache_file.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception as exc:
+                logger.debug("写入 deepseek 缓存异常: %s", exc)
+
+        return models
+    except Exception as exc:
+        logger.debug("DeepSeek 远程动态模型探测失败: %s", exc)
+        return []
+
+
+def get_deepseek_catalog(force: bool = False) -> list[dict[str, Any]]:
+    """纯动态获取 DeepSeek 模型目录（带 4 小时本地缓存与远程动态探测）。"""
+    try:
+        now_ms = int(time.time() * 1000)
+    except Exception:
+        now_ms = 0
+
+    cache_file = Path.home() / ".my-pi-agent" / "deepseek-model-catalog.json"
+    if cache_file.exists():
+        try:
+            raw_text = cache_file.read_text(encoding="utf-8")
+            data = json.loads(raw_text)
+            checked_at = data.get("checkedAt", 0)
+            if not force and checked_at > 0 and (now_ms - checked_at < 4 * 60 * 60 * 1000):
+                cached = data.get("models", [])
+                if cached:
+                    return cached
+        except Exception as exc:
+            logger.debug("读取本地 deepseek 缓存异常: %s", exc)
+
+    remote = discover_deepseek_models_remote()
+    if remote:
+        return remote
+
+    # 仅当完全没有网络且没有本地缓存时的静态离线兜底
+    return [
+        {"id": "deepseek-chat", "provider": "deepseek", "name": "DeepSeek-V3", "contextWindow": 64000},
+        {"id": "deepseek-reasoner", "provider": "deepseek", "name": "DeepSeek-R1", "contextWindow": 64000},
+    ]
+
+
+def _antigravity_model_rank(model_id: str) -> tuple[int, int, str]:
+    """对标 pi-antigravity grouping.ts 的 comparePublicModels 优先级排序。"""
+    mid = model_id.lower()
+    version = 0
+    m = re.match(r"^gemini-(\d+)(?:\.(\d+))?", mid)
+    if m:
+        try:
+            v_major = int(m.group(1))
+            v_minor = int(m.group(2) or 0)
+            version = v_major * 1000 + v_minor
+        except (ValueError, TypeError):
+            version = 0
+
+    if "flash" in mid and "pro" not in mid:
+        return (0, -version, mid)
+    if mid.startswith("claude-opus"):
+        return (1, 0, mid)
+    if mid.startswith("claude-sonnet"):
+        return (2, 0, mid)
+    if mid.startswith("claude-"):
+        return (3, 0, mid)
+    if "pro" in mid:
+        return (4, -version, mid)
+    if mid.startswith("gemini-"):
+        return (5, -version, mid)
+    if mid.startswith("gpt-oss"):
+        return (6, 0, mid)
+    return (7, 0, mid)
+
+
+ANTIGRAVITY_CACHE_TTL_MS = 4 * 60 * 60 * 1000  # 4 小时刷新一次，对标 pi-antigravity
+
+
+def discover_antigravity_models_remote(timeout: float = 6.0) -> list[dict[str, Any]]:
+    """主动向 Google Cloud Code Assist 专有接口发起 fetchAvailableModels 探测，并按 pi-antigravity 规范完成规约折叠。"""
+    try:
+        import httpx
+        from my_agent_llm.auth.antigravity import ANTIGRAVITY_USER_AGENT, AntigravityAuthResolver
+
+        resolver = AntigravityAuthResolver()
+        creds = resolver.resolve_credentials()
+        if not creds:
+            return []
+
+        headers = {
+            "Authorization": f"Bearer {creds.access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": ANTIGRAVITY_USER_AGENT,
+        }
+        body = {"project": creds.project_id}
+
+        endpoints = [
+            "https://daily-cloudcode-pa.googleapis.com",
+            "https://cloudcode-pa.googleapis.com",
+        ]
+
+        raw_models: dict[str, Any] = {}
+        for ep in endpoints:
+            try:
+                res = httpx.post(
+                    f"{ep}/v1internal:fetchAvailableModels",
+                    headers=headers,
+                    json=body,
+                    timeout=timeout,
+                )
+                if res.status_code == 200:
+                    raw_models = res.json().get("models", {})
+                    if raw_models:
+                        break
+            except Exception:
+                continue
+
+        if not raw_models:
+            return []
+
+        # 归约折叠算法 (严格对齐 pi-antigravity 的 grouping.ts)
+        runtime_aliases = {
+            "gemini-3-flash-agent": "gemini-3.5-flash",
+            "gemini-pro-agent": "gemini-3.1-pro",
+        }
+        thinking_suffixes = [
+            "-extra-low",
+            "-extra-high",
+            "-thinking",
+            "-minimal",
+            "-medium",
+            "-high",
+            "-low",
+            "-tiered",
+        ]
+
+        public_groups: dict[str, dict[str, Any]] = {}
+        for runtime_id, info in raw_models.items():
+            if not re.match(r"^(gemini-|claude-|gpt-oss-)", runtime_id, re.I):
+                continue
+            if (
+                any(runtime_id.startswith(p) for p in ["chat_", "tab_", "MODEL_"])
+                or "image" in runtime_id
+                or "2.5" in runtime_id
+            ):
+                continue
+
+            public_id = runtime_aliases.get(runtime_id)
+            if not public_id:
+                cleaned = runtime_id
+                for sfx in thinking_suffixes:
+                    if cleaned.endswith(sfx):
+                        cleaned = cleaned[: -len(sfx)]
+                        break
+                public_id = cleaned
+
+            if public_id not in public_groups:
+                display_name = info.get("displayName") or public_id
+                clean_name = re.sub(
+                    r"\s*\((?:extra\s*low|extra\s*high|low|medium|high|minimal|thinking)\)\s*$",
+                    "",
+                    display_name,
+                    flags=re.I,
+                ).strip()
+                ctx_window = (
+                    1048576
+                    if public_id.startswith("gemini-")
+                    else (250000 if "opus" in public_id else (200000 if "sonnet" in public_id else 131072))
+                )
+                public_groups[public_id] = {
+                    "id": public_id,
+                    "provider": "antigravity",
+                    "name": f"{clean_name} (Antigravity)" if "Antigravity" not in clean_name else clean_name,
+                    "contextWindow": ctx_window,
+                }
+
+        models = list(public_groups.values())
+        models.sort(key=lambda x: _antigravity_model_rank(x["id"]))
+
+        # 写入持久化缓存
+        cache_file = Path.home() / ".my-pi-agent" / "antigravity-model-catalog.json"
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                checked_at_ts = int(time.time() * 1000)
+            except Exception:
+                checked_at_ts = 0
+            cache_data = {
+                "version": 1,
+                "checkedAt": checked_at_ts,
+                "models": models,
+            }
+            cache_file.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.debug("写入本地 antigravity-model-catalog.json 异常: %s", exc)
+
+        return models
+    except Exception as exc:
+        logger.debug("Antigravity 远程动态模型探测失败: %s", exc)
+        return []
+
+
+def get_antigravity_catalog(force: bool = False) -> list[dict[str, Any]]:
+    """动态获取对标 pi-antigravity 的公共模型目录。
+
+    1. 优先检查本地缓存（~/.my-pi-agent/ 或 ~/.pi/agent/），若在 4 小时有效期内且未强制刷新，直接返回；
+    2. 若缓存缺失或已过期，主动发起远程 fetchAvailableModels 探测并更新缓存；
+    3. 若网络或探测失败，回退至 pi-antigravity 官方 ANTIGRAVITY_MODELS 权威静态表。
+    """
+    try:
+        now_ms = int(time.time() * 1000)
+    except Exception:
+        now_ms = 0
+
+    # 1. 优先从本地缓存加载 (4小时TTL)
+    for cache_path in [
+        Path.home() / ".my-pi-agent" / "antigravity-model-catalog.json",
+        Path.home() / ".pi" / "agent" / "antigravity-model-catalog.json",
+    ]:
+        if cache_path.exists():
+            try:
+                raw_text = cache_path.read_text(encoding="utf-8")
+                data = json.loads(raw_text)
+                checked_at = data.get("checkedAt", 0)
+                if not force and checked_at > 0 and (now_ms - checked_at < ANTIGRAVITY_CACHE_TTL_MS):
+                    models = []
+                    seen = set()
+                    for m in data.get("models", []):
+                        mid = m.get("id")
+                        if not mid or mid in seen:
+                            continue
+                        if (
+                            any(mid.startswith(p) for p in ["chat_", "tab_", "MODEL_"])
+                            or "image" in mid
+                            or "2.5" in mid
+                        ):
+                            continue
+                        seen.add(mid)
+                        models.append(
+                            {
+                                "id": mid,
+                                "provider": "antigravity",
+                                "name": m.get("name") or f"{mid} (Antigravity)",
+                                "contextWindow": m.get("contextWindow", 1048576),
+                            }
+                        )
+                    if models:
+                        models.sort(key=lambda x: _antigravity_model_rank(x["id"]))
+                        return models
+            except Exception as exc:
+                logger.debug("读取本地缓存 %s 异常: %s", cache_path, exc)
+
+    # 2. 尝试远程动态探测
+    remote_models = discover_antigravity_models_remote()
+    if remote_models:
+        return remote_models
+
+    # 3. pi-antigravity 官方 ANTIGRAVITY_MODELS 权威静态表
+    fallback = [
+        {
+            "id": "gemini-3.8-flash",
+            "provider": "antigravity",
+            "name": "Gemini 3.8 Flash (Antigravity)",
+            "contextWindow": 1048576,
+        },
+        {
+            "id": "gemini-3.7-flash",
+            "provider": "antigravity",
+            "name": "Gemini 3.7 Flash (Antigravity)",
+            "contextWindow": 1048576,
+        },
+        {
+            "id": "gemini-3.6-flash",
+            "provider": "antigravity",
+            "name": "Gemini 3.6 Flash (Antigravity)",
+            "contextWindow": 1048576,
+        },
+        {
+            "id": "gemini-3.5-flash",
+            "provider": "antigravity",
+            "name": "Gemini 3.5 Flash (Antigravity)",
+            "contextWindow": 1048576,
+        },
+        {
+            "id": "gemini-3.1-pro",
+            "provider": "antigravity",
+            "name": "Gemini 3.1 Pro (Antigravity)",
+            "contextWindow": 1048576,
+        },
+        {
+            "id": "claude-opus-4-6",
+            "provider": "antigravity",
+            "name": "Claude Opus 4.6 (Antigravity)",
+            "contextWindow": 250000,
+        },
+        {
+            "id": "claude-sonnet-4-6",
+            "provider": "antigravity",
+            "name": "Claude Sonnet 4.6 (Antigravity)",
+            "contextWindow": 200000,
+        },
+        {
+            "id": "gpt-oss-120b",
+            "provider": "antigravity",
+            "name": "GPT-OSS 120B (Antigravity)",
+            "contextWindow": 131072,
+        },
+    ]
+    fallback.sort(key=lambda x: _antigravity_model_rank(x["id"]))
+    return fallback
 
 
 class RpcServer:
@@ -253,6 +660,15 @@ class RpcServer:
         self.is_shutting_down = False
         self._write_lock = threading.Lock()
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self.session_usage: dict[str, Any] = {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0,
+            "cost": 0.0,
+            "latestCacheHitRate": 0.0,
+        }
 
     def emit_json(self, payload: dict[str, Any]) -> None:
         """向 stdout 写入单行 JSON 并强制 flush。"""
@@ -295,6 +711,83 @@ class RpcServer:
 
         self.emit_json(resp)
         return resp
+
+    def _compute_session_usage(self, session: Session, model_name: str) -> dict[str, Any]:
+        """对标 Pi 规范，从会话历史中提取所有 Assistant 消息的 usage 累加统计。"""
+        totals: dict[str, Any] = {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0,
+            "cost": 0.0,
+            "latestCacheHitRate": 0.0,
+        }
+        for msg in session.get_full_history_messages():
+            if msg.role == "assistant" and msg.metadata:
+                usage = msg.metadata.get("usage")
+                if usage and isinstance(usage, dict):
+                    prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
+                    comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
+                    cache_read = (
+                        usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                    )
+                    cache_write = (
+                        usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
+                    )
+                    total_tok = usage.get("total_tokens") or usage.get("total") or (prompt_tok + comp_tok)
+
+                    totals["input"] += prompt_tok
+                    totals["output"] += comp_tok
+                    totals["cacheRead"] += cache_read
+                    totals["cacheWrite"] += cache_write
+                    totals["total"] += total_tok
+
+                    total_prompt = prompt_tok + cache_read + cache_write
+                    if total_prompt > 0 and cache_read > 0:
+                        totals["latestCacheHitRate"] = (cache_read / total_prompt) * 100.0
+
+                    model_lower = (model_name or "").lower()
+                    if "gemini" in model_lower:
+                        totals["cost"] += (prompt_tok * 0.1 + comp_tok * 0.4 + cache_read * 0.025) / 1000000.0
+                    elif "claude" in model_lower:
+                        if "opus" in model_lower:
+                            totals["cost"] += (prompt_tok * 15.0 + comp_tok * 75.0 + cache_read * 1.5) / 1000000.0
+                        else:
+                            totals["cost"] += (prompt_tok * 3.0 + comp_tok * 15.0 + cache_read * 0.3) / 1000000.0
+                    elif "deepseek" in model_lower:
+                        totals["cost"] += (prompt_tok * 0.14 + comp_tok * 0.28 + cache_read * 0.014) / 1000000.0
+                    elif "gpt-4o" in model_lower:
+                        totals["cost"] += (prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25) / 1000000.0
+
+        # 对标 Pi 原厂 calculateContextTokens：提取最后一次推理生效的 Context 大小
+        last_context_tokens = 0
+        history_msgs = session.get_full_history_messages()
+        for msg in reversed(history_msgs):
+            if msg.role == "assistant" and msg.metadata:
+                usage = msg.metadata.get("usage")
+                if usage and isinstance(usage, dict):
+                    prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
+                    comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
+                    cache_read = (
+                        usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                    )
+                    cache_write = (
+                        usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
+                    )
+                    tot = prompt_tok + comp_tok + cache_read + cache_write
+                    if tot > 0:
+                        last_context_tokens = tot
+                        break
+
+        if not last_context_tokens and history_msgs:
+            total_chars = sum(len(m.content or "") for m in history_msgs)
+            last_context_tokens = max(1, total_chars // 4)
+
+        totals["contextTokens"] = last_context_tokens
+        totals["cacheHitRate"] = totals["latestCacheHitRate"]
+
+        return totals
 
     def _resolve_initial_llm(
         self,
@@ -470,12 +963,20 @@ class RpcServer:
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
         actual_model = getattr(getattr(self.agent.agent.llm, "config", None), "model", "default")
+        actual_provider = getattr(getattr(self.agent.agent.llm, "config", None), "provider", "default")
+        ctx_win = resolve_model_context_window(actual_model)
+        self.session_usage = self._compute_session_usage(target_session, actual_model)
+
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "workspace": str(workspace_path),
                 "model": actual_model,
+                "provider": actual_provider,
+                "context_window": ctx_win,
+                "usage": self.session_usage,
+                "thinking_level": getattr(self.agent, "thinking_level", "off"),
                 "session_id": target_session.id,
                 "session_file": str(target_session.path) if target_session.path else "",
                 "session_name": target_session.metadata.get("name")
@@ -502,7 +1003,81 @@ class RpcServer:
 
         text = params.get("text", "")
         async for event in self.agent.run_stream(text):
-            serialized = serialize_event(event)
+            if isinstance(event, MessageEnd) and event.message and event.message.role == "assistant":
+                meta = event.message.metadata or {}
+                usage = meta.get("usage")
+                if usage and isinstance(usage, dict):
+                    prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
+                    comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
+                    cache_read = (
+                        usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                    )
+                    cache_write = (
+                        usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
+                    )
+                    total_tok = usage.get("total_tokens") or usage.get("total") or (prompt_tok + comp_tok)
+
+                    self.session_usage["input"] += prompt_tok
+                    self.session_usage["output"] += comp_tok
+                    self.session_usage["cacheRead"] += cache_read
+                    self.session_usage["cacheWrite"] += cache_write
+                    self.session_usage["total"] += total_tok
+                    self.session_usage["contextTokens"] = prompt_tok + comp_tok + cache_read + cache_write
+
+                    total_prompt = prompt_tok + cache_read + cache_write
+                    if total_prompt > 0 and cache_read > 0:
+                        hit_rate = (cache_read / total_prompt) * 100.0
+                        self.session_usage["latestCacheHitRate"] = hit_rate
+                        self.session_usage["cacheHitRate"] = hit_rate
+
+                    model_id = getattr(self.agent.agent, "model", "") or ""
+                    model_lower = model_id.lower()
+                    if "gemini" in model_lower:
+                        self.session_usage["cost"] += (
+                            prompt_tok * 0.1 + comp_tok * 0.4 + cache_read * 0.025
+                        ) / 1000000.0
+                    elif "claude" in model_lower:
+                        if "opus" in model_lower:
+                            self.session_usage["cost"] += (
+                                prompt_tok * 15.0 + comp_tok * 75.0 + cache_read * 1.5
+                            ) / 1000000.0
+                        else:
+                            self.session_usage["cost"] += (
+                                prompt_tok * 3.0 + comp_tok * 15.0 + cache_read * 0.3
+                            ) / 1000000.0
+                    elif "deepseek" in model_lower:
+                        self.session_usage["cost"] += (
+                            prompt_tok * 0.14 + comp_tok * 0.28 + cache_read * 0.014
+                        ) / 1000000.0
+                    elif "gpt-4o" in model_lower:
+                        self.session_usage["cost"] += (
+                            prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25
+                        ) / 1000000.0
+
+            model_name = getattr(self.agent.agent, "model", "") if self.agent else ""
+            ctx_win = resolve_model_context_window(model_name)
+            context_tok = 0
+            ctx_inst = getattr(self.agent, "_ctx", None) or getattr(getattr(self.agent, "agent", None), "_ctx", None)
+            if ctx_inst is not None:
+                context_tok = getattr(ctx_inst, "total_tokens", 0) or getattr(ctx_inst, "last_token_count", 0)
+            if not context_tok:
+                context_tok = self.session_usage["total"]
+
+            stats = {
+                "usage": {
+                    "input": self.session_usage["input"],
+                    "output": self.session_usage["output"],
+                    "cacheRead": self.session_usage["cacheRead"],
+                    "cacheWrite": self.session_usage["cacheWrite"],
+                    "cacheHitRate": self.session_usage["latestCacheHitRate"],
+                    "total": self.session_usage["total"],
+                    "contextTokens": context_tok,
+                    "cost": self.session_usage["cost"],
+                },
+                "contextWindow": ctx_win,
+            }
+
+            serialized = serialize_event(event, stats=stats)
             self.send_notification("event", serialized)
 
         return self.send_response(req_id, result={"status": "completed"})
@@ -521,6 +1096,8 @@ class RpcServer:
         if provider == "antigravity":
             home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "~").expanduser()
             pi_auth_candidates = [
+                paths.auth_path,
+                home / ".my-pi-agent" / "auth.json",
                 home / ".pi" / "agent" / "auth.json",
                 home / ".pi" / "auth.json",
             ]
@@ -577,7 +1154,7 @@ class RpcServer:
                     req_id,
                     result={
                         "status": "error",
-                        "message": "未在 ~/.pi/agent/auth.json 中检测到已存的 pi-antigravity 凭据。请确保已在 Pi 中使用过 antigravity 或提供 Access Token。",
+                        "message": "未在 ~/.my-pi-agent/auth.json 或 ~/.pi/agent/auth.json 中检测到 antigravity 凭据。请将包含 antigravity 字段的 auth.json 放置到上述路径，或直接在登录框中粘贴 Access Token。",
                     },
                 )
 
@@ -683,12 +1260,20 @@ class RpcServer:
                         sid = header.get("id") or f.stem
                         cwd_val = header.get("cwd", "")
                         created_val = header.get("createdAt") or header.get("created_at") or os.path.getctime(f)
+                        meta_obj = header.get("metadata") or {}
                         s_name = (
-                            header.get("name")
-                            or header.get("title")
-                            or header.get("metadata", {}).get("name")
-                            or header.get("metadata", {}).get("title")
+                            header.get("name") or header.get("title") or meta_obj.get("name") or meta_obj.get("title")
                         )
+                        parent_session = (
+                            header.get("parentSession")
+                            or header.get("parent_session")
+                            or header.get("parentSessionId")
+                            or header.get("parent_session_id")
+                            or meta_obj.get("parent_session_path")
+                            or meta_obj.get("parent_session_id")
+                            or meta_obj.get("parentSession")
+                        )
+                        first_msg_text = None
                         msg_count = 0
                         for line in fh:
                             line_str = line.strip()
@@ -699,6 +1284,10 @@ class RpcServer:
                                 etype = entry_data.get("type")
                                 if etype == "message":
                                     msg_count += 1
+                                    if first_msg_text is None and entry_data.get("message", {}).get("role") == "user":
+                                        content = entry_data.get("message", {}).get("content", "")
+                                        if isinstance(content, str) and content.strip():
+                                            first_msg_text = content.strip().splitlines()[0][:60]
                                 elif etype in ("session_info", "sessionInfo"):
                                     latest_name = entry_data.get("name") or entry_data.get("title")
                                     if latest_name:
@@ -710,12 +1299,15 @@ class RpcServer:
                         sessions_meta.append(
                             {
                                 "id": sid,
-                                "name": s_name or sid,
+                                "name": s_name or first_msg_text or sid,
+                                "first_message": first_msg_text,
                                 "path": str(f.resolve()),
                                 "cwd": cwd_val,
                                 "modified": modified_val,
                                 "created_at": created_val,
                                 "message_count": msg_count,
+                                "parent_session": parent_session,
+                                "parent_session_path": parent_session,
                             }
                         )
                 except Exception:
@@ -823,6 +1415,10 @@ class RpcServer:
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
+        actual_model = getattr(self.agent.agent, "model", "default")
+        ctx_win = resolve_model_context_window(actual_model)
+        self.session_usage = self._compute_session_usage(new_session, actual_model)
+
         return self.send_response(
             req_id,
             result={
@@ -831,9 +1427,90 @@ class RpcServer:
                 "session_name": new_session.metadata.get("name") or new_session.metadata.get("title") or new_session.id,
                 "session_file": str(target_file),
                 "cwd": new_session.cwd,
+                "model": actual_model,
+                "context_window": ctx_win,
+                "usage": self.session_usage,
                 "messages": messages_repr,
             },
         )
+
+    def _handle_session_delete(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """删除指定历史会话文件（严格对标 Pi 规范，禁止删除当前正在使用的活跃会话）。"""
+        session_id = params.get("session_id") or params.get("id") or params.get("path") or params.get("session_file")
+        if not session_id:
+            return self.send_response(
+                req_id,
+                error={"code": -32602, "message": "Missing session_id parameter"},
+            )
+
+        # 检查是否为当前正在运行的活跃会话
+        current_id = self.agent.session.id if self.agent and self.agent.session else None
+        current_path = (
+            str(self.agent.session.path) if self.agent and self.agent.session and self.agent.session.path else ""
+        )
+
+        if session_id == current_id or session_id == current_path:
+            return self.send_response(
+                req_id,
+                error={"code": -32005, "message": "Cannot delete the currently active session"},
+            )
+
+        paths = self.paths or AgentPaths()
+        workspace_path = Path(self.agent.workspace if self.agent else params.get("workspace", ".")).resolve()
+        session_dir = paths.project_session_dir(workspace_path)
+
+        target_file: Path | None = None
+        cand = Path(session_id)
+        if cand.is_file():
+            cand_resolved = cand.resolve()
+            if cand_resolved.is_relative_to(paths.sessions_dir) or cand_resolved.is_relative_to(workspace_path):
+                target_file = cand_resolved
+        elif "/" not in session_id and "\\" not in session_id and (session_dir / f"{session_id}.jsonl").is_file():
+            target_file = session_dir / f"{session_id}.jsonl"
+        elif "/" not in session_id and "\\" not in session_id and (session_dir / session_id).is_file():
+            target_file = session_dir / session_id
+        else:
+            if session_dir.exists():
+                for f in session_dir.glob("*.jsonl"):
+                    if f.stem == session_id or f.stem.startswith(session_id):
+                        target_file = f
+                        break
+            if target_file is None and paths.sessions_dir.exists():
+                for s_dir in paths.sessions_dir.iterdir():
+                    if s_dir.is_dir():
+                        for f in s_dir.glob("*.jsonl"):
+                            if f.stem == session_id or f.stem.startswith(session_id):
+                                target_file = f
+                                break
+                    if target_file is not None:
+                        break
+
+        if target_file is None or not target_file.is_file():
+            return self.send_response(
+                req_id,
+                error={"code": -32004, "message": f"Session file not found for '{session_id}'"},
+            )
+
+        if current_path and target_file.resolve() == Path(current_path).resolve():
+            return self.send_response(
+                req_id,
+                error={"code": -32005, "message": "Cannot delete the currently active session"},
+            )
+
+        try:
+            target_file.unlink()
+            return self.send_response(
+                req_id,
+                result={
+                    "status": "ok",
+                    "deleted": str(target_file),
+                },
+            )
+        except Exception as exc:
+            return self.send_response(
+                req_id,
+                error={"code": -32000, "message": f"Failed to delete session file: {exc}"},
+            )
 
     def _handle_session_history(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         if not self.agent:
@@ -852,6 +1529,154 @@ class RpcServer:
             },
         )
 
+    def _handle_session_stats(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
+        """对标 Pi 官方 getSessionStats()，汇总会话全局 Message/Token/Cost 统计。"""
+        if not self.agent or not self.agent.session:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+
+        session = self.agent.session
+        entries = list(session.tree.entries.values())
+        session_file = str(session.path) if session.path else "In-memory"
+        session_id = session.id
+        session_name = session.metadata.get("name") or session.metadata.get("title")
+
+        user_messages = 0
+        assistant_messages = 0
+        tool_calls = 0
+        tool_results = 0
+        total_messages = 0
+
+        input_tokens = 0
+        output_tokens = 0
+        cache_read_tokens = 0
+        cache_write_tokens = 0
+        total_cost = 0.0
+
+        usage_by_key: dict[str, dict[str, Any]] = {}
+        prev_prompt_tokens = 0
+        prev_reported_cache = False
+        missed_tokens_total = 0
+        missed_cost_total = 0.0
+        miss_count_total = 0
+
+        for msg in session.get_full_history_messages():
+            role = msg.role
+            total_messages += 1
+            if role == "user":
+                user_messages += 1
+            elif role == "tool":
+                tool_results += 1
+            elif role == "assistant":
+                assistant_messages += 1
+                if msg.metadata and msg.metadata.get("tool_calls"):
+                    tool_calls += len(msg.metadata["tool_calls"])
+
+                usage = msg.metadata.get("usage") if msg.metadata else None
+                if usage and isinstance(usage, dict):
+                    try:
+                        in_t = int(usage.get("prompt_tokens") or usage.get("input") or 0)
+                        out_t = int(usage.get("completion_tokens") or usage.get("output") or 0)
+                        cr_t = int(
+                            usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                        )
+                        cw_t = int(
+                            usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite") or 0
+                        )
+                    except (ValueError, TypeError):
+                        in_t, out_t, cr_t, cw_t = 0, 0, 0, 0
+
+                    input_tokens += in_t
+                    output_tokens += out_t
+                    cache_read_tokens += cr_t
+                    cache_write_tokens += cw_t
+
+                    model_str = getattr(msg, "model", None) or self.agent.agent.model or "default"
+                    provider_str = getattr(msg, "provider", None) or getattr(self.agent.agent.llm, "provider", "model")
+                    breakdown_key = model_str if "/" in model_str else f"{provider_str}/{model_str}"
+
+                    step_cost = 0.0
+                    m_lower = breakdown_key.lower()
+                    if "gemini" in m_lower:
+                        step_cost = (in_t * 0.1 + out_t * 0.4 + cr_t * 0.025) / 1000000.0
+                    elif "claude" in m_lower:
+                        if "opus" in m_lower:
+                            step_cost = (in_t * 15.0 + out_t * 75.0 + cr_t * 1.5) / 1000000.0
+                        else:
+                            step_cost = (in_t * 3.0 + out_t * 15.0 + cr_t * 0.3) / 1000000.0
+                    elif "deepseek" in m_lower:
+                        step_cost = (in_t * 0.14 + out_t * 0.28 + cr_t * 0.014) / 1000000.0
+                    elif "gpt-4o" in m_lower:
+                        step_cost = (in_t * 2.5 + out_t * 10.0 + cr_t * 1.25) / 1000000.0
+                    else:
+                        step_cost = (in_t * 1.0 + out_t * 3.0 + cr_t * 0.5) / 1000000.0
+
+                    total_cost += step_cost
+
+                    if breakdown_key not in usage_by_key:
+                        usage_by_key[breakdown_key] = {"key": breakdown_key, "cost": 0.0, "tokens": 0}
+                    usage_by_key[breakdown_key]["cost"] += step_cost
+                    usage_by_key[breakdown_key]["tokens"] += in_t + out_t + cr_t + cw_t
+
+                    prompt_t = in_t + cr_t + cw_t
+                    if prev_prompt_tokens > 0 and (cr_t > 0 or prev_reported_cache):
+                        missed = min(prev_prompt_tokens, prompt_t) - cr_t
+                        if missed > 1000:
+                            missed_tokens_total += missed
+                            miss_count_total += 1
+                            missed_cost_total += (missed * 0.1) / 1000000.0
+
+                    prev_prompt_tokens = prompt_t
+                    prev_reported_cache = cr_t > 0 or cw_t > 0
+
+        for entry in entries:
+            if getattr(entry, "type", "") in ("compaction", "branch_summary"):
+                summary_usage = getattr(entry, "usage", None) or getattr(entry, "metadata", {}).get("usage")
+                if summary_usage and isinstance(summary_usage, dict):
+                    try:
+                        in_t = int(summary_usage.get("prompt_tokens") or summary_usage.get("input") or 0)
+                        out_t = int(summary_usage.get("completion_tokens") or summary_usage.get("output") or 0)
+                    except (ValueError, TypeError):
+                        in_t, out_t = 0, 0
+                    c_cost = (in_t * 0.5 + out_t * 1.5) / 1000000.0
+                    key = "Tools/summaries"
+                    if key not in usage_by_key:
+                        usage_by_key[key] = {"key": key, "cost": 0.0, "tokens": 0}
+                    usage_by_key[key]["cost"] += c_cost
+                    usage_by_key[key]["tokens"] += in_t + out_t
+                    total_cost += c_cost
+
+        breakdown_list = sorted(usage_by_key.values(), key=lambda x: x["cost"], reverse=True)
+
+        stats = {
+            "sessionFile": session_file,
+            "sessionId": session_id,
+            "sessionName": session_name,
+            "totalMessages": total_messages,
+            "userMessages": user_messages,
+            "assistantMessages": assistant_messages,
+            "toolCalls": tool_calls,
+            "toolResults": tool_results,
+            "tokens": {
+                "input": input_tokens,
+                "output": output_tokens,
+                "cacheRead": cache_read_tokens,
+                "cacheWrite": cache_write_tokens,
+                "total": input_tokens + output_tokens + cache_read_tokens + cache_write_tokens,
+            },
+            "cost": total_cost,
+            "usageBreakdown": breakdown_list,
+            "cacheWaste": {
+                "missedTokens": missed_tokens_total,
+                "missedCost": missed_cost_total,
+                "missCount": miss_count_total,
+            },
+        }
+
+        return self.send_response(req_id, result={"status": "ok", "stats": stats})
+
     async def _handle_session_compact(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         if not self.agent:
             return self.send_response(
@@ -866,6 +1691,7 @@ class RpcServer:
         tokens_before = info.tokens_before if info else 0
         tokens_after = info.tokens_after if info else 0
         summary = info.summary if info else ""
+        self.session_usage["contextTokens"] = tokens_after
 
         return self.send_response(
             req_id,
@@ -989,6 +1815,7 @@ class RpcServer:
             result={
                 "status": "ok",
                 "nodes": nodes,
+                "tree": nodes,
                 "active_leaf_id": active_leaf_id,
                 "root_id": root_id,
             },
@@ -1001,7 +1828,7 @@ class RpcServer:
                 error={"code": -32001, "message": "Agent not initialized"},
             )
 
-        target_id = params.get("target_id") or params.get("entry_id") or params.get("id")
+        target_id = params.get("target_id") or params.get("node_id") or params.get("entry_id") or params.get("id")
         if not target_id:
             return self.send_response(
                 req_id,
@@ -1163,7 +1990,13 @@ class RpcServer:
         new_session = Session(path=new_session_file, cwd=str(workspace_path))
         new_session.id = new_session_id
         new_session.metadata["parent_session_id"] = session.id
+        new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
+        new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
         new_session.metadata["forked_from_entry_id"] = entry_id
+        if prompt_text:
+            fork_title = prompt_text.strip().splitlines()[0][:60]
+            new_session.metadata["name"] = fork_title
+            new_session.metadata["title"] = fork_title
 
         for entry in path_entries:
             if isinstance(entry, MessageEntry):
@@ -1232,6 +2065,12 @@ class RpcServer:
         new_session = Session(path=new_session_file, cwd=str(workspace_path))
         new_session.id = new_session_id
         new_session.metadata["parent_session_id"] = session.id
+        new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
+        new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
+        cur_name = session.metadata.get("name") or session.metadata.get("title")
+        clone_title = f"{cur_name} (clone)" if cur_name else f"Clone of {session.id[:8]}"
+        new_session.metadata["name"] = clone_title
+        new_session.metadata["title"] = clone_title
         if active_leaf_id:
             new_session.metadata["cloned_from_leaf_id"] = active_leaf_id
 
@@ -1524,16 +2363,22 @@ class RpcServer:
         paths = self.paths or AgentPaths()
         auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
 
+        openai_base_url = os.environ.get("OPENAI_BASE_URL", "").strip().lower()
+        is_deepseek_proxy = "deepseek" in openai_base_url
+
         for p in ["deepseek", "openai", "anthropic", "antigravity"]:
             if auth_mgr.get_credential(p) is not None:
                 configured.add(p)
+                continue
+            if p == "openai" and is_deepseek_proxy:
                 continue
             key_name = "ANTIGRAVITY_ACCESS_TOKEN" if p == "antigravity" else f"{p.upper()}_API_KEY"
             if os.environ.get(key_name):
                 configured.add(p)
                 continue
-            if p == "openai" and os.environ.get("OPENAI_API_KEY"):
-                configured.add("openai")
+            if p == "deepseek" and is_deepseek_proxy and os.environ.get("OPENAI_API_KEY"):
+                configured.add("deepseek")
+                continue
             if p == "antigravity":
                 try:
                     from my_agent_llm.auth.antigravity import AntigravityAuthResolver
@@ -1561,6 +2406,48 @@ class RpcServer:
                         **item,
                         "is_configured": is_configured,
                     }
+                )
+
+        # 动态补充对标 pi-antigravity 的模型目录
+        is_antigravity_configured = "antigravity" in configured_providers
+        if scope == "all" or is_antigravity_configured:
+            for item in get_antigravity_catalog():
+                models.append(
+                    {
+                        **item,
+                        "is_configured": is_antigravity_configured,
+                    }
+                )
+
+        # 动态补充对标 DeepSeek 的模型目录
+        is_deepseek_configured = "deepseek" in configured_providers
+        if scope == "all" or is_deepseek_configured:
+            for item in get_deepseek_catalog():
+                models.append(
+                    {
+                        **item,
+                        "is_configured": is_deepseek_configured,
+                    }
+                )
+
+        # 动态补充环境变量中显式配置的自定义模型 (例如 OPENAI_MODEL=deepseek-flash 或 DEEPSEEK_MODEL)
+        custom_model = os.environ.get("OPENAI_MODEL") or os.environ.get("DEEPSEEK_MODEL")
+        if custom_model and not any(m["id"] == custom_model for m in models):
+            prov = (
+                "deepseek"
+                if "deepseek" in configured_providers
+                else ("openai" if "openai" in configured_providers else "default")
+            )
+            if prov in configured_providers or scope == "all":
+                models.insert(
+                    0,
+                    {
+                        "id": custom_model,
+                        "provider": prov,
+                        "name": custom_model,
+                        "contextWindow": 64000 if prov == "deepseek" else 128000,
+                        "is_configured": prov in configured_providers,
+                    },
                 )
 
         curr = "default"
@@ -1797,8 +2684,12 @@ class RpcServer:
                 return self._handle_session_list(req_id, params)
             elif method == "session_resume":
                 return self._handle_session_resume(req_id, params)
+            elif method == "session_delete":
+                return self._handle_session_delete(req_id, params)
             elif method == "session_history":
                 return self._handle_session_history(req_id, params)
+            elif method == "session_stats":
+                return self._handle_session_stats(req_id, params)
             elif method == "session_compact":
                 return await self._handle_session_compact(req_id, params)
             elif method == "session_new":

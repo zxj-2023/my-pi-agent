@@ -389,12 +389,16 @@ class ContextManager:
             return list(messages)  # 降级：不压缩
         if not summary.strip():
             return list(messages)  # 空摘要视同失败
+        view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + summary)] + retained
+        self._last_view_chars = _chars_of(view)
+        tokens_after = estimate_tokens(view, self._ratio)
+
         self._summary = summary
         self._covered_count = cut
         self._retained_tail = [m.model_dump() for m in retained]
         self.pending_compaction = CompactionInfo(
             tokens_before=tokens_before,
-            tokens_after=estimate_tokens(retained, self._ratio),
+            tokens_after=tokens_after,
             summarized_count=cut,
             summary=summary,
             covered_count=cut,
@@ -402,8 +406,6 @@ class ContextManager:
             summary_usage=usage,
             summary_model=model,
         )
-        view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + summary)] + retained
-        self._last_view_chars = _chars_of(view)
         return view
 
     def _find_cut(self, messages: list[Message]) -> int | None:
