@@ -42,29 +42,29 @@
 
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
-| `initialize` | `{"workspace": string, "model"?: string, "thinking"?: string}` | `{"server_version": "...", "default_model": "...", "thinking_level": "...", "workspace": "..."}` | 双端协议握手，同步工作区与默认运行时上下文 |
+| `initialize` | `{"workspace"?: string, "model"?: string, "thinking"?: string, "mode"?: string, "continue"?: boolean, "new_session"?: boolean, "name"?: string}` | `{"status": "ok", "workspace": "...", "model": "...", "provider": "...", "context_window": N, "usage": {...}, "thinking_level": "...", "session_id": "...", "session_file": "...", "session_name": "...", "messages": [...]}` | 双端协议握手，同步工作区与默认运行时上下文 |
 | `shutdown` | `{}` | `{"status": "ok"}` | 优雅终止 Python 内核，妥善释放子进程与会话文件锁 |
-| `prompt` | `{"text": string}` | `{"status": "ok"}` | 发起用户提问，触发 ReAct 微内核调度，后续事件以 `event` 异步推送 |
-| `steer` | `{"text": string}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令 |
-| `followup` | `{"text": string}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
-| `abort` | `{}` | `{"status": "aborted"}` | 协作式中断当前正在运行的模型流式生成或工具执行进程 |
+| `prompt` | `{"text": string}` | `{"status": "completed"}` | 发起用户提问，触发 ReAct 微内核调度，后续事件以 `event` 异步推送 |
+| `steer` | `{"message": string}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令 |
+| `followup` | `{"message": string}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
+| `abort` | `{}` | `{"status": "ok"}` | 协作式中断当前正在运行的模型流式生成或工具执行进程 |
 
 #### (2) 会话管理与 DAG 分支漫游
 
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
-| `session_new` | `{"name"?: string}` | `{"session_id": "...", "session_name": "...", "status": "ok"}` | 在当前工作区会话分区创建全新的空白会话 |
+| `session_new` | `{}` | `{"status": "ok", "session_id": "...", "session_file": "...", "messages": []}` | 在当前工作区会话分区创建全新的空白会话 |
 | `session_name` | `{"name": string}` | `{"name": "...", "status": "ok"}` | 重命名当前活跃会话名称 |
 | `session_list` | `{}` | `{"sessions": [...]}` | 获取当前工作区的所有历史会话元数据（含消息数、更新时间） |
-| `session_resume` | `{"session_id": string}` | `{"session_id": "...", "messages": [...]}` | 恢复指定会话历史，回传完整消息快照供前端视口平滑重建 |
-| `session_delete` | `{"session_id": string}` | `{"deleted": true, "session_id": "..."}` | 删除指定的废弃历史会话（**拦截删除当前正在使用的活跃会话**） |
-| `session_history` | `{"session_id"?: string}` | `{"messages": [...]}` | 检索指定会话或当前会话的线性消息列表 |
+| `session_resume` | `{"session_id": string}` | `{"status": "ok", "session_id": "...", "session_name": "...", "session_file": "...", "messages": [...]}` | 恢复指定会话历史，回传完整消息快照供前端视口平滑重建 |
+| `session_delete` | `{"session_id": string}` | `{"status": "ok", "deleted": string}` | 删除指定的废弃历史会话（**拦截删除当前正在使用的活跃会话**） |
+| `session_history` | `{"session_id"?: string}` | `{"status": "ok", "session_id": "...", "session_name": "...", "messages": [...]}` | 检索指定会话或当前会话的线性消息列表 |
 | `session_stats` | `{"session_id"?: string}` | `{sessionId, sessionFile, totalMessages, tokens, cost, ...}` | 获取 1:1 对标 Pi 原厂的财务级指标详细统计报表 |
 | `session_compact` | `{"instructions"?: string}` | `{"summary": "...", "tokens_before": N, "tokens_after": M}` | 触发廉价上下文压缩与 LLM 摘要沉淀 |
 | `session_tree` | `{"session_id"?: string}` | `{"nodes": [...], "tree": [...]}` | 获取当前会话完整的 DAG 分支图、节点状态与父子拓扑 |
-| `session_branch` | `{"node_id": string}` | `{"messages": [...], "status": "ok"}` | 将当前会话指针切换回溯到历史任一节点状态 |
-| `session_fork` | `{"entry_id": string}` | `{"new_session_id": "...", "status": "ok"}` | 从指定历史消息节点分叉开辟独立平行探索会话 |
-| `session_clone` | `{}` | `{"cloned_session_id": "...", "status": "ok"}` | 100% 完整克隆当前会话消息与快照建立全新副本 |
+| `session_branch` | `{"node_id": string}` | `{"status": "ok", "messages": [...]}` | 将当前会话指针切换回溯到历史任一节点状态 |
+| `session_fork` | `{"entry_id": string}` | `{"status": "ok", "new_session_id": "...", "session_file": "...", "messages": [...]}` | 从指定历史消息节点分叉开辟独立平行探索会话 |
+| `session_clone` | `{}` | `{"status": "ok", "new_session_id": "...", "session_file": "...", "messages": [...]}` | 100% 完整克隆当前会话消息与快照建立全新副本 |
 
 #### (3) 模型调度与思考预算
 
@@ -72,22 +72,22 @@
 | :--- | :--- | :--- | :--- |
 | `models_list` | `{}` | `{"models": [...], "configured_providers": [...]}` | 动态拉取各已配置 Provider 的真实模型目录（含 4 小时磁盘缓存） |
 | `model_switch` | `{"model": string, "provider"?: string}` | `{"status": "ok", "model": "...", "provider": "..."}` | 动态热切换当前使用的底层大模型与 Provider |
-| `thinking_set` | `{"level": string}` | `{"status": "ok", "thinking_level": "..."}` | 设定思考预算深度，内部根据模型家族能力自动夹逼合规值 |
+| `thinking_set` | `{"level": string, "persist"?: boolean}` | `{"status": "ok", "level": string}` | 设定思考预算深度，内部根据模型家族能力自动夹逼合规值 |
 
 #### (4) 认证凭据与项目信任
 
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
-| `login` | `{"provider": string, "api_key"?: string, "profile"?: string, ...}` | `{"status": "ok"}` | 安全保存提供商凭据至 `~/.my-pi-agent/auth.json` |
-| `auth_logout` | `{"provider": string, "profile"?: string}` | `{"status": "ok"}` | 从凭据中心注销并移除指定提供商的凭据信息 |
-| `trust_set` | `{"workspace": string, "trusted": boolean}` | `{"trusted": boolean, "workspace": "..."}` | 记录或更新对特定工作区路径的脚本执行信任授权 |
+| `login` | `{"provider": string, "key": string}` | `{"status": "ok", "message": "..."}` | 安全保存提供商凭据至 `~/.my-pi-agent/auth.json` |
+| `auth_logout` | `{"provider": string}` | `{"status": "ok", "provider": "..."}` | 从凭据中心注销并移除指定提供商的凭据信息 |
+| `trust_set` | `{"path"?: string, "trusted": boolean, "parent"?: boolean}` | `{"status": "ok", "path": string, "trusted": boolean, "decision": string}` | 记录或更新对特定工作区路径的脚本执行信任授权 |
 
 #### (5) Shell 宏展开与资源热重载
 
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
-| `shell_exec` | `{"command": string, "silent"?: boolean}` | `{"exit_code": N, "stdout": "...", "stderr": "..."}` | 前端触发本地 Shell 命令执行（区分静默与上下文注入） |
-| `macro_expand` | `{"text": string}` | `{"expanded": string}` | 服务端执行 `MacroEngine` 对输入行宏（`/skill:`, `/<template>`）的即时展开 |
+| `shell_exec` | `{"command": string, "exclude_from_context"?: boolean, "timeout"?: number}` | `{"status": "ok", "output": string, "exit_code": number}` | 前端触发本地 Shell 命令执行（区分静默与上下文注入） |
+| `macro_expand` | `{"text": string, "skills_dir"?: string, "prompts_dir"?: string}` | `{"status": "ok", "text": string, "expanded": boolean, "expanded_text": string}` | 服务端执行 `MacroEngine` 对输入行宏（`/skill:`, `/<template>`）的即时展开 |
 | `resource_reload` | `{}` | `{"status": "ok", "message": "..."}` | 动态重新扫描并热重载本地 Skills、Prompts 与 Templates 资源 |
 
 #### (6) 配置读取与设置
@@ -95,7 +95,7 @@
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `settings_get` | `{"key"?: string}` | `{"settings": {...}}` | 获取合并后的级联配置快照或指定配置键值 |
-| `settings_set` | `{"key": string, "value": any}` | `{"status": "ok"}` | 动态更新运行时配置并同步持久化至用户主目录 |
+| `settings_set` | `{ [key: string]: any, "scope"?: "global" \| "project" }` | `{"status": "ok", "updated": {...}, "settings": {...}}` | 动态更新运行时配置（平铺键值如 `{"default_model": "..."}`）并同步持久化至用户主目录 |
 
 ### 2. 状态码与异常安全保障
 
