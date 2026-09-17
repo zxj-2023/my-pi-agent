@@ -335,37 +335,33 @@ def get_antigravity_catalog(force: bool = False) -> list[dict[str, Any]]:
     # 1. 优先从本地缓存加载 (4小时TTL)
     cache_path = Path.home() / ".my-pi-agent" / "antigravity-model-catalog.json"
     if cache_path.exists():
-            try:
-                raw_text = cache_path.read_text(encoding="utf-8")
-                data = json.loads(raw_text)
-                checked_at = data.get("checkedAt", 0)
-                if not force and checked_at > 0 and (now_ms - checked_at < ANTIGRAVITY_CACHE_TTL_MS):
-                    models = []
-                    seen = set()
-                    for m in data.get("models", []):
-                        mid = m.get("id")
-                        if not mid or mid in seen:
-                            continue
-                        if (
-                            any(mid.startswith(p) for p in ["chat_", "tab_", "MODEL_"])
-                            or "image" in mid
-                            or "2.5" in mid
-                        ):
-                            continue
-                        seen.add(mid)
-                        models.append(
-                            {
-                                "id": mid,
-                                "provider": "antigravity",
-                                "name": m.get("name") or f"{mid} (Antigravity)",
-                                "contextWindow": m.get("contextWindow", 1048576),
-                            }
-                        )
-                    if models:
-                        models.sort(key=lambda x: _antigravity_model_rank(x["id"]))
-                        return models
-            except Exception as exc:
-                logger.debug("读取本地缓存 %s 异常: %s", cache_path, exc)
+        try:
+            raw_text = cache_path.read_text(encoding="utf-8")
+            data = json.loads(raw_text)
+            checked_at = data.get("checkedAt", 0)
+            if not force and checked_at > 0 and (now_ms - checked_at < ANTIGRAVITY_CACHE_TTL_MS):
+                models = []
+                seen = set()
+                for m in data.get("models", []):
+                    mid = m.get("id")
+                    if not mid or mid in seen:
+                        continue
+                    if any(mid.startswith(p) for p in ["chat_", "tab_", "MODEL_"]) or "image" in mid or "2.5" in mid:
+                        continue
+                    seen.add(mid)
+                    models.append(
+                        {
+                            "id": mid,
+                            "provider": "antigravity",
+                            "name": m.get("name") or f"{mid} (Antigravity)",
+                            "contextWindow": m.get("contextWindow", 1048576),
+                        }
+                    )
+                if models:
+                    models.sort(key=lambda x: _antigravity_model_rank(x["id"]))
+                    return models
+        except Exception as exc:
+            logger.debug("读取本地缓存 %s 异常: %s", cache_path, exc)
 
     # 2. 尝试远程动态探测
     remote_models = discover_antigravity_models_remote()

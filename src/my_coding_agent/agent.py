@@ -57,9 +57,7 @@ class CodingAgent:
             (Path.home() / ".my-pi-agent" / "AGENTS.md")
             if (Path.home() / ".my-pi-agent" / "AGENTS.md").is_file()
             else (
-                (Path.home() / ".agents" / "AGENTS.md")
-                if (Path.home() / ".agents" / "AGENTS.md").is_file()
-                else None
+                (Path.home() / ".agents" / "AGENTS.md") if (Path.home() / ".agents" / "AGENTS.md").is_file() else None
             )
         )
         effective_prompt = (
