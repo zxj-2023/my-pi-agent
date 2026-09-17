@@ -1,8 +1,12 @@
 # my-pi-agent
 
+[![npm version](https://img.shields.io/npm/v/my-pi-agent.svg)](https://www.npmjs.com/package/my-pi-agent)
+[![license](https://img.shields.io/github/license/zxj-2023/my-pi-agent.svg)](LICENSE)
+
 **当前最好的 Python 语言 agent 框架学习项目**——从零手写一个最小但完整的 agent 框架。
 只依赖通用库（`openai` SDK、`pydantic`、`pyyaml`、`mcp` 等）与标准库，**不引入任何 agent 框架**（langchain / langgraph 等），每一行代码都可审查。
 
+- 📦 **npm 官方包**：[`my-pi-agent`](https://www.npmjs.com/package/my-pi-agent)
 - 📖 **博客专栏**：[my-pi-agent 学习笔记与架构剖析](https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/)
 
 ---
@@ -172,33 +176,52 @@
 
 ## 快速开始
 
-### 1. 安装与环境准备
+### 1. npm 一键安装与极速运行（面向所有终端用户）
 
-本项目使用 [uv](https://docs.astral.sh/uv/) 进行 Python 依赖管理，使用 `npm` 管理前端 TUI 依赖：
+无需手动克隆代码仓库，只需确保电脑安装了 Node.js (>=18) 与极速包管理器 [uv](https://docs.astral.sh/uv/)（`my-pi-agent` 会通过 `uv run` 全自动自愈接管依赖与内核，用户无需手动配置虚拟环境）：
 
 ```bash
-# 1. 根目录安装 Python 依赖与同步全局唯一的虚拟环境
+# 方式 A：全局安装 CLI（随时随地直接使用，推荐）
+npm install -g my-pi-agent
+
+# 在任意目录下直接启动交互式终端
+my-pi-agent
+# 或使用快捷别名
+my-agent
+
+# 方式 B：免安装秒级拉起
+npx my-pi-agent
+```
+
+### 2. 源码克隆与本地开发运行（面向贡献者与开发者）
+
+```bash
+# 1. 根目录安装 Python 依赖并同步全局唯一的虚拟环境 (.venv)
 uv sync
 
-# 2. 根目录一键运行全量 Python 单元测试 (665 passed)
+# 2. 安装前端 TUI 依赖并编译 TypeScript
+npm install
+npm run build
+
+# 3. 运行全部 Python 核心测试 (666 tests, 100% 绿灯全通)
 uv run python -m pytest
 
-# 3. 运行前端 Pi-TUI 测试套件 (57 passed)
+# 4. 运行全部前端 TUI 自动化测试 (58 tests, 100% 绿灯全通)
 npm test
 
-# 4. 根目录一键启动全新高质感 Pi-TUI 终端交互助手
+# 5. 启动全新高质感 Pi-TUI 终端交互助手
 npm start
 ```
 
-### 2. 运行离线测试套件
+### 3. 运行离线测试套件
 
 本项目所有测试均使用模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```bash
-# 1. 运行全部 Python 核心测试 (665 tests, 100% 绿灯全通)
+# 1. 运行全部 Python 核心测试 (666 tests, 100% 绿灯全通)
 uv run python -m pytest
 
-# 2. 运行全部前端 TUI 测试 (57 tests, 100% 绿灯全通)
+# 2. 运行全部前端 TUI 测试 (58 tests, 100% 绿灯全通)
 npm test
 ```
 
@@ -282,6 +305,13 @@ my-pi-agent/
 | **Plugin 插件系统** | `my_agent_core/plugins.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
 | **动态干预与两层循环** | `my_agent_core/message_queue.py` | [docs/core/11-dynamic-steering.md](docs/core/11-dynamic-steering.md) |
 | **统一任务与后台异步** | `my_agent_core/task_store.py`, `background.py` | [docs/core/12-task-system-and-background.md](docs/core/12-task-system-and-background.md) |
+| **工作区编码工具集** | `my_coding_agent/tools/` | [docs/coding/01-workspace-tools.md](docs/coding/01-workspace-tools.md) |
+| **原生 MCP 集成** | `my_coding_agent/mcp.py` | [docs/coding/02-mcp-integration.md](docs/coding/02-mcp-integration.md) |
+| **CodingAgent 门面** | `my_coding_agent/agent.py` | [docs/coding/03-coding-agent-facade.md](docs/coding/03-coding-agent-facade.md) |
+| **主目录与隔离配置** | `my_coding_agent/paths.py`, `settings.py` | [docs/coding/04-user-home-and-settings.md](docs/coding/04-user-home-and-settings.md) |
+| **前后端 RPC 协议** | `my_coding_agent/rpc_server.py` | [docs/coding/05-rpc-bridge-protocol.md](docs/coding/05-rpc-bridge-protocol.md) |
+| **Pi-TUI 终端交互** | `tui/src/` | [docs/coding/06-pi-tui-interactive-terminal.md](docs/coding/06-pi-tui-interactive-terminal.md) |
+| **多端分发与全局 CLI** | `tui/bin/`, `scripts/` | [docs/coding/07-distribution-and-packaging.md](docs/coding/07-distribution-and-packaging.md) |
 
 ---
 
