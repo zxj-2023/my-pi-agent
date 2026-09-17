@@ -1044,10 +1044,12 @@ class RpcServer:
         skills_dir = Path(skills_dir_param) if skills_dir_param else None
         prompts_dir = Path(prompts_dir_param) if prompts_dir_param else None
 
+        sm = getattr(self.agent.agent, "skill_manager", None) if self.agent else None
         expanded_text, is_expanded = self.macro_engine.expand_macro(
             text,
             skills_dir=skills_dir,
             prompts_dir=prompts_dir,
+            skill_manager=sm,
         )
 
         return self.send_response(

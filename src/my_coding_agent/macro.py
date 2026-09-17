@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
+from subprocess import TimeoutExpired
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -92,20 +93,20 @@ class MacroEngine:
                 "exit_code": proc.returncode,
                 "exclude_from_context": exclude_from_context,
             }
-        except subprocess.TimeoutExpired as te:
-            stdout_raw = te.stdout or ""
-            stderr_raw = te.stderr or ""
-            stdout = stdout_raw if isinstance(stdout_raw, str) else stdout_raw.decode("utf-8", errors="replace")
-            stderr = stderr_raw if isinstance(stderr_raw, str) else stderr_raw.decode("utf-8", errors="replace")
-            return {
-                "status": "error",
-                "output": f"Command timed out after {timeout} seconds",
-                "stdout": stdout,
-                "stderr": stderr,
-                "exit_code": -1,
-                "exclude_from_context": exclude_from_context,
-            }
         except Exception as exc:
+            if isinstance(exc, TimeoutExpired):
+                stdout_raw = exc.stdout or ""
+                stderr_raw = exc.stderr or ""
+                stdout = stdout_raw if isinstance(stdout_raw, str) else stdout_raw.decode("utf-8", errors="replace")
+                stderr = stderr_raw if isinstance(stderr_raw, str) else stderr_raw.decode("utf-8", errors="replace")
+                return {
+                    "status": "error",
+                    "output": f"Command timed out after {timeout} seconds",
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exit_code": -1,
+                    "exclude_from_context": exclude_from_context,
+                }
             return {
                 "status": "error",
                 "output": str(exc),
@@ -302,8 +303,11 @@ class MacroEngine:
 
         # 1. ${@:N:L}
         def replace_slice_len(m: re.Match[str]) -> str:
-            start = int(m.group(1))
-            length = int(m.group(2))
+            try:
+                start = int(m.group(1))
+                length = int(m.group(2))
+            except (ValueError, TypeError):
+                return ""
             start_idx = max(0, start - 1)
             if start_idx < len(args):
                 return " ".join(args[start_idx : start_idx + length])
@@ -313,7 +317,10 @@ class MacroEngine:
 
         # 2. ${@:N}
         def replace_slice(m: re.Match[str]) -> str:
-            start = int(m.group(1))
+            try:
+                start = int(m.group(1))
+            except (ValueError, TypeError):
+                return ""
             start_idx = max(0, start - 1)
             if start_idx < len(args):
                 return " ".join(args[start_idx:])
@@ -336,7 +343,10 @@ class MacroEngine:
 
         # 6. ${N:-default}
         def replace_pos_default(m: re.Match[str]) -> str:
-            n = int(m.group(1))
+            try:
+                n = int(m.group(1))
+            except (ValueError, TypeError):
+                return ""
             default_val = m.group(2)
             if 1 <= n <= len(args) and args[n - 1]:
                 return args[n - 1]
@@ -346,7 +356,10 @@ class MacroEngine:
 
         # 7. ${N}
         def replace_pos_braced(m: re.Match[str]) -> str:
-            n = int(m.group(1))
+            try:
+                n = int(m.group(1))
+            except (ValueError, TypeError):
+                return ""
             if 1 <= n <= len(args):
                 return args[n - 1]
             return ""
@@ -355,7 +368,10 @@ class MacroEngine:
 
         # 8. $N
         def replace_pos(m: re.Match[str]) -> str:
-            n = int(m.group(1))
+            try:
+                n = int(m.group(1))
+            except (ValueError, TypeError):
+                return ""
             if 1 <= n <= len(args):
                 return args[n - 1]
             return ""
@@ -369,6 +385,7 @@ class MacroEngine:
         text: str,
         skills_dir: Path | str | None = None,
         prompts_dir: Path | str | None = None,
+        skill_manager: SkillManager | None = None,
     ) -> tuple[str, bool]:
         """统一识别并展开文本中的输入宏（/skill:<name> 或 /<template>）。
 
@@ -389,7 +406,12 @@ class MacroEngine:
                 skill_name, args = rest.split(" ", 1)
             else:
                 skill_name, args = rest, ""
-            expanded_skill = self.expand_skill(skill_name.strip(), args.strip(), skills_dir=skills_dir)
+            expanded_skill = self.expand_skill(
+                skill_name.strip(),
+                args.strip(),
+                skills_dir=skills_dir,
+                skill_manager=skill_manager,
+            )
             if expanded_skill is not None:
                 return expanded_skill, True
             return text, False
