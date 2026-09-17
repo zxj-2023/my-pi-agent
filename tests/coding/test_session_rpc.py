@@ -364,10 +364,15 @@ async def test_initialize_loads_existing_session_history(tmp_path: Path, monkeyp
     )
     await server1.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "initial message"}})
 
-    # 2. 重新启动（模拟同一工作区重新打开）
+    # 2. 显式续接（模拟 pi -c / continue_session=True）
     server2 = RpcServer(llm=FakeLLM())
     init_resp = await server2.handle_request(
-        {"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {"workspace": str(workspace)}}
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "initialize",
+            "params": {"workspace": str(workspace), "continue_session": True},
+        }
     )
     assert init_resp["result"]["status"] == "ok"
     assert "messages" in init_resp["result"]
@@ -404,3 +409,46 @@ async def test_session_stats_rpc(tmp_path: Path, monkeypatch):
     assert "cacheRead" in stats["tokens"]
     assert "cost" in stats
     assert "usageBreakdown" in stats
+
+
+@pytest.mark.anyio
+async def test_initialize_default_new_session_vs_continue(tmp_path: Path, monkeypatch):
+    """验证严格对标 Pi 原厂：默认启动为全新会话，仅当显式传 continue_session=True 时才续接历史。"""
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    # 1. Server 1 默认启动并交互
+    server1 = RpcServer(llm=FakeLLM())
+    init1 = await server1.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    assert init1["result"]["status"] == "ok"
+    assert len(init1["result"]["messages"]) == 0
+    sid1 = init1["result"]["session_id"]
+    await server1.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "session 1 msg"}})
+
+    # 2. Server 2 再次默认启动（未指定 continue）：必须开启全新的空白会话，绝不复用 Server 1
+    server2 = RpcServer(llm=FakeLLM())
+    init2 = await server2.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    assert init2["result"]["status"] == "ok"
+    assert len(init2["result"]["messages"]) == 0
+    sid2 = init2["result"]["session_id"]
+    assert sid2 != sid1
+
+    # 3. Server 3 显式指定 continue_session=True：成功续接 Server 1
+    server3 = RpcServer(llm=FakeLLM())
+    init3 = await server3.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace), "continue_session": True},
+        }
+    )
+    assert init3["result"]["status"] == "ok"
+    assert init3["result"]["session_id"] == sid1
+    assert len(init3["result"]["messages"]) >= 2

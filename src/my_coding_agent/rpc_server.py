@@ -894,14 +894,12 @@ class RpcServer:
         if llm is None:
             llm = self._resolve_initial_llm(workspace_path, explicit_model, settings, auth_mgr)
 
-        session_file = paths.default_session_path(workspace_path)
-        session_file.parent.mkdir(parents=True, exist_ok=True)
-
         target_session: Session | None = None
         should_continue = bool(params.get("continue_session", False) or params.get("continue", False))
         resume_param = params.get("resume")
+        s_dir = paths.project_session_dir(workspace_path)
+
         if resume_param and isinstance(resume_param, str) and resume_param != "true":
-            s_dir = paths.project_session_dir(workspace_path)
             for cand in [s_dir / f"{resume_param}.jsonl", s_dir / resume_param, Path(resume_param)]:
                 if cand.exists():
                     try:
@@ -910,7 +908,6 @@ class RpcServer:
                     except Exception:
                         continue
         elif should_continue:
-            s_dir = paths.project_session_dir(workspace_path)
             jsonl_files = sorted(s_dir.glob("*.jsonl"), key=lambda p: os.path.getmtime(p), reverse=True)
             if jsonl_files:
                 try:
@@ -919,13 +916,12 @@ class RpcServer:
                     target_session = None
 
         if target_session is None:
-            if session_file.exists() and not bool(params.get("new_session", False)):
-                try:
-                    target_session = Session.load(session_file)
-                except Exception:
-                    target_session = Session(path=session_file, cwd=str(workspace_path))
-            else:
-                target_session = Session(path=session_file, cwd=str(workspace_path))
+            # 严格对标 Pi 原厂规范：默认启动始终创建全新的独立会话（UUIDv7），
+            # 只有用户显式传入 -c / --continue 或 -r / --resume 时才续接历史会话。
+            session_id = uuid7_str()
+            session_file = s_dir / f"{session_id}.jsonl"
+            target_session = Session(path=session_file, cwd=str(workspace_path))
+            target_session.id = session_id
 
         if bool(params.get("no_session", False)):
             target_session.save = lambda: None  # type: ignore[method-assign]
