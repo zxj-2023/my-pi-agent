@@ -26,14 +26,15 @@ class Skill:
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     """首部 --- 换行 YAML 换行 --- → (字段 dict, body)。无 frontmatter → ({}, 全文)。
     用 yaml.safe_load；坏 YAML → 降级 ({}, 全文)，不抛不告警。"""
+    normalized = text.replace("\r\n", "\n")
     header = "---\n"
-    if not text.startswith(header):
+    if not normalized.startswith(header):
         return {}, text
-    end = text.find("\n---\n", len(header))
+    end = normalized.find("\n---\n", len(header))
     if end == -1:
         return {}, text
-    block = text[len(header) : end]
-    body = text[end + len("\n---\n") :].strip()
+    block = normalized[len(header) : end]
+    body = normalized[end + len("\n---\n") :].strip()
     try:
         fields = yaml.safe_load(block)
     except yaml.YAMLError:
