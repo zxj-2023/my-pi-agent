@@ -94,27 +94,13 @@
 
 ### 3. 产品与编码层 (`docs/coding/`)
 
-- [01-file-tools.md](coding/01-file-tools.md)：工作区编码文件工具集（7 大工具：`read` / `write` / `edit` / `bash` / `grep` / `find` / `ls`）与 `resolve_path` 宽松工作区路径解析规范。
-- [02-mcp-client.md](coding/02-mcp-client.md)：原生异步 MCP 客户端扩展、`AsyncExitStack` 双扇门生命周期管理、JSON-RPC 2.0 转发与闭包工厂延迟绑定防护。
-- [03-coding-agent-product-layer.md](coding/03-coding-agent-product-layer.md)：`my_coding_agent` 产品层架构规范（Dual API: `run` / `run_stream`）、`FileMutationQueue` 细粒度并发写锁与 Prompt 上下文自动发现。
-- [04-product-layer-features-and-tui-architecture.md](coding/04-product-layer-features-and-tui-architecture.md)：交互式 CLI 与 Slash 命令系统架构设计、事件流打字机渲染器与 Windows 编码保护。
-- [05-product-layer-advanced-features-design.md](coding/05-product-layer-advanced-features-design.md)：对标 Tau 与 Pig-Mono 的 10 大高级产品特性全景规约（Antigravity OAuth、Accept-on-Diff、@ 引用注入、Turnkey MCP、状态底栏与实时按键监听）。
-- [06-pi-shell-tui-architecture-design.md](coding/06-pi-shell-tui-architecture-design.md)：基于 `@earendil-works/pi-tui` 的前端表现层双核架构设计规范（stdio JSON-RPC 双向流、组件映射与进程生命周期管理）。
-- [07-project-structure-refactoring-design.md](coding/07-project-structure-refactoring-design.md)：对标 Tau 单工程与解耦 TUI 的项目拓扑重构设计规范（消除虚拟环境分裂、统一 `src/` 与 `tests/`）。
-- [08-project-structure-refactoring-plan.md](coding/08-project-structure-refactoring-plan.md)：项目拓扑重构分步实施计划与无感知平滑迁移验证契约。
-- [09-user-home-and-configuration-architecture-design.md](coding/09-user-home-and-configuration-architecture-design.md)：用户主目录与配置持久化架构设计规范 (`~/.my-pi-agent/` 与 `auth.json`)。
-- [10-user-home-and-configuration-architecture-plan.md](coding/10-user-home-and-configuration-architecture-plan.md)：用户主目录与统一配置落盘实施计划。
-- [11-pi-command-system-architecture-design.md](coding/11-pi-command-system-architecture-design.md)：Pi 原厂斜杠命令与自动补全体系规约设计。
-- [12-pi-command-system-architecture-plan.md](coding/12-pi-command-system-architecture-plan.md)：Pi 斜杠命令与补全体系落地计划。
-- [13-pi-tui-visual-alignment-architecture-design.md](coding/13-pi-tui-visual-alignment-architecture-design.md)：Pi-TUI 视觉契约与高保真组件渲染设计。
-- [14-pi-tui-visual-alignment-architecture-plan.md](coding/14-pi-tui-visual-alignment-architecture-plan.md)：Pi-TUI 视觉对齐与交互体验优化计划。
-- [15-multi-channel-distribution-architecture-design.md](coding/15-multi-channel-distribution-architecture-design.md)：多渠道 CLI 与 NPM/PyPI 全球分发架构设计。
-- [16-multi-channel-distribution-architecture-plan.md](coding/16-multi-channel-distribution-architecture-plan.md)：全渠道发布与自动化打包脚本落地计划。
-- [17-pi-interactive-selectors-and-tui-parity-design.md](coding/17-pi-interactive-selectors-and-tui-parity-design.md)：Pi 交互式模态选择器设计（模型、会话、设置、登录与树视图）。
-- [18-pi-interactive-selectors-and-tui-parity-plan.md](coding/18-pi-interactive-selectors-and-tui-parity-plan.md)：模态选择器与交互式状态管理实施计划。
-- [19-pi-tui-port-and-decoupling-architecture-design.md](coding/19-pi-tui-port-and-decoupling-architecture-design.md)：Pi-TUI 表现层彻底解耦与 TypeScript 原厂端口规范。
-- [20-pi-tui-port-and-decoupling-architecture-plan.md](coding/20-pi-tui-port-and-decoupling-architecture-plan.md)：表现层解耦重构与零闪烁视口重构实施计划。
-- [21-route-b-pi-interactive-source-port-plan.md](coding/21-route-b-pi-interactive-source-port-plan.md)：官方 Pi 交互式模式核心源码对标平移路线实施方案。
+- [01-workspace-tools.md](coding/01-workspace-tools.md)：工作区编码工具集与并发控制规范（7 大核心工具 `read` / `write` / `edit` / `bash` / `grep` / `find` / `ls` 规范、`resolve_path` 宽松 CWD 解析、`FileMutationQueue` 细粒度并发锁、`FileReferenceParser` 提示词 `@` 文件快照直通注入）。
+- [02-mcp-integration.md](coding/02-mcp-integration.md)：原生 MCP 客户端与扩展集成规范（`MCPClientManager`、stdio/SSE 子进程管理、工具自动发现与 Schema 平坦化、工作区 `.mcp.json` 按需加载）。
+- [03-coding-agent-facade.md](coding/03-coding-agent-facade.md)：CodingAgent 产品门面与提示词装配规范（Dual API: `run` / `run_stream`、`build_default_coding_prompt`、`<project_context>` 自动发现 `AGENTS.md` / `CLAUDE.md`、五大专职 Hook 拦截机制）。
+- [04-user-home-and-settings.md](coding/04-user-home-and-settings.md)：用户主目录、配置与凭据隔离体系规范（`~/.my-pi-agent/` 目录拓扑、`auth.json` 多模型凭据管理、`settings.json` 双层级联配置、`sessions/<slug>-<hash>/` 集中式零污染会话持久化、`trust.json` 项目信任安全策略）。
+- [05-rpc-bridge-protocol.md](coding/05-rpc-bridge-protocol.md)：前后端通信协议与内核桥接规范（stdio JSON-RPC 2.0 规范、`KernelBridge` 客户端驱动、会话 DAG 操作 `/tree` / `/fork` / `/clone` / `/resume` 删除防御、全量 Token 与成本动态核算公式、Prompt Cache 命中率 `CH%`）。
+- [06-pi-tui-interactive-terminal.md](coding/06-pi-tui-interactive-terminal.md)：Pi-TUI 交互式终端与表现层规范（基于 `@earendil-works/pi-tui` 的 `AgentApp` / `InteractiveMode` 架构、`CustomEditor` 顶部边框嵌入式 `── ⠸ Working ──` 动效与快捷键思考预算自适应轮转、三大交互式选择器 Model/Session/Thinking、可折叠压缩卡片、全套斜杠命令与输入宏）。
+- [07-distribution-and-packaging.md](coding/07-distribution-and-packaging.md)：工程发布、全平台分发与全局 CLI 规范（npm workspaces 与 `npm link` 全局命令 `my-pi-agent` / `my-agent`、uv 单一虚拟环境、跨平台独立分发路线）。
 
 ### 4. 原厂对齐审计与分发部署 (`docs/`)
 
