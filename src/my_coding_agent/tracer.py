@@ -128,7 +128,9 @@ class DebugEventTracer:
             args_str = json.dumps(safe_args, ensure_ascii=False)
             if len(args_str) > 200:
                 args_str = args_str[:200] + "..."
-            self._write_line(f"[{ts_str}] [TOOL_CALL_START] tool={event.tool_name} id={event.tool_call_id} args={args_str}")
+            self._write_line(
+                f"[{ts_str}] [TOOL_CALL_START] tool={event.tool_name} id={event.tool_call_id} args={args_str}"
+            )
 
         elif isinstance(event, ToolExecutionUpdate):
             pass
@@ -161,9 +163,7 @@ class DebugEventTracer:
             self._write_line(f"[{ts_str}] [TURN_END] duration={turn_cost_ms}ms")
 
         elif isinstance(event, AgentEnd):
-            self._write_line(
-                f"[{ts_str}] [AGENT_END] stop_reason={event.stop_reason} iterations={event.iterations}\n"
-            )
+            self._write_line(f"[{ts_str}] [AGENT_END] stop_reason={event.stop_reason} iterations={event.iterations}\n")
 
     def flush(self) -> None:
         if self._file and not self._file.closed:

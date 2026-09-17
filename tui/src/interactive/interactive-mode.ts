@@ -142,6 +142,7 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   },
   { name: "copy", description: "复制最后一条智能体消息到剪贴板" },
   { name: "hotkeys", description: "查看所有键盘快捷键说明清单" },
+  { name: "debug", description: "导出当前 Agent 瞬时运行态快照 (debug-dump.json)" },
   { name: "quit", description: "优雅退出当前智能体终端" },
 ];
 
@@ -549,13 +550,6 @@ export class InteractiveMode {
             description: `Skill: ${s}`,
           }));
       },
-    });
-
-    // 添加调试快照导出命令
-    commands.push({
-      name: "debug",
-      description: "导出当前 Agent 瞬时运行态快照 (debug-dump.json)",
-      argumentHint: "",
     });
 
     // 为每个已发现的 skill 注入 /skill:<name> 形式的专用补全
