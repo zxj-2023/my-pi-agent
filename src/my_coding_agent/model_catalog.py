@@ -688,9 +688,7 @@ def switch_llm_model(
                 base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
                 if provider == "antigravity":
                     api_key = (
-                        api_key
-                        or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN")
-                        or os.environ.get("GOOGLE_ACCESS_TOKEN")
+                        api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
                     )
 
             if provider == "deepseek" and not base_url:
