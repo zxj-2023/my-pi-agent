@@ -63,6 +63,23 @@ export class ThemeManager {
   public dim(text: string): string {
     return chalk.dim(text);
   }
+
+  public getThinkingBorderColor(level: string): (str: string) => string {
+    const l = (level || "").toLowerCase();
+    if (l === "off") {
+      return (str: string) => this.fg("borderMuted", str);
+    }
+    if (l === "minimal" || l === "low") {
+      return (str: string) => this.fg("accent", str);
+    }
+    if (l === "medium") {
+      return (str: string) => this.fg("success", str);
+    }
+    if (l === "high" || l === "xhigh" || l === "max") {
+      return (str: string) => this.fg("warning", str);
+    }
+    return (str: string) => this.fg("borderMuted", str);
+  }
 }
 
 export const theme = new ThemeManager();

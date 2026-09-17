@@ -500,7 +500,7 @@ export class InteractiveMode {
       if (isBash) {
         editor.borderColor = (str: string) => theme.fg("warning", str);
       } else {
-        editor.borderColor = (str: string) => theme.fg("borderMuted", str);
+        this.updateEditorBorderColor();
       }
     };
     const fdPath = findFdPath();
@@ -668,6 +668,13 @@ export class InteractiveMode {
         return { consume: true };
       } else if (matchesKey(data, "ctrl+l")) {
         this.showModelSelector();
+        return { consume: true };
+      } else if (
+        matchesKey(data, "shift+tab") ||
+        data === "\x1b[Z" ||
+        matchesKey(data, "ctrl+t")
+      ) {
+        void this.cycleThinkingLevel();
         return { consume: true };
       }
       return undefined;
@@ -872,8 +879,49 @@ export class InteractiveMode {
     });
   }
 
+  public static readonly THINKING_LEVELS = [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ];
+
+  public updateEditorBorderColor(): void {
+    if (this.defaultEditor) {
+      if (this.defaultEditor.getText().startsWith("!")) {
+        this.defaultEditor.borderColor = (str: string) => theme.fg("warning", str);
+      } else {
+        this.defaultEditor.borderColor = theme.getThinkingBorderColor(this.currentThinkingLevel);
+      }
+      this.ui.requestRender();
+    }
+  }
+
+  public async cycleThinkingLevel(): Promise<string> {
+    const levels = InteractiveMode.THINKING_LEVELS;
+    const curIdx = levels.indexOf(this.currentThinkingLevel.toLowerCase());
+    const nextIdx = (curIdx + 1) % levels.length;
+    const nextLevel = levels[nextIdx];
+
+    this.currentThinkingLevel = nextLevel;
+    this.footer.update({ thinkingLevel: nextLevel });
+    this.updateEditorBorderColor();
+    this.appendSystemNotice(`✓ 思考预算已更新为: ${nextLevel}`);
+    this.ui.requestRender();
+
+    try {
+      await this.bridge.setThinking(nextLevel);
+    } catch {
+      // ignore
+    }
+    return nextLevel;
+  }
+
   public showThinkingSelector(): void {
-    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+    const levels = InteractiveMode.THINKING_LEVELS;
     this.showSelector((done) => {
       const selector = new ThinkingSelectorComponent(
         this.currentThinkingLevel,
@@ -884,6 +932,7 @@ export class InteractiveMode {
             try {
               this.currentThinkingLevel = level;
               this.footer.update({ thinkingLevel: level });
+              this.updateEditorBorderColor();
               await this.bridge.setThinking(level);
               this.appendSystemNotice(`✓ 思考预算等级已调整为: ${level}`);
             } catch (err: any) {
@@ -1251,6 +1300,7 @@ export class InteractiveMode {
             if (validLevels.includes(normalized)) {
               this.currentThinkingLevel = normalized;
               this.footer.update({ thinkingLevel: normalized });
+              this.updateEditorBorderColor();
               await this.bridge.setThinking(normalized);
               this.appendSystemNotice(`✓ 思考预算已更新为: ${normalized}`);
             } else {
@@ -1482,6 +1532,7 @@ export class InteractiveMode {
             "",
             `  ${theme.bold("流程与控制 (Control):")}`,
             `    Esc           中断当前正在执行的流式回答 (Abort) / 取消并关闭弹窗`,
+            `    Shift+Tab     轮转切换思考预算深度 (off -> low -> high -> max)`,
             `    /             呼出全部斜杠命令菜单与自动补全`,
             `    !cmd          执行本地 Shell 命令并将输出加入上下文`,
             `    !!cmd         静默执行本地 Shell 命令 (不加入对话上下文)`,

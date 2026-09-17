@@ -320,3 +320,30 @@ test("InteractiveMode slash commands (/model fuzzy, /thinking validation, /sessi
   const renderedCopy = mode.ui.render(80).join("\n");
   assert.ok(renderedCopy.includes("当前暂无智能体消息可供复制"));
 });
+
+test("InteractiveMode handles Shift+Tab (\\x1b[Z) and Ctrl+T to cycle thinking level", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  await mode.init();
+  assert.equal(mode.currentThinkingLevel, "off");
+
+  // 1. Send \x1b[Z (Shift+Tab) -> minimal
+  mode.ui.handleTerminalInput("\x1b[Z");
+  assert.equal(mode.currentThinkingLevel, "minimal");
+
+  // 2. Send \x1b[Z again -> low
+  mode.ui.handleTerminalInput("\x1b[Z");
+  assert.equal(mode.currentThinkingLevel, "low");
+
+  // 3. Send \x1b[Z again -> medium
+  mode.ui.handleTerminalInput("\x1b[Z");
+  assert.equal(mode.currentThinkingLevel, "medium");
+
+  // 4. Send \x1b[Z again -> high
+  mode.ui.handleTerminalInput("\x1b[Z");
+  assert.equal(mode.currentThinkingLevel, "high");
+
+  // 5. Send Ctrl+T -> xhigh
+  mode.ui.handleTerminalInput("\x14"); // Ctrl+T is ASCII 20
+  assert.equal(mode.currentThinkingLevel, "xhigh");
+});
