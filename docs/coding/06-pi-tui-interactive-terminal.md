@@ -97,3 +97,46 @@
   思维链（Thinking）默认以 `◈ 思考过程 (N 字符，按 Ctrl+O 展开)` 折叠呈现，正文支持流式 Markdown、语法高亮代码块与错误警告框；
 - **`ToolExecutionComponent`**：
   工具入参与局部运行日志默认收敛，支持 `Ctrl+O` 展开全量执行日志或查看生成的 Unified Diff。
+
+---
+
+## 六、输入行即时宏扩展引擎 (MacroEngine)
+
+终端输入行内置了即时宏语法扩展引擎（`MacroEngine`，位于 `src/my_coding_agent/macro.py`），在用户按下回车提交提示词前完成本地语法展开，兼具命令行效率与模型上下文精确控制：
+
+### 1. Shell 宏执行管道 (`!cmd` 与 `!!cmd`)
+
+- **上下文注入宏 (`!cmd`)**：
+  在工作区同步执行指定的 Shell 命令，捕获输出与退出码，格式化为代码块自动追加至当前轮次的用户提问中：
+  ```text
+  $ git status (已加入上下文) (Exit: 0)
+  ```text
+  modified: src/app.ts
+  ```
+  ```
+  模型可直接读取最新命令执行现场，避免用户手动复制粘贴。
+- **静默探查宏 (`!!cmd`)**：
+  执行命令并在视口即时回显输出，但内部打上 `exclude_from_context: true` 标记，**彻底排除在模型上下文之外**。适用于本地环境试探、临时文件查看或清屏操作，零 Token 消耗，绝不污染对话历史。
+- **实时边框变色反馈**：
+  当用户在输入框中以 `!` 开头键入时，`CustomEditor` 边框颜色即时动态响应切换为预警黄色（`warning`），提供极高的操作确定感。
+
+### 2. 技能即时展开宏 (`/skill:<name> [args]`)
+
+当用户输入形如 `/skill:review target=src/` 时，`MacroEngine` 自动：
+1. 联动 `SkillManager` 寻址并加载项目本地或全局 `~/.my-pi-agent/skills/<name>/SKILL.md`；
+2. 剥离 YAML Frontmatter 元数据，将主体工作流规范包装为高辨识度的标准 XML 容器：
+   ```xml
+   <skill name="review">
+   # Review Guidelines
+   ...步骤与检查清单...
+   </skill>
+   target=src/
+   ```
+3. 一并注入提示词尾部，使模型严格遵循预设的工程技能规范执行任务。
+
+### 3. 提示词模板展开宏 (`/<template> [args]`)
+
+支持从项目或全局 `prompts/<template>.md` 加载通用提示词模板：
+1. **参数解析**：使用标准 POSIX 规范的 `shlex.split` 进行带引号参数切分；
+2. **变量替换**：将模板中的 `$1`, `$2` 等占位符替换为具体入参，`$@` / `$*` 替换为全量追加参数；
+3. 允许开发者将复杂的日常指令（如重构、单测生成、架构审计）沉淀为参数化模版，实现一键展开执行。

@@ -46,36 +46,62 @@
 在 `src/my_coding_agent/paths.py` 中，通过不可变数据模型集中管理所有全局与工作区相关路径：
 
 ```python
+@dataclass(frozen=True, slots=True)
 class AgentPaths:
-    """集中式跨平台路径调度器。"""
+    """集中解析与管理 my-pi-agent 的全局与项目级路径调度中心。"""
 
-    @classmethod
-    def global_home(cls) -> Path:
-        """全局配置主目录 ~/.my-pi-agent/"""
-        return Path.home() / ".my-pi-agent"
+    home: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get("MY_AGENT_HOME") or (Path.home() / ".my-pi-agent")
+        ).resolve()
+    )
+    agents_home: Path = field(default_factory=lambda: (Path.home() / ".agents").resolve())
 
-    @classmethod
-    def auth_file(cls) -> Path:
+    # ── 全局资源路径 ──
+    @property
+    def auth_path(self) -> Path:
         """全局凭证库路径 ~/.my-pi-agent/auth.json"""
-        return cls.global_home() / "auth.json"
+        return self.home / "auth.json"
 
-    @classmethod
-    def global_settings_file(cls) -> Path:
+    @property
+    def auth_lock_path(self) -> Path:
+        """全局凭证跨进程文件锁 ~/.my-pi-agent/auth.json.lock"""
+        return self.home / "auth.json.lock"
+
+    @property
+    def settings_path(self) -> Path:
         """全局设置路径 ~/.my-pi-agent/settings.json"""
-        return cls.global_home() / "settings.json"
+        return self.home / "settings.json"
 
-    @classmethod
-    def session_dir_for_workspace(cls, workspace: Path | str) -> Path:
-        """针对特定工作区生成集中式隔离会话路径。"""
-        slug = cls._slugify_workspace(workspace)
-        return cls.global_home() / "sessions" / slug
+    @property
+    def sessions_dir(self) -> Path:
+        """全局会话集中存储目录 ~/.my-pi-agent/sessions/"""
+        return self.home / "sessions"
+
+    @property
+    def skills_dir(self) -> Path:
+        return self.home / "skills"
+
+    @property
+    def prompts_dir(self) -> Path:
+        return self.home / "prompts"
+
+    # ── 会话分区映射算法 (Tau Slug + Hash 优化版) ──
+    def project_session_dir(self, cwd: Path) -> Path:
+        """根据项目 cwd 计算全局唯一的 sessions/<slug>-<hash> 目录。"""
+        resolved = cwd.resolve()
+        digest = sha256(str(resolved).encode("utf-8")).hexdigest()[:6]
+        slug = self._slugify_path(resolved)
+        target = self.sessions_dir / f"{slug}-{digest}"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
 ```
 
-### 1. 工作区路径散列算法 (`_slugify_workspace`)
+### 1. 工作区路径散列算法 (`_slugify_path`)
 
 为兼顾**人类可读性**并彻底解决 Windows 平台下的 **260 字符路径深度溢出 (MAX_PATH)**：
 
-- 取当前工作区目录基名作为语义前缀（如 `my-react-app`）；
+- 取当前工作区目录规范化分段作为语义前缀（如 `my-react-app`）；
 - 结合规范化绝对路径的 SHA-256 前 6 位哈希值作为防碰撞后缀；
 - 生成类似 `my-react-app-32a29b` 的紧凑目录名，既便于运维排查，又具备绝对唯一性。
 
@@ -83,29 +109,66 @@ class AgentPaths:
 
 ## 三、独立凭据中心 (`auth.json`) 与多源自愈绑定
 
-`~/.my-pi-agent/auth.json` 采用独立的安全命名空间，并严格设置 `0o600` 文件权限（仅当前操作系统用户可读写）：
+`~/.my-pi-agent/auth.json` 采用独立的安全命名空间，由 `AuthManager` 施加跨进程文件锁（`auth.json.lock`）保护，并严格设置 `0o600` 文件权限（仅当前操作系统用户可读写）。
+
+数据结构严格映射 `src/my_agent_llm/auth/schema.py` 中的强类型 Pydantic 模型（`ApiKeyCredential` 使用 `key` 字段；`OAuthCredential` 使用 `access`、`refresh`、`expires` 字段）：
 
 ```json
 {
-  "openai": {
-    "type": "api_key",
-    "api_key": "sk-proj-...",
-    "base_url": "https://api.openai.com/v1"
+  "version": 1,
+  "active_profiles": {
+    "openai": "default",
+    "deepseek": "default",
+    "anthropic": "default",
+    "antigravity": "default"
   },
+  "providers": {
+    "openai": {
+      "default": {
+        "type": "api_key",
+        "key": "sk-proj-...",
+        "base_url": "https://api.openai.com/v1"
+      }
+    },
+    "deepseek": {
+      "default": {
+        "type": "api_key",
+        "key": "sk-...",
+        "base_url": "https://api.deepseek.com"
+      }
+    },
+    "anthropic": {
+      "default": {
+        "type": "api_key",
+        "key": "sk-ant-..."
+      }
+    },
+    "antigravity": {
+      "default": {
+        "type": "oauth",
+        "access": "ya29.a0...",
+        "refresh": "1//04...",
+        "expires": 1758000000
+      }
+    }
+  }
+}
+```
+
+同时，`AuthManager.load_store()` 具备自动归一化能力，亦向下无缝兼容扁平平铺简写格式：
+
+```json
+{
   "deepseek": {
     "type": "api_key",
-    "api_key": "sk-...",
+    "key": "sk-...",
     "base_url": "https://api.deepseek.com"
-  },
-  "anthropic": {
-    "type": "api_key",
-    "api_key": "sk-ant-..."
   },
   "antigravity": {
     "type": "oauth",
-    "access_token": "ya29.a0...",
-    "refresh_token": "1//04...",
-    "expires_at": 1758000000
+    "access": "ya29.a0...",
+    "refresh": "1//04...",
+    "expires": 1758000000
   }
 }
 ```

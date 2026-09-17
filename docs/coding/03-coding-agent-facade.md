@@ -91,5 +91,60 @@ class CodingAgent:
 | **`UserInputHook`** | 拦截或改写用户输入文本 | 自动执行 `FileReferenceParser.expand`，提取 `@file` 并注入源码快照 |
 | **`AgentStartHook`** | 拦截 Agent 启动并可重写 `system_prompt` | 允许针对特殊安全模式追加防逃逸指令 |
 | **`BeforeModelCallHook`** | 在请求发送至 LLM API 前夕触发 | 监控模型上下文尺寸，触发廉价上下文压缩决策 |
-| **`ToolCallHook`** | 工具执行前权限校验 | 挂载 `PermissionGate`，针对高危 Shell 命令（如 `rm -rf`）弹窗确认 |
+| **`ToolCallHook`** | 工具执行前权限校验 | 挂载 `PermissionGate`，针对高危 Shell 命令与文件写操作触发安全审批 |
 | **`ToolResultHook`** | 工具执行后对结果进行脱敏或修正 | 统一屏蔽敏感秘钥或将大输出转写为持久化文件摘要 |
+
+---
+
+## 四、业务安全权限门禁 (PermissionGate)
+
+`PermissionGate`（位于 `src/my_coding_agent/permissions.py`）是基于 `ToolCallHook` 实现的无侵入安全审批中间件，能够在不破坏 ReAct 微内核纯函数性的前提下，对任何破坏性行为实施可拦截、可审计的交互审批。
+
+### 1. 四大安全模式 (PermissionMode)
+
+| 模式名称 | 模式标识 | 行为契约与安全等级 |
+| :--- | :--- | :--- |
+| **审查模式 (默认)** | `review` | 平衡生产力与安全。只读工具与安全 Shell 命令免批放行；所有文件修改（`write`/`edit`）与常规 Shell 命令触发用户确认 |
+| **自主模式** | `autonomous` | 全自动静默模式。所有工具调用无感直接放行，适用于无人值守批处理或容器自动化任务 |
+| **放行模式** | `yolo` | `autonomous` 的友好别名，CLI 传入 `--mode yolo` 时自动映射为 `autonomous` |
+| **严格受限模式** | `strict` | 高安全性只读受限沙箱。即便是只读工具与安全命令也须逐项审批，严禁任何未授权文件写入 |
+
+### 2. 免审批高速通道 (Fast Path)
+
+为防止繁琐的确认打断流畅的研发体验，系统内置了经过实战检验的安全免审批通道：
+
+- **只读工具白名单**：
+  ```python
+  READONLY_TOOLS = frozenset({"read", "grep", "find"})
+  ```
+  在非 `strict` 模式下，上述只读操作直接放行，零阻塞。
+- **安全 Shell 命令前缀白名单**：
+  ```python
+  SAFE_BASH_PREFIXES = (
+      "git status",
+      "git diff",
+      "git log",
+      "pytest",
+      "python -m pytest",
+      "uv run",
+  )
+  ```
+  在 `review` 模式下，凡是以只读状态探查或本地测试为目的的命令无需确认，直接执行。
+
+### 3. 交互式审查与差异比对契约 (PermissionRequest)
+
+当检测到非白名单的修改类操作或高危 Shell 指令时，`PermissionGate` 构造强类型审批实体：
+
+```python
+@dataclass(frozen=True)
+class PermissionRequest:
+    action: str  # 工具名称，如 "write", "edit", "bash"
+    target: str  # 操作目标文件路径或完整待执行命令
+    details: dict[str, Any] = field(default_factory=dict)
+    preview: str | None = None  # 变更代码预览或 diff 快照
+```
+
+若注册了 `confirm_callback`（如在 TUI 中弹出确认模态框）：
+1. 界面呈现操作目标与代码差异预览（针对 `write`/`edit`）；
+2. 用户选择批准（`True`）则透明继续执行；
+3. 用户选择驳回（`False`）则返回 `HookResult(block=True, reason=f"用户拒绝执行: {tool_name} on {target}")`，ReAct 循环捕获拦截结果，模型能够清晰感知并调整后续行动策略。

@@ -57,9 +57,8 @@ def resolve_path(workspace: Path | str, target: str | Path) -> Path:
 
 ### 2. `read(path, offset, limit)`
 
-- **行级切片与大文件防护**：支持 `offset`（1-based 起始行）与 `limit`（读取行数），默认最大 2000 行 / 50KB 截断保护；
+- **行级切片与大文件防护**：支持 `offset`（1-based 起始行）与 `limit`（读取行数），默认最大 2000 行 / 50KB 截断保护，直接输出纯文本代码行；
 - **自愈提示**：当行偏移超出文件末尾时，返回 `Offset X is beyond end of file (file has only Y lines)`，精准引导 LLM 自我纠错；
-- **行号输出**：返回内容带格式化行号前缀（如 `123 | const a = 1;`），便于模型精准定位；
 - **二进制检测**：自动探测并拒绝读取非文本二进制文件。
 
 ### 3. `write(path, content)`
@@ -68,20 +67,25 @@ def resolve_path(workspace: Path | str, target: str | Path) -> Path:
 - **并发锁保护**：通过 `FileMutationQueue` 获取文件物理路径锁，保证多工具并发调用时的读写安全；
 - **回显统计**：返回成功写入的字符数与行数统计。
 
-### 4. `edit(path, edits)`
+### 4. `edit(path, edits, old_text, new_text)`
 
-- **多模型入参容错（对标 Pi 原厂 `prepareEditArguments`）**：
-  - 自动兼容反序列化 JSON 字符串、单个字典包裹或字典列表，彻底消除 Opus/GLM 等模型由于 Schema 解析偏差导致的参数报错；
+- **多模型入参容错与单/多块兼容（对标 Pi 原厂 `prepareEditArguments`）**：
+  - **单块便捷传参**：支持直接通过 `old_text` 与 `new_text`（同时兼容驼峰 `oldText` / `newText`）实施单块替换；
+  - **多块与非结构化容错**：自动兼容反序列化 JSON 字符串、单个字典包裹或字典列表，彻底消除各类大模型由于 Schema 偏差导致的参数报错；
 - **逆序精准替换与非重叠校验**：
   - 针对多段编辑，自动校验区间是否重叠；
   - 严格校验唯一匹配：若 `old_text` 未命中，返回目标文件总行数并建议先使用 `read`；若命中多处（`count > 1`），返回具体重复次数并提示提供更多上下文；
   - 按文件中出现的逆向偏移量顺序实施替换，避免前序替换改变后续代码偏移；
 - **Unified Diff 回显**：替换成功后自动生成 Unified Diff 变更差异，供前端终端高亮与上下文记录。
 
-### 5. `bash(command, timeout)`
+### 5. `bash(command, timeout, run_in_background)`
 
 - **增量流式回传（100ms `on_update`）**：
   底层采用 `asyncio.create_subprocess_shell`，通过异步行流读取 stdout/stderr，每 100ms 向前端事件流推送 partialResult，避免长耗时命令出现黑盒卡顿；
+- **后台作业与任务系统集成**：
+  支持 `run_in_background=True`，联动内核 `background_runner` 异步拉起长耗时服务进程（如编译构建、开发服务器），并返回任务 ID 供后续查询或终止；
+- **高危命令硬拦截**：
+  静态拦截破坏性高危指令（包含 `rm -rf /`, `rm -rf /*`, `mkfs`, `dd if=/dev/zero`, `:(){ :|:& };:`, `shutdown`, `reboot`, `init 0` 等）；
 - **完整进程树终止**：
   当超时（默认 120 秒）或用户按 `Esc` 中断时，Windows 下调用 `taskkill /F /T /PID`，POSIX 下调用 `os.killpg`，彻底铲除孙子进程孤儿残留；
 - **大日志外溢保护**：
