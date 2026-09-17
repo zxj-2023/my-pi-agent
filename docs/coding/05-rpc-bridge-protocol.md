@@ -39,6 +39,7 @@
 服务端共注册分发了 29 个强类型 RPC 业务处理方法，按功能分为 6 大领域：
 
 #### (1) 通信生命周期与流程控制
+
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `initialize` | `{"workspace": string, "model"?: string, "thinking"?: string}` | `{"server_version": "...", "default_model": "...", "thinking_level": "...", "workspace": "..."}` | 双端协议握手，同步工作区与默认运行时上下文 |
@@ -49,6 +50,7 @@
 | `abort` | `{}` | `{"status": "aborted"}` | 协作式中断当前正在运行的模型流式生成或工具执行进程 |
 
 #### (2) 会话管理与 DAG 分支漫游
+
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `session_new` | `{"name"?: string}` | `{"session_id": "...", "session_name": "...", "status": "ok"}` | 在当前工作区会话分区创建全新的空白会话 |
@@ -65,6 +67,7 @@
 | `session_clone` | `{}` | `{"cloned_session_id": "...", "status": "ok"}` | 100% 完整克隆当前会话消息与快照建立全新副本 |
 
 #### (3) 模型调度与思考预算
+
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `models_list` | `{}` | `{"models": [...], "configured_providers": [...]}` | 动态拉取各已配置 Provider 的真实模型目录（含 4 小时磁盘缓存） |
@@ -72,6 +75,7 @@
 | `thinking_set` | `{"level": string}` | `{"status": "ok", "thinking_level": "..."}` | 设定思考预算深度，内部根据模型家族能力自动夹逼合规值 |
 
 #### (4) 认证凭据与项目信任
+
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `login` | `{"provider": string, "api_key"?: string, "profile"?: string, ...}` | `{"status": "ok"}` | 安全保存提供商凭据至 `~/.my-pi-agent/auth.json` |
@@ -79,6 +83,7 @@
 | `trust_set` | `{"workspace": string, "trusted": boolean}` | `{"trusted": boolean, "workspace": "..."}` | 记录或更新对特定工作区路径的脚本执行信任授权 |
 
 #### (5) Shell 宏展开与资源热重载
+
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `shell_exec` | `{"command": string, "silent"?: boolean}` | `{"exit_code": N, "stdout": "...", "stderr": "..."}` | 前端触发本地 Shell 命令执行（区分静默与上下文注入） |
@@ -86,6 +91,7 @@
 | `resource_reload` | `{}` | `{"status": "ok", "message": "..."}` | 动态重新扫描并热重载本地 Skills、Prompts 与 Templates 资源 |
 
 #### (6) 配置读取与设置
+
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `settings_get` | `{"key"?: string}` | `{"settings": {...}}` | 获取合并后的级联配置快照或指定配置键值 |

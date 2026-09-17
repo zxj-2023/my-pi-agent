@@ -114,11 +114,14 @@ class CodingAgent:
 为防止繁琐的确认打断流畅的研发体验，系统内置了经过实战检验的安全免审批通道：
 
 - **只读工具白名单**：
+
   ```python
   READONLY_TOOLS = frozenset({"read", "grep", "find"})
   ```
+
   在非 `strict` 模式下，上述只读操作直接放行，零阻塞。
 - **安全 Shell 命令前缀白名单**：
+
   ```python
   SAFE_BASH_PREFIXES = (
       "git status",
@@ -129,6 +132,7 @@ class CodingAgent:
       "uv run",
   )
   ```
+
   在 `review` 模式下，凡是以只读状态探查或本地测试为目的的命令无需确认，直接执行。
 
 ### 3. 交互式审查与差异比对契约 (PermissionRequest)
@@ -145,6 +149,7 @@ class PermissionRequest:
 ```
 
 若注册了 `confirm_callback`（如在 TUI 中弹出确认模态框）：
+
 1. 界面呈现操作目标与代码差异预览（针对 `write`/`edit`）；
 2. 用户选择批准（`True`）则透明继续执行；
 3. 用户选择驳回（`False`）则返回 `HookResult(block=True, reason=f"用户拒绝执行: {tool_name} on {target}")`，ReAct 循环捕获拦截结果，模型能够清晰感知并调整后续行动策略。
