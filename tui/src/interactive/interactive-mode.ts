@@ -1465,7 +1465,10 @@ export class InteractiveMode {
         }
         case "compact": {
           this.clearStatusDisplay();
-          const compIndicator = new CompactionStatusIndicator(this.ui, "manual");
+          const compIndicator = new CompactionStatusIndicator(
+            this.ui,
+            "manual",
+          );
           compIndicator.start();
           this.activeStatusIndicator = compIndicator;
           this.defaultEditor.setWorkingStatusIndicator(compIndicator as any);

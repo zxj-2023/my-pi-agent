@@ -61,7 +61,9 @@ export class WorkingStatusIndicator extends StatusIndicator {
   public renderInBorder(width: number): string {
     const lines = super.render(width + 2);
     const line = lines[1] ?? lines[0] ?? "";
-    const clean = line.startsWith(" ") ? line.slice(1).trimEnd() : line.trimEnd();
+    const clean = line.startsWith(" ")
+      ? line.slice(1).trimEnd()
+      : line.trimEnd();
     return truncateToWidth(clean, width, "");
   }
 
