@@ -274,7 +274,7 @@ async def test_rpc_macro_expand(tmp_path: Path, monkeypatch):
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
     )
 
-    # 1. 展开 /skill:<name> [args]
+    # 1. 展开 /skill:<name> [args] 与 /skill <name> [args]
     resp_skill = await server.handle_request(
         {
             "jsonrpc": "2.0",
@@ -287,6 +287,19 @@ async def test_rpc_macro_expand(tmp_path: Path, monkeypatch):
     assert resp_skill["result"]["expanded"] is True
     assert '<skill name="deploy"' in resp_skill["result"]["text"]
     assert "staging --check" in resp_skill["result"]["text"]
+
+    resp_skill_space = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "macro_expand",
+            "params": {"text": "/skill deploy prod --fast"},
+        }
+    )
+    assert resp_skill_space["result"]["status"] == "ok"
+    assert resp_skill_space["result"]["expanded"] is True
+    assert '<skill name="deploy"' in resp_skill_space["result"]["text"]
+    assert "prod --fast" in resp_skill_space["result"]["text"]
 
     # 2. 展开 /<template> [args]
     resp_tpl = await server.handle_request(

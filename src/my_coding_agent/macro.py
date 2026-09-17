@@ -379,9 +379,12 @@ class MacroEngine:
         if not raw.startswith("/"):
             return text, False
 
-        # 1. /skill:<name> [args]
-        if raw.startswith("/skill:"):
-            rest = raw[len("/skill:") :].strip()
+        # 1. /skill:<name> [args] 或 /skill <name> [args]
+        if raw.startswith("/skill:") or raw.startswith("/skill "):
+            prefix_len = len("/skill:") if raw.startswith("/skill:") else len("/skill ")
+            rest = raw[prefix_len:].strip()
+            if not rest:
+                return text, False
             if " " in rest:
                 skill_name, args = rest.split(" ", 1)
             else:

@@ -120,11 +120,7 @@ class SkillManager:
     def format_prompt(self, names: Sequence[str] | None = None) -> str:
         """全部（或指定名字子集）skills → XML 清单块；空 → 空串（进 system）。
         names 给定只格式化这些名字（供 subagent skills 字段取子集）；未知名忽略。"""
-        skills = (
-            (self.skills[n] for n in names if n in self.skills)
-            if names is not None
-            else self.skills.values()
-        )
+        skills = (self.skills[n] for n in names if n in self.skills) if names is not None else self.skills.values()
         parts = ["<available_skills>"]
         for s in skills:
             parts.append("  <skill>")
@@ -143,8 +139,5 @@ class SkillManager:
         if skill is None:
             available = ", ".join(sorted(self.skills)) or "(none)"
             raise ValueError(f"Unknown skill '{name}'. Available: {available}")
-        block = (
-            f'<skill name="{skill.name}" location="{skill.file_path}">\n'
-            f"{skill.content}\n</skill>"
-        )
+        block = f'<skill name="{skill.name}" location="{skill.file_path}">\n{skill.content}\n</skill>'
         return f"{block}\n\n{instructions}" if instructions else block

@@ -94,6 +94,72 @@ test("AgentApp mounts autocomplete provider with slash commands and @ file refer
   assert.ok(
     fileSuggestions.items.some((i) => i.value.includes("package.json")),
   );
+
+  // 3. 测试 /skill 命令联想补全
+  const skillSuggestions = await provider.getSuggestions(["/skil"], 0, 5, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(skillSuggestions);
+  assert.ok(
+    skillSuggestions.items.some(
+      (i) => i.value === "skill" || i.label === "skill",
+    ),
+  );
+});
+
+test("AgentApp updates autocomplete provider with loaded skills and prompt templates", async () => {
+  const app = new AgentApp({
+    workspace: ".",
+    resources: {
+      context: ["AGENTS.md"],
+      skills: ["test-helper", "deploy"],
+      prompts: ["/review"],
+      extensions: ["mcp:github"],
+    },
+  });
+
+  const provider = app.editor.autocompleteProvider;
+  assert.ok(provider);
+
+  // 1. /skill 与 /skill:<name> 命令应出现在补全建议中
+  const skillCmds = await provider.getSuggestions(["/skill"], 0, 6, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(skillCmds);
+  assert.ok(skillCmds.items.some((i) => i.value === "skill"));
+  assert.ok(skillCmds.items.some((i) => i.value === "skill:test-helper"));
+  assert.ok(skillCmds.items.some((i) => i.value === "skill:deploy"));
+
+  // 2. /skill <space> 应触发技能名称列表的参数补全
+  const argCompletions = await provider.getSuggestions(["/skill "], 0, 7, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(argCompletions);
+  assert.ok(argCompletions.items.some((i) => i.value === "test-helper"));
+  assert.ok(argCompletions.items.some((i) => i.value === "deploy"));
+
+  // 3. /review 模板命令应自动加入补全列表
+  const promptCmds = await provider.getSuggestions(["/rev"], 0, 4, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(promptCmds);
+  assert.ok(promptCmds.items.some((i) => i.value === "review"));
+
+  // 4. 测试动态 updateResources 刷新自动补全
+  app.interactiveMode.updateResources({
+    context: ["AGENTS.md"],
+    skills: ["new-dynamic-skill"],
+    prompts: ["/deploy-prod"],
+    extensions: [],
+  });
+  const updatedProvider = app.editor.autocompleteProvider;
+  const dynSkillCmds = await updatedProvider.getSuggestions(["/skill"], 0, 6, {
+    signal: new AbortController().signal,
+  });
+  assert.ok(dynSkillCmds);
+  assert.ok(
+    dynSkillCmds.items.some((i) => i.value === "skill:new-dynamic-skill"),
+  );
 });
 
 test("AgentApp handles slash commands (/clear, /help, /steer, /followup) locally without throwing", async () => {
@@ -479,7 +545,10 @@ test("AgentApp expands macros (/skill: and /<template>) before submitting prompt
 
   app["client"].sendRequest = async (method, params) => {
     if (method === "macro_expand") {
-      if (params?.text?.startsWith("/skill:deploy")) {
+      if (
+        params?.text?.startsWith("/skill:deploy") ||
+        params?.text?.startsWith("/skill deploy")
+      ) {
         return {
           status: "ok",
           expanded: true,
@@ -498,8 +567,13 @@ test("AgentApp expands macros (/skill: and /<template>) before submitting prompt
     return { status: "ok" };
   };
 
-  // 1. /skill: 宏展开
+  // 1. /skill: 与 /skill 宏展开
   await app.handleUserSubmit("/skill:deploy prod --dry-run");
+  assert.ok(capturedPrompt.includes('<skill name="deploy">'));
+  assert.ok(capturedPrompt.includes("prod --dry-run"));
+
+  capturedPrompt = "";
+  await app.handleUserSubmit("/skill deploy prod --dry-run");
   assert.ok(capturedPrompt.includes('<skill name="deploy">'));
   assert.ok(capturedPrompt.includes("prod --dry-run"));
 

@@ -195,6 +195,7 @@ export class InteractiveMode {
   private unsubscribeBridge?: () => void;
   private hasRenderedTurnError = false;
   public startupResources: StartupResourcesComponent;
+  public loadedResources: LoadedResourcesData;
 
   constructor(
     public readonly bridge: KernelBridge,
@@ -203,6 +204,12 @@ export class InteractiveMode {
     this.workspace = options.workspace || process.cwd();
     this.currentModelName = options.model || "default";
     this.currentThinkingLevel = options.thinking || "off";
+    this.loadedResources = options.resources || {
+      context: [],
+      skills: [],
+      prompts: [],
+      extensions: [],
+    };
 
     // 1. 初始化终端 UI 宿主
     this.ui = createInteractiveTui({
@@ -521,11 +528,68 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  public getSlashCommands(): SlashCommand[] {
+    const commands: SlashCommand[] = [...BUILTIN_SLASH_COMMANDS];
+
+    // 添加通用的 /skill 宏命令
+    commands.push({
+      name: "skill",
+      description: "展开并执行指定的技能",
+      argumentHint: "<name> [args]",
+      getArgumentCompletions: (prefix: string) => {
+        const clean = prefix.trim().toLowerCase();
+        const skills = this.loadedResources?.skills || [];
+        return skills
+          .filter((s) => s.toLowerCase().startsWith(clean))
+          .map((s) => ({
+            value: s,
+            label: s,
+            description: `Skill: ${s}`,
+          }));
+      },
+    });
+
+    // 为每个已发现的 skill 注入 /skill:<name> 形式的专用补全
+    if (this.loadedResources?.skills) {
+      for (const skill of this.loadedResources.skills) {
+        commands.push({
+          name: `skill:${skill}`,
+          description: `展开并执行技能 ${skill}`,
+          argumentHint: "[args]",
+        });
+      }
+    }
+
+    // 为每个已发现的 prompt 模板注入 /<name> 补全
+    if (this.loadedResources?.prompts) {
+      for (const prompt of this.loadedResources.prompts) {
+        const pName = prompt.startsWith("/") ? prompt.slice(1) : prompt;
+        if (!commands.some((c) => c.name === pName)) {
+          commands.push({
+            name: pName,
+            description: `执行提示词模板 ${pName}`,
+            argumentHint: "[args]",
+          });
+        }
+      }
+    }
+
+    return commands;
+  }
+
   public updateResources(resources: LoadedResourcesData): void {
+    this.loadedResources = resources;
     this.startupResources.updateData(resources);
     if (!this.chatContainer.children.includes(this.startupResources)) {
       this.chatContainer.children.unshift(this.startupResources);
     }
+    const fdPath = findFdPath();
+    const autocompleteProvider = new CombinedAutocompleteProvider(
+      this.getSlashCommands(),
+      this.workspace,
+      fdPath,
+    );
+    this.defaultEditor.setAutocompleteProvider(autocompleteProvider);
     this.ui.requestRender();
   }
 
@@ -578,7 +642,7 @@ export class InteractiveMode {
     };
     const fdPath = findFdPath();
     const autocompleteProvider = new CombinedAutocompleteProvider(
-      BUILTIN_SLASH_COMMANDS,
+      this.getSlashCommands(),
       this.workspace,
       fdPath,
     );
@@ -607,6 +671,8 @@ export class InteractiveMode {
     if (
       input.startsWith("/") &&
       (input.startsWith("/skill:") ||
+        input.startsWith("/skill ") ||
+        input === "/skill" ||
         !BUILTIN_SLASH_COMMANDS.some((c) =>
           input.toLowerCase().startsWith(`/${c.name}`),
         ))
@@ -618,6 +684,18 @@ export class InteractiveMode {
           (await client?.sendRequest?.("macro_expand", { text: input }));
         if (macroRes?.expanded && macroRes.text) {
           input = macroRes.text;
+        } else if (
+          input === "/skill" ||
+          input.startsWith("/skill ") ||
+          input.startsWith("/skill:")
+        ) {
+          const available = this.loadedResources?.skills?.length
+            ? `可用技能: ${this.loadedResources.skills.join(", ")}`
+            : "当前暂无可用技能。";
+          this.appendErrorMessage(
+            `用法: /skill <name> [args] 或 /skill:<name> [args]。${available}`,
+          );
+          return;
         } else if (
           !BUILTIN_SLASH_COMMANDS.some((c) =>
             input.toLowerCase().startsWith(`/${c.name}`),
@@ -1656,8 +1734,14 @@ export class InteractiveMode {
           break;
         }
         case "reload": {
-          const res: any = await ((this.bridge as any).reloadResources?.() ??
-            (this.bridge.client as any).sendRequest?.("resource_reload"));
+          const res: any =
+            (await (this.bridge as any).reloadResources?.()) ??
+            (await (this.bridge.client as any).sendRequest?.(
+              "resource_reload",
+            ));
+          if (res?.resources) {
+            this.updateResources(res.resources);
+          }
           this.appendSystemNotice(`✓ 资源重载完成: ${res?.summary || ""}`);
           break;
         }
