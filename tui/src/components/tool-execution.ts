@@ -1,6 +1,19 @@
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
 
+export const SPINNER_FRAMES = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+];
+const SPINNER_INTERVAL_MS = 80;
 const MAX_PREVIEW_LINES = 15;
 
 export class ToolExecutionComponent extends Container {
@@ -9,13 +22,17 @@ export class ToolExecutionComponent extends Container {
   private isError = false;
   private isExpanded = false;
   private resultText = "";
+  private partialOutput = "";
   private elapsedSeconds = 0;
   private startTime = Date.now();
+  private spinnerFrame = 0;
+  private animInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     public readonly toolName: string,
     public readonly toolCallId: string,
     public args: Record<string, unknown> = {},
+    private readonly onRequestRender?: () => void,
   ) {
     super();
 
@@ -23,6 +40,36 @@ export class ToolExecutionComponent extends Container {
     this.box = new Box(1, 1, (t: string) => theme.bg("toolPendingBg", t));
     this.addChild(this.box);
     this.updateDisplay();
+    this.startAnimation();
+  }
+
+  private startAnimation(): void {
+    if (this.isFinished || this.animInterval) return;
+    this.animInterval = setInterval(() => {
+      if (this.isFinished) {
+        this.stopAnimation();
+        return;
+      }
+      this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
+      this.updateDisplay();
+      if (this.onRequestRender) {
+        this.onRequestRender();
+      }
+    }, SPINNER_INTERVAL_MS);
+    if (typeof this.animInterval?.unref === "function") {
+      this.animInterval.unref();
+    }
+  }
+
+  private stopAnimation(): void {
+    if (this.animInterval) {
+      clearInterval(this.animInterval);
+      this.animInterval = null;
+    }
+  }
+
+  public dispose(): void {
+    this.stopAnimation();
   }
 
   public get finished(): boolean {
@@ -41,13 +88,31 @@ export class ToolExecutionComponent extends Container {
     this.updateDisplay();
   }
 
+  public updatePartialResult(partial: unknown): void {
+    if (this.isFinished) return;
+    if (typeof partial === "string") {
+      this.partialOutput = partial;
+    } else if (partial && typeof partial === "object") {
+      const data = (partial as Record<string, unknown>).data;
+      this.partialOutput = String(data || JSON.stringify(partial));
+    } else {
+      this.partialOutput = String(partial ?? "");
+    }
+    this.updateDisplay();
+    if (this.onRequestRender) {
+      this.onRequestRender();
+    }
+  }
+
   public updateResult(
     result: unknown,
     isError: boolean,
     elapsedSeconds?: number,
   ): void {
+    this.stopAnimation();
     this.isFinished = true;
     this.isError = isError;
+    this.partialOutput = "";
     this.elapsedSeconds =
       elapsedSeconds !== undefined && elapsedSeconds >= 0
         ? elapsedSeconds
@@ -101,7 +166,8 @@ export class ToolExecutionComponent extends Container {
     this.box.clear();
 
     // 1. Header
-    let icon = theme.fg("warning", "⠋");
+    const spinnerChar = SPINNER_FRAMES[this.spinnerFrame] || "⠋";
+    let icon = theme.fg("warning", spinnerChar);
     let statusSuffix = "";
     if (this.isFinished) {
       if (this.isError) {
@@ -141,6 +207,15 @@ export class ToolExecutionComponent extends Container {
         renderedText += `\n${theme.dim(`... (剩余 ${remaining} 行，按 Ctrl+O 展开查看)`)}`;
       }
 
+      this.box.addChild(new Text(renderedText, 0, 0));
+    } else if (!this.isFinished && this.partialOutput.trim()) {
+      // 正在运行中的实时流式输出预览 (对标 Pi bash renderer options.isPartial)
+      this.box.addChild(new Spacer(1));
+      const lines = this.partialOutput.trim().split("\n");
+      const previewLines = lines.slice(-MAX_PREVIEW_LINES);
+      const renderedText = previewLines
+        .map((l) => theme.fg("dim", l))
+        .join("\n");
       this.box.addChild(new Text(renderedText, 0, 0));
     }
   }

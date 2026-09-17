@@ -148,8 +148,7 @@ test("AgentApp handles slash commands (/clear, /help, /steer, /followup) locally
   // 7. /session, /settings 与 /login 命令
   await app.handleUserSubmit("/session");
   const sessionText = app.chatContainer.children.at(-1).render(120).join("\n");
-  assert.ok(sessionText.includes("集中式存储位置"));
-  assert.ok(sessionText.includes("工作区零污染"));
+  assert.ok(sessionText.includes("Session Info"));
 
   await app.handleUserSubmit("/settings");
   assert.ok(app["activeSelectorComponent"]);
@@ -347,9 +346,8 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
   // 5. /compact
   await app.handleUserSubmit("/compact 聚焦总结核心代码");
   const compactText = app.chatContainer.children.at(-1).render(120).join("\n");
-  assert.ok(compactText.includes("12000"));
-  assert.ok(compactText.includes("3500"));
-  assert.ok(compactText.includes("压缩完成测试摘要"));
+  assert.ok(compactText.includes("12,000"));
+  assert.ok(compactText.includes("[compaction]"));
 
   // 6. /tree (无参 -> 调起 TreeSelector)
   await app.handleUserSubmit("/tree");

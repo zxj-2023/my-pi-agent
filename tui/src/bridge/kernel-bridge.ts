@@ -123,6 +123,12 @@ export class KernelBridge {
     });
   }
 
+  public async deleteSession(sessionId: string): Promise<RpcResponseData> {
+    return this.call<RpcResponseData>("session_delete", {
+      session_id: sessionId,
+    });
+  }
+
   public async getSessionHistory(): Promise<RpcResponseData> {
     return this.call<RpcResponseData>("session_history", {});
   }
@@ -137,8 +143,15 @@ export class KernelBridge {
     return this.call<RpcResponseData>("session_tree", {});
   }
 
+  public async getSessionStats(): Promise<RpcResponseData> {
+    return this.call<RpcResponseData>("session_stats", {});
+  }
+
   public async branchSession(nodeId: string): Promise<RpcResponseData> {
-    return this.call<RpcResponseData>("session_branch", { node_id: nodeId });
+    return this.call<RpcResponseData>("session_branch", {
+      target_id: nodeId,
+      node_id: nodeId,
+    });
   }
 
   public async setThinking(level: string): Promise<RpcResponseData> {

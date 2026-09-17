@@ -18,6 +18,7 @@ export class UserMessageSelectorComponent extends Container {
   private listContainer: Container;
   private selectedIndex = 0;
   private maxVisible = 10;
+  private lastWidth = 80;
   private _focused = false;
 
   get focused(): boolean {
@@ -31,6 +32,7 @@ export class UserMessageSelectorComponent extends Container {
     public readonly messages: UserMessageItem[],
     public readonly onSelect: (msg: UserMessageItem) => void,
     public readonly onCancel: () => void,
+    initialSelectedId?: string,
   ) {
     super();
 
@@ -68,7 +70,17 @@ export class UserMessageSelectorComponent extends Container {
     );
     this.addChild(new DynamicBorder());
 
+    const initialIndex = initialSelectedId
+      ? messages.findIndex((m) => m.id === initialSelectedId)
+      : -1;
+    this.selectedIndex =
+      initialIndex >= 0 ? initialIndex : Math.max(0, this.messages.length - 1);
     this.updateList();
+  }
+
+  public override render(width: number): string[] {
+    this.lastWidth = width;
+    return super.render(width);
   }
 
   public updateList(): void {
@@ -106,7 +118,7 @@ export class UserMessageSelectorComponent extends Container {
       const snippet = msg.text.replace(/[\n\r\t]/g, " ").trim();
 
       const left = `${cursor}${indexTag} ${isSelected ? theme.bold(snippet) : snippet}`;
-      const pad = Math.max(2, 78 - visibleWidth(left));
+      const pad = Math.max(2, this.lastWidth - 4 - visibleWidth(left));
       let lineText = left + " ".repeat(pad);
 
       if (isSelected) {

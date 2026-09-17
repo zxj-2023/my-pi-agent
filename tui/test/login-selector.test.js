@@ -62,7 +62,7 @@ test("LoginSelectorComponent transitions to phase 2 and submits key", () => {
   assert.equal(submittedKey, "sk-test-deepseek-123");
 });
 
-test("LoginSelectorComponent directly binds Antigravity without entering phase 2", () => {
+test("LoginSelectorComponent shows auth.json location explanation for Antigravity and submits on Enter", () => {
   let submittedProvider = null;
   let submittedKey = null;
 
@@ -80,7 +80,15 @@ test("LoginSelectorComponent directly binds Antigravity without entering phase 2
   }
   selector.handleInput("\r");
 
-  // Should directly submit without prompting for key
+  // Should transition to Phase 2 with clear auth.json explanation
+  const linesPhase2 = selector.render(80);
+  const textPhase2 = linesPhase2.join("\n");
+  assert.ok(textPhase2.includes("auth.json"));
+  assert.ok(textPhase2.includes("~/.my-pi-agent/auth.json"));
+  assert.ok(textPhase2.includes("~/.pi/agent/auth.json"));
+
+  // Press Enter with empty key to automatically load from auth.json
+  selector.handleInput("\r");
   assert.equal(submittedProvider, "antigravity");
   assert.equal(submittedKey, "");
 });

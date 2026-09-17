@@ -37,6 +37,7 @@ test("UserMessageSelectorComponent handles selection and cancel", () => {
     () => {
       cancelled = true;
     },
+    "msg-1",
   );
 
   // Navigate down to msg-2
@@ -48,4 +49,18 @@ test("UserMessageSelectorComponent handles selection and cancel", () => {
   // Escape
   selector.handleInput("\x1b");
   assert.equal(cancelled, true);
+});
+
+test("UserMessageSelectorComponent defaults to latest user message for branching", () => {
+  let selected = null;
+  const selector = new UserMessageSelectorComponent(
+    TEST_MESSAGES,
+    (msg) => {
+      selected = msg;
+    },
+    () => {},
+  );
+  selector.handleInput("\r");
+  assert.ok(selected);
+  assert.equal(selected.id, "msg-3");
 });

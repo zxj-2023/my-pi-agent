@@ -57,6 +57,7 @@ export class SettingsSelectorComponent extends Container {
   private listContainer: Container;
   private selectedIndex = 0;
   private currentSettings: Record<string, unknown>;
+  private lastWidth = 80;
   private _focused = false;
 
   get focused(): boolean {
@@ -110,6 +111,11 @@ export class SettingsSelectorComponent extends Container {
     this.updateList();
   }
 
+  public override render(width: number): string[] {
+    this.lastWidth = width;
+    return super.render(width);
+  }
+
   public updateList(): void {
     this.listContainer.clear();
 
@@ -132,7 +138,10 @@ export class SettingsSelectorComponent extends Container {
       const left = `${cursor}${label}`;
       const right = `${valueDisplay}  ${theme.fg("dim", `(${def.description})`)}`;
 
-      const pad = Math.max(2, 78 - visibleWidth(left) - visibleWidth(right));
+      const pad = Math.max(
+        2,
+        this.lastWidth - 4 - visibleWidth(left) - visibleWidth(right),
+      );
       let lineText = left + " ".repeat(pad) + right;
 
       if (isSelected) {
@@ -156,7 +165,7 @@ export class SettingsSelectorComponent extends Container {
           ? 0
           : this.selectedIndex + 1;
       this.updateList();
-    } else if (isEnterKey(data)) {
+    } else if (isEnterKey(data) || matchesKey(data, "space")) {
       const def = this.definitions[this.selectedIndex];
       if (!def) return;
 

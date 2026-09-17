@@ -6,6 +6,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.js";
+import { SPINNER_FRAMES } from "./tool-execution.js";
 
 export interface FooterData {
   workspace: string;
@@ -16,18 +17,36 @@ export interface FooterData {
   thinkingLevel?: string;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheHitRate?: number;
   totalTokens?: number;
   tokensUsed?: number; // 兼容旧版调用场景
+  contextTokens?: number;
   contextWindow?: number;
+  autoCompactEnabled?: boolean;
   costUsd?: number;
   elapsedSeconds?: number;
   isBusy?: boolean;
 }
 
+export function formatTokens(count: number): string {
+  if (count < 1000) return count.toString();
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1000000) return `${Math.round(count / 1000)}k`;
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+  return `${Math.round(count / 1000000)}M`;
+}
+
 export class FooterComponent extends Container {
   private data: FooterData;
+  private spinnerFrame = 0;
+  private busyInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(initialData?: Partial<FooterData>) {
+  constructor(
+    initialData?: Partial<FooterData>,
+    private readonly onRequestRender?: () => void,
+  ) {
     super();
     this.data = {
       workspace: process.cwd(),
@@ -40,10 +59,52 @@ export class FooterComponent extends Container {
       costUsd: 0,
       ...initialData,
     };
+    if (this.data.isBusy) {
+      this.startAnimation();
+    }
   }
 
   public update(partial: Partial<FooterData>): void {
+    const wasBusy = Boolean(this.data.isBusy);
     this.data = { ...this.data, ...partial };
+    const nowBusy = Boolean(this.data.isBusy);
+    if (nowBusy && !wasBusy) {
+      this.startAnimation();
+    } else if (!nowBusy && wasBusy) {
+      this.stopAnimation();
+    }
+  }
+
+  private startAnimation(): void {
+    if (this.busyInterval) return;
+    this.busyInterval = setInterval(() => {
+      this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
+      if (this.onRequestRender) {
+        this.onRequestRender();
+      }
+    }, 80);
+    if (typeof this.busyInterval?.unref === "function") {
+      this.busyInterval.unref();
+    }
+  }
+
+  private stopAnimation(): void {
+    if (this.busyInterval) {
+      clearInterval(this.busyInterval);
+      this.busyInterval = null;
+    }
+  }
+
+  public dispose(): void {
+    this.stopAnimation();
+  }
+
+  public getContextWindow(): number {
+    return this.data.contextWindow || 128000;
+  }
+
+  public getSessionName(): string | undefined {
+    return this.data.sessionName;
   }
 
   public override render(width: number): string[] {
@@ -61,13 +122,40 @@ export class FooterComponent extends Container {
       theme.fg("dim", "..."),
     );
 
-    // 2. 第二行左侧：Token 指标与实时状态
+    // 2. 第二行左侧：Token 指标与实时状态 (完全对齐 Pi 原厂格式)
     const statsParts: string[] = [];
     if (this.data.inputTokens && this.data.inputTokens > 0) {
       statsParts.push(`↑${this.formatTokens(this.data.inputTokens)}`);
     }
     if (this.data.outputTokens && this.data.outputTokens > 0) {
       statsParts.push(`↓${this.formatTokens(this.data.outputTokens)}`);
+    }
+    if (this.data.cacheReadTokens && this.data.cacheReadTokens > 0) {
+      statsParts.push(`R${this.formatTokens(this.data.cacheReadTokens)}`);
+    }
+    if (this.data.cacheWriteTokens && this.data.cacheWriteTokens > 0) {
+      statsParts.push(`W${this.formatTokens(this.data.cacheWriteTokens)}`);
+    }
+    let chRate = this.data.cacheHitRate;
+    if (
+      chRate === undefined &&
+      ((this.data.cacheReadTokens && this.data.cacheReadTokens > 0) ||
+        (this.data.cacheWriteTokens && this.data.cacheWriteTokens > 0))
+    ) {
+      const promptSum =
+        (this.data.inputTokens || 0) +
+        (this.data.cacheReadTokens || 0) +
+        (this.data.cacheWriteTokens || 0);
+      if (promptSum > 0) {
+        chRate = ((this.data.cacheReadTokens || 0) / promptSum) * 100;
+      }
+    }
+    if (
+      chRate !== undefined &&
+      ((this.data.cacheReadTokens && this.data.cacheReadTokens > 0) ||
+        (this.data.cacheWriteTokens && this.data.cacheWriteTokens > 0))
+    ) {
+      statsParts.push(`CH${chRate.toFixed(1)}%`);
     }
     if (
       this.data.tokensUsed &&
@@ -81,13 +169,12 @@ export class FooterComponent extends Container {
       statsParts.push(`$${this.data.costUsd.toFixed(3)}`);
     }
 
-    const totalTok =
-      this.data.totalTokens ??
-      this.data.tokensUsed ??
-      (this.data.inputTokens || 0) + (this.data.outputTokens || 0);
     const contextWin = this.data.contextWindow || 128000;
-    const percent = (totalTok / contextWin) * 100;
-    const percentStr = `${percent.toFixed(1)}%/${this.formatTokens(contextWin)}`;
+    const autoIndicator =
+      this.data.autoCompactEnabled === false ? "" : " (auto)";
+    const contextTok = this.data.contextTokens ?? this.data.totalTokens ?? 0;
+    const percent = contextWin > 0 ? (contextTok / contextWin) * 100 : 0;
+    const percentStr = `${percent.toFixed(1)}%/${this.formatTokens(contextWin)}${autoIndicator}`;
     const contextColor =
       percent > 90 ? "error" : percent > 70 ? "warning" : "dim";
     statsParts.push(theme.fg(contextColor, percentStr));
@@ -98,7 +185,8 @@ export class FooterComponent extends Container {
       );
     }
     if (this.data.isBusy) {
-      statsParts.push(theme.fg("warning", "⠋"));
+      const char = SPINNER_FRAMES[this.spinnerFrame] || "⠋";
+      statsParts.push(theme.fg("warning", char));
     }
 
     const statsLeft = statsParts.join(" ");
@@ -173,15 +261,7 @@ export class FooterComponent extends Container {
     return resolved.replace(/\\/g, "/");
   }
 
-  private formatTokens(count: number): string {
-    if (count < 1000) return String(count);
-    if (count < 1000000) {
-      const k = count / 1000;
-      const formatted = k.toFixed(1);
-      return formatted.endsWith(".0") ? `${Math.round(k)}k` : `${formatted}k`;
-    }
-    const m = count / 1000000;
-    const formatted = m.toFixed(1);
-    return formatted.endsWith(".0") ? `${Math.round(m)}M` : `${formatted}M`;
+  public formatTokens(count: number): string {
+    return formatTokens(count);
   }
 }

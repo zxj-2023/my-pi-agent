@@ -20,11 +20,74 @@ export interface TreeNode {
   timestamp: number;
 }
 
+export interface FlattenedTreeNode {
+  node: TreeNode;
+  depth: number;
+  isLast: boolean;
+  ancestorContinues: boolean[];
+}
+
+export function buildDAGTree(nodes: TreeNode[]): FlattenedTreeNode[] {
+  const byId = new Map<
+    string,
+    { node: TreeNode; children: { node: TreeNode; children: any[] }[] }
+  >();
+  for (const n of nodes) {
+    byId.set(n.id, { node: n, children: [] });
+  }
+
+  const roots: { node: TreeNode; children: any[] }[] = [];
+  for (const n of nodes) {
+    const item = byId.get(n.id)!;
+    if (n.parent_id && byId.has(n.parent_id)) {
+      byId.get(n.parent_id)!.children.push(item);
+    } else {
+      roots.push(item);
+    }
+  }
+
+  const result: FlattenedTreeNode[] = [];
+  const walk = (
+    item: { node: TreeNode; children: any[] },
+    depth: number,
+    ancestorContinues: boolean[],
+    isLast: boolean,
+  ) => {
+    result.push({ node: item.node, depth, isLast, ancestorContinues });
+    for (let i = 0; i < item.children.length; i++) {
+      const childIsLast = i === item.children.length - 1;
+      const continues = depth > 0 ? !isLast : false;
+      walk(
+        item.children[i],
+        depth + 1,
+        [...ancestorContinues, continues],
+        childIsLast,
+      );
+    }
+  };
+
+  for (let i = 0; i < roots.length; i++) {
+    walk(roots[i], 0, [], i === roots.length - 1);
+  }
+  return result;
+}
+
+export function buildDAGTreePrefix(item: FlattenedTreeNode): string {
+  if (item.depth === 0) {
+    return "■ ";
+  }
+  const parts = item.ancestorContinues.map((c) => (c ? "│  " : "   "));
+  const branch = item.isLast ? "└─ " : "├─ ";
+  return parts.join("") + branch;
+}
+
 export class TreeSelectorComponent extends Container {
   private listContainer: Container;
   private allNodes: TreeNode[] = [];
+  private displayNodes: FlattenedTreeNode[] = [];
   private selectedIndex = 0;
   private maxVisible = 12;
+  private lastWidth = 80;
   private _focused = false;
 
   get focused(): boolean {
@@ -78,6 +141,11 @@ export class TreeSelectorComponent extends Container {
     void this.reload();
   }
 
+  public override render(width: number): string[] {
+    this.lastWidth = width;
+    return super.render(width);
+  }
+
   public async reload(): Promise<void> {
     try {
       this.allNodes = await this.loadNodes();
@@ -85,12 +153,16 @@ export class TreeSelectorComponent extends Container {
       this.allNodes = [];
     }
 
+    this.displayNodes = buildDAGTree(this.allNodes);
+
     // Default to currently active leaf or the last item
-    const initialIdx = this.allNodes.findIndex(
-      (n) => n.id === this.activeLeafId || (n.is_active && n.is_leaf),
+    const initialIdx = this.displayNodes.findIndex(
+      (item) =>
+        item.node.id === this.activeLeafId ||
+        (item.node.is_active && item.node.is_leaf),
     );
     this.selectedIndex =
-      initialIdx >= 0 ? initialIdx : Math.max(0, this.allNodes.length - 1);
+      initialIdx >= 0 ? initialIdx : Math.max(0, this.displayNodes.length - 1);
 
     this.updateList();
     if (this.requestRender) {
@@ -101,7 +173,7 @@ export class TreeSelectorComponent extends Container {
   public updateList(): void {
     this.listContainer.clear();
 
-    if (this.allNodes.length === 0) {
+    if (this.displayNodes.length === 0) {
       this.listContainer.addChild(
         new Text(theme.fg("muted", "  当前会话暂无节点记录。"), 0, 0),
       );
@@ -112,23 +184,24 @@ export class TreeSelectorComponent extends Container {
       0,
       Math.min(
         this.selectedIndex - Math.floor(this.maxVisible / 2),
-        this.allNodes.length - this.maxVisible,
+        this.displayNodes.length - this.maxVisible,
       ),
     );
     const endIndex = Math.min(
       startIndex + this.maxVisible,
-      this.allNodes.length,
+      this.displayNodes.length,
     );
 
     for (let i = startIndex; i < endIndex; i++) {
-      const node = this.allNodes[i];
-      if (!node) continue;
+      const item = this.displayNodes[i];
+      if (!item) continue;
+      const node = item.node;
       const isSelected = i === this.selectedIndex;
 
       const cursor = isSelected ? theme.fg("accent", "› ") : "  ";
       const activeMarker = node.is_active ? theme.fg("accent", "* ") : "  ";
 
-      const branchPrefix = node.parent_id === null ? "■ " : "├─ ";
+      const branchPrefix = buildDAGTreePrefix(item);
       let roleBadge = `[${node.role}]`;
       if (node.role === "user") {
         roleBadge = theme.fg("accent", roleBadge);
@@ -144,18 +217,18 @@ export class TreeSelectorComponent extends Container {
       }
 
       if (isSelected) {
-        // Pad to line width
-        const pad = Math.max(0, 80 - visibleWidth(lineText));
+        // Pad dynamically to viewport width
+        const pad = Math.max(0, this.lastWidth - 4 - visibleWidth(lineText));
         lineText = theme.bg("selectedBg", lineText + " ".repeat(pad));
       }
 
       this.listContainer.addChild(new Text(lineText, 0, 0));
     }
 
-    if (startIndex > 0 || endIndex < this.allNodes.length) {
+    if (startIndex > 0 || endIndex < this.displayNodes.length) {
       const scrollInfo = theme.fg(
         "muted",
-        `  (${this.selectedIndex + 1}/${this.allNodes.length})`,
+        `  (${this.selectedIndex + 1}/${this.displayNodes.length})`,
       );
       this.listContainer.addChild(new Text(scrollInfo, 0, 0));
     }
@@ -163,21 +236,21 @@ export class TreeSelectorComponent extends Container {
 
   public handleInput(data: string): void {
     if (matchesKey(data, "up")) {
-      if (this.allNodes.length === 0) return;
+      if (this.displayNodes.length === 0) return;
       this.selectedIndex =
         this.selectedIndex === 0
-          ? this.allNodes.length - 1
+          ? this.displayNodes.length - 1
           : this.selectedIndex - 1;
       this.updateList();
     } else if (matchesKey(data, "down")) {
-      if (this.allNodes.length === 0) return;
+      if (this.displayNodes.length === 0) return;
       this.selectedIndex =
-        this.selectedIndex === this.allNodes.length - 1
+        this.selectedIndex === this.displayNodes.length - 1
           ? 0
           : this.selectedIndex + 1;
       this.updateList();
     } else if (isEnterKey(data)) {
-      const selected = this.allNodes[this.selectedIndex];
+      const selected = this.displayNodes[this.selectedIndex]?.node;
       if (selected) this.onSelect(selected);
     } else if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
       this.onCancel();

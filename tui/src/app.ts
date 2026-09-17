@@ -116,6 +116,32 @@ export class AgentApp {
       });
     }
 
+    if (initResult?.context_window) {
+      this.footer.update({
+        contextWindow: initResult.context_window,
+      });
+    }
+
+    if (initResult?.model) {
+      this.footer.update({
+        modelName: initResult.model,
+        providerName: initResult.provider,
+      });
+    }
+
+    if (initResult?.thinking_level) {
+      this.footer.update({
+        thinkingLevel: initResult.thinking_level,
+      });
+    }
+
+    if (initResult?.usage) {
+      this.interactiveMode.updateFooterUsage(
+        initResult.usage,
+        initResult.context_window,
+      );
+    }
+
     if (initResult?.messages && initResult.messages.length > 0) {
       this.interactiveMode.renderSessionHistory(initResult.messages);
     }

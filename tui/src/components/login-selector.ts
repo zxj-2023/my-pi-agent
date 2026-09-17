@@ -37,12 +37,7 @@ export const SUPPORTED_LOGIN_PROVIDERS: ProviderOption[] = [
   {
     id: "antigravity",
     label: "Antigravity",
-    description: "绑定本地已有的 pi-antigravity 认证凭据 (免网页登录)",
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    description: "OpenAI-Compatible Custom Endpoint & Key",
+    description: "读取 auth.json 认证凭据 (Google Cloud Code Assist)",
   },
 ];
 
@@ -102,11 +97,6 @@ export class LoginSelectorComponent extends Container {
     list.onSelect = (item) => {
       const found = this.providers.find((p) => p.id === item.value);
       if (found) {
-        if (found.id === "antigravity") {
-          // Antigravity 免 Web 登录：直接读取并绑定本地 pi-antigravity 认证凭据
-          this.onSubmit("antigravity", "");
-          return;
-        }
         this.selectedProvider = found;
         this.phase = "enter_key";
         this.rebuildUI();
@@ -164,36 +154,88 @@ export class LoginSelectorComponent extends Container {
     } else {
       this.keyInput.focused = this._focused;
       this.searchInput.focused = false;
-      this.addChild(
-        new Text(
-          theme.bold(`Enter API Key for ${this.selectedProvider.label}`),
-          0,
-          0,
-        ),
-      );
-      this.addChild(new Spacer(1));
-      this.addChild(
-        new Text(
-          theme.fg(
-            "muted",
-            `Paste your key below and press Enter (saved to ~/.my-pi-agent/auth.json):`,
+
+      if (this.selectedProvider.id === "antigravity") {
+        this.addChild(
+          new Text(theme.bold("Antigravity 认证凭据配置 (auth.json)"), 0, 0),
+        );
+        this.addChild(new Spacer(1));
+        this.addChild(
+          new Text(
+            theme.fg(
+              "muted",
+              "Antigravity 依赖 Google OAuth 凭据，系统将自动扫描并读取下列路径：",
+            ),
+            0,
+            0,
           ),
-          0,
-          0,
-        ),
-      );
-      this.addChild(new Spacer(1));
+        );
+        this.addChild(
+          new Text(
+            theme.fg(
+              "accent",
+              "  1. ~/.my-pi-agent/auth.json (推荐：当前 Agent 专属凭据路径)\n  2. ~/.pi/agent/auth.json    (Pi 官方扩展认证凭据路径)",
+            ),
+            0,
+            0,
+          ),
+        );
+        this.addChild(new Spacer(1));
+        this.addChild(
+          new Text(
+            theme.fg(
+              "dim",
+              "• 若上述路径已放置包含 antigravity 字段的 auth.json，直接按 Enter 即可自动读取绑定。\n• 若需手动输入，请在下方粘贴 Access Token，或按 Escape 返回：",
+            ),
+            0,
+            0,
+          ),
+        );
+        this.addChild(new Spacer(1));
+        this.addChild(this.keyInput);
+        this.addChild(new Spacer(1));
+        this.addChild(
+          new Text(
+            theme.fg(
+              "dim",
+              "  Enter 直接读取 auth.json / 提交 Token · Escape 返回",
+            ),
+            0,
+            0,
+          ),
+        );
+      } else {
+        this.addChild(
+          new Text(
+            theme.bold(`Enter API Key for ${this.selectedProvider.label}`),
+            0,
+            0,
+          ),
+        );
+        this.addChild(new Spacer(1));
+        this.addChild(
+          new Text(
+            theme.fg(
+              "muted",
+              `Paste your key below and press Enter (saved to ~/.my-pi-agent/auth.json):`,
+            ),
+            0,
+            0,
+          ),
+        );
+        this.addChild(new Spacer(1));
 
-      this.addChild(this.keyInput);
-      this.addChild(new Spacer(1));
+        this.addChild(this.keyInput);
+        this.addChild(new Spacer(1));
 
-      this.addChild(
-        new Text(
-          theme.fg("dim", "  Enter to confirm & save · Escape to back"),
-          0,
-          0,
-        ),
-      );
+        this.addChild(
+          new Text(
+            theme.fg("dim", "  Enter to confirm & save · Escape to back"),
+            0,
+            0,
+          ),
+        );
+      }
     }
 
     this.addChild(new DynamicBorder());
@@ -229,6 +271,11 @@ export class LoginSelectorComponent extends Container {
       }
       if (isEnterKey(data)) {
         const key = this.keyInput.getValue().trim();
+        if (this.selectedProvider.id === "antigravity") {
+          // Antigravity 支持直接按 Enter 自动读取 auth.json，或提交手动粘贴的 token
+          this.onSubmit("antigravity", key);
+          return;
+        }
         if (key) {
           this.onSubmit(this.selectedProvider.id, key);
         }

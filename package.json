@@ -4,7 +4,8 @@
   "description": "Minimalist Pi-style coding-agent framework and CLI with Pi-TUI",
   "type": "module",
   "bin": {
-    "my-pi-agent": "tui/bin/my-agent.js"
+    "my-pi-agent": "tui/bin/my-agent.js",
+    "my-agent": "tui/bin/my-agent.js"
   },
   "workspaces": [
     "tui"

@@ -29,6 +29,28 @@ function createMockBridge() {
           ],
         };
       }
+      if (method === "session_stats") {
+        return {
+          status: "ok",
+          stats: {
+            sessionFile: "C:\\test\\session.jsonl",
+            sessionId: "s-12345",
+            totalMessages: 10,
+            userMessages: 4,
+            assistantMessages: 4,
+            toolCalls: 2,
+            toolResults: 2,
+            tokens: {
+              input: 1000,
+              output: 200,
+              cacheRead: 500,
+              cacheWrite: 0,
+              total: 1200,
+            },
+            cost: 0.05,
+          },
+        };
+      }
       return { status: "ok" };
     },
     on: () => {},
@@ -270,10 +292,12 @@ test("InteractiveMode slash commands (/model fuzzy, /thinking validation, /sessi
   const renderedNameQuery = mode.ui.render(80).join("\n");
   assert.ok(renderedNameQuery.includes("当前会话名称"));
 
-  // 4. /session 无参展示指标看板
+  // 4. /session 无参展示指标看板 (对标 Pi 官方 Session Info)
   await mode.handleSlashCommand("/session");
   const renderedSessionStats = mode.ui.render(80).join("\n");
-  assert.ok(renderedSessionStats.includes("会话状态与指标统计"));
+  assert.ok(renderedSessionStats.includes("Session Info"));
+  assert.ok(renderedSessionStats.includes("Messages"));
+  assert.ok(renderedSessionStats.includes("Tokens"));
 
   // 5. /hotkeys 快捷键清单
   await mode.handleSlashCommand("/hotkeys");

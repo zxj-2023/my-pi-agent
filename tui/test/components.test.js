@@ -32,10 +32,18 @@ test("ToolExecutionComponent renders running state and updates to success", () =
   assert.ok(lines.some((l) => l.includes("read")));
   assert.ok(lines.some((l) => l.includes("path=src/main.ts")));
 
+  // 验证运行中流式增量输出展示且未提前终止
+  tool.updatePartialResult("Step 1: processing...\nStep 2: analyzing...");
+  assert.strictEqual(tool.finished, false);
+  lines = tool.render(80);
+  assert.ok(lines.some((l) => l.includes("Step 2: analyzing...")));
+
   tool.updateResult("const x = 1;", false, 1.2);
+  assert.strictEqual(tool.finished, true);
   lines = tool.render(80);
   assert.ok(lines.some((l) => l.includes("1.2s")));
   assert.ok(lines.some((l) => l.includes("const x = 1;")));
+  tool.dispose();
 });
 
 test("FooterComponent formats cwd, branch, and tokens properly", () => {
@@ -51,5 +59,5 @@ test("FooterComponent formats cwd, branch, and tokens properly", () => {
   assert.ok(lines.length > 0);
   assert.ok(lines.some((l) => l.includes("feat/tui")));
   assert.ok(lines.some((l) => l.includes("gemini-3.8-flash")));
-  assert.ok(lines.some((l) => l.includes("14.2k")));
+  assert.ok(lines.some((l) => l.includes("14k")));
 });

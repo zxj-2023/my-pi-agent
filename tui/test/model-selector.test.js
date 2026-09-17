@@ -42,6 +42,14 @@ test("ModelSelectorComponent renders models list with provider badges", () => {
   assert.ok(text.includes("deepseek-chat"));
   assert.ok(text.includes("[deepseek]"));
   assert.ok(text.includes("Enter to select"));
+  assert.ok(
+    text.includes(
+      "Only showing models from configured providers. Use /login to add providers.",
+    ),
+  );
+  assert.ok(!text.includes("Model Catalog"));
+  assert.ok(!text.includes("Configured | ○ All"));
+  assert.ok(!text.includes("· 64k"));
   assert.ok(text.includes("✓"));
 });
 
@@ -73,33 +81,36 @@ test("ModelSelectorComponent handles navigation, selection and cancellation", ()
   assert.equal(cancelled, true);
 });
 
-test("ModelSelectorComponent supports dynamic loader and Tab scope toggle", async () => {
-  let loadedScopeAll = null;
+test("ModelSelectorComponent supports scopedModels and Tab scope toggle", async () => {
+  let loaded = false;
+  const scoped = [TEST_MODELS[0]];
 
   const selector = new ModelSelectorComponent(
     "deepseek-chat",
-    async (all) => {
-      loadedScopeAll = all;
-      return all
-        ? TEST_MODELS
-        : TEST_MODELS.filter((m) => m.provider === "deepseek");
+    async () => {
+      loaded = true;
+      return TEST_MODELS;
     },
     () => {},
     () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    scoped,
   );
 
   await new Promise((r) => setTimeout(r, 20));
-  assert.equal(loadedScopeAll, false);
+  assert.equal(loaded, true);
 
-  const linesConfigured = selector.render(80).join("\n");
-  assert.ok(linesConfigured.includes("deepseek-chat"));
-  assert.ok(!linesConfigured.includes("gpt-4o"));
+  const linesScoped = selector.render(80).join("\n");
+  assert.ok(linesScoped.includes("Scope:"));
+  assert.ok(linesScoped.includes("scoped"));
+  assert.ok(linesScoped.includes("deepseek-chat"));
+  assert.ok(!linesScoped.includes("gpt-4o"));
 
   // Press Tab to switch scope to All
   selector.handleInput("\t");
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(loadedScopeAll, true);
-
   const linesAll = selector.render(80).join("\n");
   assert.ok(linesAll.includes("deepseek-chat"));
   assert.ok(linesAll.includes("gpt-4o"));

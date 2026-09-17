@@ -19,6 +19,134 @@ export interface SessionItem {
   cwd?: string;
   modified: number;
   message_count?: number;
+  parent_session?: string;
+  parent_session_path?: string;
+}
+
+export interface SessionTreeNode {
+  session: SessionItem;
+  children: SessionTreeNode[];
+  latestActivity: number;
+}
+
+export interface FlattenedSessionNode {
+  session: SessionItem;
+  depth: number;
+  isLast: boolean;
+  ancestorContinues: boolean[];
+}
+
+function normalizeKey(k: string | undefined): string {
+  if (!k) return "";
+  return k.replace(/\\/g, "/").toLowerCase();
+}
+
+export function buildSessionTree(sessions: SessionItem[]): SessionTreeNode[] {
+  const byKey = new Map<string, SessionTreeNode>();
+  for (const s of sessions) {
+    const node: SessionTreeNode = {
+      session: s,
+      children: [],
+      latestActivity: s.modified * 1000,
+    };
+    byKey.set(s.id, node);
+    byKey.set(s.id.toLowerCase(), node);
+    if (s.path) {
+      byKey.set(s.path, node);
+      byKey.set(normalizeKey(s.path), node);
+      const filename = s.path.split(/[/\\]/).pop() || "";
+      const stem = filename.replace(/\.jsonl$/i, "");
+      if (stem) {
+        byKey.set(stem, node);
+        byKey.set(stem.toLowerCase(), node);
+      }
+    }
+  }
+
+  const roots: SessionTreeNode[] = [];
+  for (const s of sessions) {
+    const node = byKey.get(s.id)!;
+    const pKey = s.parent_session || s.parent_session_path;
+    let parentNode: SessionTreeNode | undefined;
+    if (pKey) {
+      const pFilename = pKey.split(/[/\\]/).pop() || "";
+      const pStem = pFilename.replace(/\.jsonl$/i, "");
+      parentNode =
+        byKey.get(pKey) ||
+        byKey.get(normalizeKey(pKey)) ||
+        byKey.get(pKey.toLowerCase()) ||
+        (pStem
+          ? byKey.get(pStem) || byKey.get(pStem.toLowerCase())
+          : undefined);
+    }
+
+    if (parentNode && parentNode !== node) {
+      parentNode.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const updateLatestActivity = (node: SessionTreeNode): number => {
+    let latest = node.latestActivity;
+    for (const child of node.children) {
+      latest = Math.max(latest, updateLatestActivity(child));
+    }
+    node.latestActivity = latest;
+    return latest;
+  };
+
+  for (const r of roots) {
+    updateLatestActivity(r);
+  }
+
+  const sortNodes = (nodes: SessionTreeNode[]) => {
+    nodes.sort((a, b) => b.latestActivity - a.latestActivity);
+    for (const n of nodes) {
+      sortNodes(n.children);
+    }
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+export function flattenSessionTree(
+  roots: SessionTreeNode[],
+): FlattenedSessionNode[] {
+  const result: FlattenedSessionNode[] = [];
+  const walk = (
+    node: SessionTreeNode,
+    depth: number,
+    ancestorContinues: boolean[],
+    isLast: boolean,
+  ) => {
+    result.push({ session: node.session, depth, isLast, ancestorContinues });
+    for (let i = 0; i < node.children.length; i++) {
+      const childIsLast = i === node.children.length - 1;
+      const continues = depth > 0 ? !isLast : false;
+      walk(
+        node.children[i],
+        depth + 1,
+        [...ancestorContinues, continues],
+        childIsLast,
+      );
+    }
+  };
+  for (let i = 0; i < roots.length; i++) {
+    walk(roots[i], 0, [], i === roots.length - 1);
+  }
+  return result;
+}
+
+export function buildTreePrefix(node: FlattenedSessionNode): string {
+  if (node.depth === 0) {
+    return "";
+  }
+  const parts = node.ancestorContinues.map((continues) =>
+    continues ? "│  " : "   ",
+  );
+  const branch = node.isLast ? "└─ " : "├─ ";
+  return parts.join("") + branch;
 }
 
 function shortenPath(p: string): string {
@@ -50,10 +178,14 @@ export class SessionSelectorComponent extends Container {
   public searchInput: Input;
   private allSessions: SessionItem[] = [];
   private filteredSessions: SessionItem[] = [];
+  private displayNodes: FlattenedSessionNode[] = [];
   private selectedIndex = 0;
   private maxVisible = 10;
   private scope: "current" | "all" = "current";
   private showPath = false;
+  private confirmingDeleteId: string | null = null;
+  private errorMessage: string | null = null;
+  private errorTimeout: ReturnType<typeof setTimeout> | null = null;
   private _focused = false;
 
   get focused(): boolean {
@@ -70,11 +202,12 @@ export class SessionSelectorComponent extends Container {
     private onCancel: () => void,
     private requestRender?: () => void,
     private activeSessionId?: string,
+    private onDelete?: (session: SessionItem) => Promise<void> | void,
   ) {
     super();
     this.searchInput = new Input();
     this.searchInput.onSubmit = () => {
-      const selected = this.filteredSessions[this.selectedIndex];
+      const selected = this.displayNodes[this.selectedIndex]?.session;
       if (selected) this.onSelect(selected);
     };
 
@@ -101,12 +234,20 @@ export class SessionSelectorComponent extends Container {
         const text = `${s.id} ${s.name || ""} ${s.cwd || ""}`.toLowerCase();
         return fuzzyMatch(q, text).matches || text.includes(q);
       });
+      this.displayNodes = this.filteredSessions.map((s) => ({
+        session: s,
+        depth: 0,
+        isLast: false,
+        ancestorContinues: [],
+      }));
     } else {
       this.filteredSessions = [...this.allSessions];
+      const roots = buildSessionTree(this.allSessions);
+      this.displayNodes = flattenSessionTree(roots);
     }
     this.selectedIndex = Math.min(
       this.selectedIndex,
-      Math.max(0, this.filteredSessions.length - 1),
+      Math.max(0, this.displayNodes.length - 1),
     );
   }
 
@@ -127,16 +268,28 @@ export class SessionSelectorComponent extends Container {
         0,
       ),
     );
-    this.addChild(
-      new Text(
-        theme.fg(
-          "muted",
-          "Tab: scope · Ctrl+P: path · Enter: resume · Esc: cancel",
+    if (this.confirmingDeleteId !== null) {
+      this.addChild(
+        new Text(
+          theme.fg("error", "Delete session? Enter to confirm · Esc to cancel"),
+          1,
+          0,
         ),
-        1,
-        0,
-      ),
-    );
+      );
+    } else if (this.errorMessage === null) {
+      this.addChild(
+        new Text(
+          theme.fg(
+            "muted",
+            "Tab: scope · Ctrl+D: delete · Ctrl+P: path · Enter: resume · Esc: cancel",
+          ),
+          1,
+          0,
+        ),
+      );
+    } else {
+      this.addChild(new Text(theme.fg("error", this.errorMessage), 1, 0));
+    }
     this.addChild(new Spacer(1));
 
     // Search Input
@@ -144,7 +297,7 @@ export class SessionSelectorComponent extends Container {
     this.addChild(new Spacer(1));
 
     // List rendering
-    if (this.filteredSessions.length === 0) {
+    if (this.displayNodes.length === 0) {
       this.addChild(
         new Text(theme.fg("muted", "  未发现匹配的历史会话。"), 1, 0),
       );
@@ -153,27 +306,37 @@ export class SessionSelectorComponent extends Container {
         0,
         Math.min(
           this.selectedIndex - Math.floor(this.maxVisible / 2),
-          this.filteredSessions.length - this.maxVisible,
+          this.displayNodes.length - this.maxVisible,
         ),
       );
-      const end = Math.min(
-        start + this.maxVisible,
-        this.filteredSessions.length,
-      );
+      const end = Math.min(start + this.maxVisible, this.displayNodes.length);
 
       for (let i = start; i < end; i++) {
-        const s = this.filteredSessions[i];
-        if (!s) continue;
+        const node = this.displayNodes[i];
+        if (!node) continue;
+        const s = node.session;
         const isSelected = i === this.selectedIndex;
         const isCurrent = s.id === this.activeSessionId;
 
+        const isConfirming = s.id === this.confirmingDeleteId;
+        const deletePrefix = isConfirming
+          ? theme.fg("error", "[delete?] ")
+          : "";
         const cursor = isSelected ? theme.fg("accent", "› ") : "  ";
-        const titleText = isCurrent
-          ? theme.fg("accent", s.name || s.id)
-          : s.name || s.id;
-        const msgInfo = `${s.message_count || 0} msgs`;
+
+        const treePrefix = buildTreePrefix(node);
+        let titleText = s.name || s.id;
+        if (isConfirming) {
+          titleText = theme.fg("error", titleText);
+        } else if (isCurrent) {
+          titleText = theme.fg("accent", titleText);
+        } else if (s.name) {
+          titleText = theme.fg("warning", titleText);
+        }
+
+        const msgInfo = `${s.message_count || 0}`;
         const timeInfo = formatSessionDate(s.modified);
-        let meta = `${msgInfo}  ${timeInfo}`;
+        let meta = `${msgInfo} ${timeInfo}`;
 
         if (this.scope === "all" && s.cwd) {
           meta = `${shortenPath(s.cwd)}  ${meta}`;
@@ -182,8 +345,12 @@ export class SessionSelectorComponent extends Container {
           meta = `${shortenPath(s.path)}  ${meta}`;
         }
 
-        const left = cursor + (isSelected ? theme.bold(titleText) : titleText);
-        const right = theme.fg("dim", meta);
+        const left =
+          cursor +
+          deletePrefix +
+          theme.fg("dim", treePrefix) +
+          (isSelected ? theme.bold(titleText) : titleText);
+        const right = theme.fg(isConfirming ? "error" : "dim", meta);
         const pad = Math.max(2, 75 - visibleWidth(left) - visibleWidth(right));
 
         let rowStr = left + " ".repeat(pad) + right;
@@ -193,12 +360,12 @@ export class SessionSelectorComponent extends Container {
         this.addChild(new Text(rowStr, 1, 0));
       }
 
-      if (this.filteredSessions.length > this.maxVisible) {
+      if (this.displayNodes.length > this.maxVisible) {
         this.addChild(
           new Text(
             theme.fg(
               "muted",
-              `  (${this.selectedIndex + 1}/${this.filteredSessions.length})`,
+              `  (${this.selectedIndex + 1}/${this.displayNodes.length})`,
             ),
             1,
             0,
@@ -212,51 +379,118 @@ export class SessionSelectorComponent extends Container {
   }
 
   public handleInput(data: string): void {
+    // 处于删除二次确认拦截模式
+    if (this.confirmingDeleteId !== null) {
+      if (isEnterKey(data)) {
+        const toDelete = this.displayNodes.find(
+          (n) => n.session.id === this.confirmingDeleteId,
+        )?.session;
+        if (toDelete) {
+          this.executeDelete(toDelete);
+        }
+        return;
+      }
+      if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+        this.confirmingDeleteId = null;
+        this.rebuildUI();
+        if (this.requestRender) this.requestRender();
+        return;
+      }
+      return;
+    }
+
+    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+      this.onCancel();
+      return;
+    }
+
+    if (matchesKey(data, "ctrl+d")) {
+      const selected = this.displayNodes[this.selectedIndex]?.session;
+      if (selected) {
+        if (selected.id === this.activeSessionId) {
+          this.setErrorMessage("Cannot delete the currently active session");
+          return;
+        }
+        this.confirmingDeleteId = selected.id;
+        this.rebuildUI();
+        if (this.requestRender) this.requestRender();
+      }
+      return;
+    }
+
     if (matchesKey(data, "tab")) {
       this.scope = this.scope === "current" ? "all" : "current";
       void this.reload();
       return;
     }
+
     if (matchesKey(data, "ctrl+p")) {
       this.showPath = !this.showPath;
       this.rebuildUI();
       if (this.requestRender) this.requestRender();
       return;
     }
+
     if (matchesKey(data, "up")) {
-      if (this.filteredSessions.length === 0) return;
       this.selectedIndex = Math.max(0, this.selectedIndex - 1);
       this.rebuildUI();
       if (this.requestRender) this.requestRender();
       return;
     }
+
     if (matchesKey(data, "down")) {
-      if (this.filteredSessions.length === 0) return;
       this.selectedIndex = Math.min(
-        this.filteredSessions.length - 1,
+        this.displayNodes.length - 1,
         this.selectedIndex + 1,
       );
       this.rebuildUI();
       if (this.requestRender) this.requestRender();
       return;
     }
-    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
-      this.onCancel();
-      return;
-    }
+
     if (isEnterKey(data)) {
-      const selected =
-        this.filteredSessions[this.selectedIndex] || this.filteredSessions[0];
+      const selected = this.displayNodes[this.selectedIndex]?.session;
       if (selected) {
         this.onSelect(selected);
+        return;
       }
-      return;
     }
 
-    // 转发常规键入字符到搜索输入框
-    this.searchInput.handleInput(data);
-    this.applyFilter();
+    const prevQuery = this.searchInput.getValue();
+    this.searchInput.handleInput?.(data);
+    if (this.searchInput.getValue() !== prevQuery) {
+      this.applyFilter();
+      this.rebuildUI();
+      if (this.requestRender) this.requestRender();
+    }
+  }
+
+  private setErrorMessage(msg: string): void {
+    if (this.errorTimeout) {
+      clearTimeout(this.errorTimeout);
+    }
+    this.errorMessage = msg;
     this.rebuildUI();
     if (this.requestRender) this.requestRender();
+    this.errorTimeout = setTimeout(() => {
+      this.errorMessage = null;
+      this.errorTimeout = null;
+      this.rebuildUI();
+      if (this.requestRender) this.requestRender();
+    }, 2500);
+  }
+
+  private executeDelete(session: SessionItem): void {
+    this.confirmingDeleteId = null;
+    if (this.onDelete) {
+      void Promise.resolve(this.onDelete(session)).then(() => {
+        void this.reload();
+      });
+    } else {
+      this.allSessions = this.allSessions.filter((s) => s.id !== session.id);
+      this.applyFilter();
+      this.rebuildUI();
+      if (this.requestRender) this.requestRender();
+    }
   }
 }

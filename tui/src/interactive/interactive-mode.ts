@@ -8,6 +8,7 @@ import {
   Container,
   Editor,
   type EditorTheme,
+  Loader,
   matchesKey,
   type SlashCommand,
   Spacer,
@@ -16,8 +17,9 @@ import {
 } from "@earendil-works/pi-tui";
 import { KernelBridge } from "../bridge/kernel-bridge.js";
 import { AssistantMessageComponent } from "../components/assistant-message.js";
+import { CompactionSummaryMessageComponent } from "../components/compaction-summary-message.js";
 import { DynamicBorder } from "../components/dynamic-border.js";
-import { FooterComponent } from "../components/footer.js";
+import { FooterComponent, formatTokens } from "../components/footer.js";
 import { HeaderComponent } from "../components/header.js";
 import { LoginSelectorComponent } from "../components/login-selector.js";
 import {
@@ -220,12 +222,15 @@ export class InteractiveMode {
     this.editorContainer = new Container();
 
     // 3. 初始化 Footer
-    this.footer = new FooterComponent({
-      workspace: this.workspace,
-      modelName: this.currentModelName,
-      thinkingLevel: this.currentThinkingLevel,
-      sessionName: options.sessionName,
-    });
+    this.footer = new FooterComponent(
+      {
+        workspace: this.workspace,
+        modelName: this.currentModelName,
+        thinkingLevel: this.currentThinkingLevel,
+        sessionName: options.sessionName,
+      },
+      () => this.ui.requestRender(),
+    );
 
     // 4. 初始化 Editor 与 Autocomplete
     this.defaultEditor = this.createEditor();
@@ -272,11 +277,20 @@ export class InteractiveMode {
   }
 
   public stop(): void {
+    this.clearStatusDisplay();
+    for (const tool of this.activeToolCalls.values()) {
+      tool.dispose();
+    }
+    this.footer.dispose();
     if (this.unsubscribeBridge) {
       this.unsubscribeBridge();
       this.unsubscribeBridge = undefined;
     }
     this.ui.stop();
+  }
+
+  public dispose(): void {
+    this.stop();
   }
 
   // --------------------------------------------------------------------------
@@ -342,6 +356,11 @@ export class InteractiveMode {
           if (contentText) {
             this.currentStreamingAssistant.setContent(contentText);
           }
+        } else if (
+          typeof event.message?.content === "string" &&
+          event.message.content
+        ) {
+          this.currentStreamingAssistant.setContent(event.message.content);
         }
         break;
       }
@@ -352,6 +371,9 @@ export class InteractiveMode {
           this.latestAssistantMessage = this.currentStreamingAssistant;
           this.currentStreamingAssistant = undefined;
         }
+        if (event.usage) {
+          this.updateFooterUsage(event.usage, event.contextWindow);
+        }
         break;
       }
 
@@ -359,7 +381,9 @@ export class InteractiveMode {
         const id = event.toolCallId || `tc-${Date.now()}`;
         const name = event.toolName || "tool";
         const args = event.args || {};
-        const toolComponent = new ToolExecutionComponent(name, id, args);
+        const toolComponent = new ToolExecutionComponent(name, id, args, () =>
+          this.ui.requestRender(),
+        );
         this.activeToolCalls.set(id, toolComponent);
         this.toolStartTimes.set(id, Date.now());
         this.chatContainer.addChild(toolComponent);
@@ -372,7 +396,7 @@ export class InteractiveMode {
         const id = event.toolCallId;
         const toolComponent = this.activeToolCalls.get(id);
         if (toolComponent && event.partialResult) {
-          toolComponent.updateResult(event.partialResult, false);
+          toolComponent.updatePartialResult(event.partialResult);
         }
         break;
       }
@@ -391,6 +415,9 @@ export class InteractiveMode {
       case "turn_end": {
         this.isWorking = false;
         this.clearStatusDisplay();
+        if (event.usage) {
+          this.updateFooterUsage(event.usage, event.contextWindow);
+        }
         break;
       }
 
@@ -410,19 +437,44 @@ export class InteractiveMode {
         this.activeToolCalls.clear();
         this.toolStartTimes.clear();
         this.clearStatusDisplay();
+        if (event.usage) {
+          this.updateFooterUsage(event.usage, event.contextWindow);
+        }
         this.footer.update({ isBusy: false });
         break;
       }
 
       case "context_compacted": {
+        if (event.tokensAfter !== undefined) {
+          this.footer.update({ contextTokens: event.tokensAfter });
+        }
         this.appendSystemNotice(
-          `✓ 上下文已压缩: ${event.tokensBefore ?? 0} -> ${event.tokensAfter ?? 0} tokens`,
+          `✓ 上下文已压缩: ${(event.tokensBefore ?? 0).toLocaleString()} -> ${(event.tokensAfter ?? 0).toLocaleString()} tokens`,
         );
         break;
       }
     }
 
     this.ui.requestRender();
+  }
+
+  public updateFooterUsage(
+    usage: Record<string, unknown>,
+    contextWindow?: number,
+  ): void {
+    if (!usage) return;
+    const u = usage as Record<string, number | undefined>;
+    this.footer.update({
+      inputTokens: u.input ?? u.prompt_tokens,
+      outputTokens: u.output ?? u.completion_tokens,
+      cacheReadTokens: u.cacheRead ?? u.cache_read,
+      cacheWriteTokens: u.cacheWrite ?? u.cache_write,
+      cacheHitRate: u.cacheHitRate ?? u.latestCacheHitRate,
+      costUsd: u.cost ?? u.cost_usd,
+      totalTokens: u.total ?? u.total_tokens,
+      contextTokens: u.contextTokens ?? u.total ?? u.total_tokens,
+      contextWindow: contextWindow ?? this.footer.getContextWindow(),
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -462,6 +514,7 @@ export class InteractiveMode {
     editor.onSubmit = async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      editor.addToHistory?.(trimmed);
       editor.setText("");
       await this.handleUserInput(trimmed);
     };
@@ -606,6 +659,11 @@ export class InteractiveMode {
         for (const tool of this.activeToolCalls.values()) {
           tool.toggleExpanded();
         }
+        for (const child of this.chatContainer.children) {
+          if (child && typeof (child as any).toggleExpanded === "function") {
+            (child as any).toggleExpanded();
+          }
+        }
         this.ui.requestRender();
         return { consume: true };
       } else if (matchesKey(data, "ctrl+l")) {
@@ -673,10 +731,8 @@ export class InteractiveMode {
     this.showSelector((done) => {
       const selector = new ModelSelectorComponent(
         this.currentModelName,
-        async (all: boolean) => {
-          const res = await this.bridge.listModels(
-            all ? { scope: "all" } : { scope: "configured" },
-          );
+        async () => {
+          const res = await this.bridge.listModels({ scope: "configured" });
           return ((res as any)?.models || []).map((m: any) => ({
             id: m.id || m.name,
             name: m.name || m.id,
@@ -693,6 +749,9 @@ export class InteractiveMode {
               this.footer.update({
                 modelName: selected.id,
                 providerName: selected.provider,
+                contextWindow:
+                  selected.contextWindow ||
+                  (selected.id.startsWith("gemini-") ? 1048576 : 128000),
               });
               await this.bridge.switchModel(selected.id, selected.provider);
               this.appendSystemNotice(
@@ -707,7 +766,37 @@ export class InteractiveMode {
         },
         () => done(),
         initialSearch,
-        undefined,
+        async (defaultModel: ModelItem) => {
+          done();
+          if (defaultModel) {
+            try {
+              this.currentModelName = defaultModel.id;
+              this.footer.update({
+                modelName: defaultModel.id,
+                providerName: defaultModel.provider,
+                contextWindow:
+                  defaultModel.contextWindow ||
+                  (defaultModel.id.startsWith("gemini-") ? 1048576 : 128000),
+              });
+              await this.bridge.switchModel(
+                defaultModel.id,
+                defaultModel.provider,
+              );
+              await this.bridge.setSetting("defaultModel", defaultModel.id);
+              await this.bridge.setSetting(
+                "defaultProvider",
+                defaultModel.provider,
+              );
+              this.appendSystemNotice(
+                `✓ 已成功切换并保存为默认模型: ${defaultModel.id} (${defaultModel.provider})`,
+              );
+            } catch (err: any) {
+              this.appendErrorMessage(
+                `设置默认模型失败: ${err.message || String(err)}`,
+              );
+            }
+          }
+        },
         undefined,
         () => this.ui.requestRender(),
       );
@@ -724,7 +813,7 @@ export class InteractiveMode {
           );
           return ((res as any)?.sessions || []).map((s: any) => ({
             id: s.id || s.session_id,
-            name: s.name || s.title || s.session_id,
+            name: s.name || s.title || s.first_message || s.session_id,
             path: s.path,
             modified:
               s.modified ??
@@ -733,6 +822,8 @@ export class InteractiveMode {
                 : Math.floor(Date.now() / 1000)),
             cwd: s.cwd || s.workspace || this.workspace,
             message_count: s.message_count || 0,
+            parent_session: s.parent_session || s.parent_session_path,
+            parent_session_path: s.parent_session_path || s.parent_session,
           }));
         },
         async (session: SessionItem) => {
@@ -745,6 +836,9 @@ export class InteractiveMode {
                 this.footer.update({
                   sessionName: res.session_name || res.session_id,
                 });
+              }
+              if (res?.usage) {
+                this.updateFooterUsage(res.usage, res.context_window);
               }
               this.renderSessionHistory(
                 res?.messages || [],
@@ -759,6 +853,20 @@ export class InteractiveMode {
         },
         () => done(),
         () => this.ui.requestRender(),
+        this.footer.getSessionName(),
+        async (sessionToDelete: SessionItem) => {
+          try {
+            await this.bridge.deleteSession(
+              sessionToDelete.path || sessionToDelete.id,
+            );
+            this.appendSystemNotice(
+              `✓ 已成功删除历史会话: \`${sessionToDelete.name || sessionToDelete.id}\``,
+            );
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.appendErrorMessage(`删除会话失败: ${msg}`);
+          }
+        },
       );
       return { component: selector, focus: selector };
     });
@@ -882,12 +990,20 @@ export class InteractiveMode {
       const selector = new TreeSelectorComponent(
         async () => {
           const res = await this.bridge.getTree();
-          return ((res as any)?.tree || []) as TreeNode[];
+          return ((res as any)?.nodes ||
+            (res as any)?.tree ||
+            []) as TreeNode[];
         },
         async (node: TreeNode) => {
           done();
           try {
-            await this.bridge.branchSession(node.id);
+            const branchRes: any = await this.bridge.branchSession(node.id);
+            if (branchRes?.messages && Array.isArray(branchRes.messages)) {
+              this.renderSessionHistory(branchRes.messages);
+            }
+            if (branchRes?.editor_text) {
+              this.defaultEditor.setText(String(branchRes.editor_text));
+            }
             this.appendSystemNotice(`✓ 已切换至分支节点: ${node.id}`);
           } catch (err: any) {
             this.appendErrorMessage(
@@ -1081,22 +1197,16 @@ export class InteractiveMode {
               `✓ 已成功恢复历史会话 [${args}]`,
             );
           } else {
-            // 对齐 Pi 原厂展示当前会话指标看板 (Session Info & Stats)
-            const sessionName =
-              (this.footer as any)?.data?.sessionName || "default";
-            const model = this.currentModelName;
-            const thinking = this.currentThinkingLevel;
-            const messageCount = this.chatContainer.children.length;
-            const info = [
-              theme.bold("会话状态与指标统计 (Session Info & Stats)"),
-              "",
-              `  ${theme.fg("dim", "名称:")} ${sessionName}`,
-              `  ${theme.fg("dim", "工作区:")} ${this.workspace}`,
-              `  ${theme.fg("dim", "生效模型:")} ${model} (思考预算: ${thinking})`,
-              `  ${theme.fg("dim", "视口组件数:")} ${messageCount}`,
-              `  ${theme.fg("dim", "存储位置:")} 集中式存储位置 (~/.my-pi-agent/sessions/)，严格保障项目工作区零污染。`,
-            ].join("\n");
-            this.appendSystemNotice(info);
+            try {
+              const res: any = await this.bridge.getSessionStats();
+              if (res?.stats) {
+                this.renderPiSessionStats(res.stats);
+              } else {
+                this.renderFallbackSessionStats();
+              }
+            } catch {
+              this.renderFallbackSessionStats();
+            }
           }
           break;
         }
@@ -1108,6 +1218,9 @@ export class InteractiveMode {
                 this.footer.update({
                   sessionName: res.session_name || res.session_id,
                 });
+              }
+              if (res?.usage) {
+                this.updateFooterUsage(res.usage, res.context_window);
               }
               this.renderSessionHistory(
                 res?.messages || [],
@@ -1226,18 +1339,40 @@ export class InteractiveMode {
           break;
         }
         case "compact": {
-          const client = (this.bridge as any).client;
-          const res: any =
-            (await client?.sendRequest?.("session_compact", {
-              instructions: args,
-            })) ||
-            (await client?.request?.("session_compact", {
-              instructions: args,
-            })) ||
-            (await (this.bridge as any).compact?.(args));
-          this.appendSystemNotice(
-            `✓ 上下文压缩完成: ${res?.tokens_before ?? 0} -> ${res?.tokens_after ?? 0} tokens${res?.summary ? ` (${res.summary})` : ""}`,
-          );
+          this.updateStatusDisplay("Compacting context... (Esc to cancel)");
+          this.footer.update({ isBusy: true });
+          this.ui.requestRender();
+          try {
+            const client = (this.bridge as any).client;
+            const res: any =
+              (await client?.sendRequest?.("session_compact", {
+                instructions: args,
+              })) ||
+              (await client?.request?.("session_compact", {
+                instructions: args,
+              })) ||
+              (await (this.bridge as any).compact?.(args));
+
+            this.clearStatusDisplay();
+            this.footer.update({
+              isBusy: false,
+              contextTokens: res?.tokens_after,
+            });
+
+            if (res?.summary) {
+              const compComponent = new CompactionSummaryMessageComponent({
+                summary: res.summary,
+                tokensBefore: res.tokens_before ?? 0,
+              });
+              this.chatContainer.addChild(new Spacer(1));
+              this.chatContainer.addChild(compComponent);
+            }
+          } catch (err: any) {
+            this.clearStatusDisplay();
+            this.footer.update({ isBusy: false });
+            this.appendErrorMessage(`压缩失败: ${err.message || String(err)}`);
+          }
+          this.ui.requestRender();
           break;
         }
         case "clone": {
@@ -1336,7 +1471,7 @@ export class InteractiveMode {
             "",
             `  ${theme.bold("导航与视口 (Navigation):")}`,
             `    ↑ / ↓         在选择器列表中上下选择条目`,
-            `    Tab           切换选择器范围 (Configured vs All)`,
+            `    Tab           切换选择器范围 (all vs scoped)`,
             `    Ctrl+O        展开 / 折叠思考过程 (Thinking) 与工具执行卡片`,
             "",
             `  ${theme.bold("编辑与会话 (Editing):")}`,
@@ -1383,7 +1518,7 @@ export class InteractiveMode {
     }
     try {
       const client = (this.bridge as any).client;
-      let output = "file1.py\nfile2.py";
+      let output = "";
       let exitCode = 0;
       if (client?.sendRequest) {
         const res = await client.sendRequest("shell_exec", {
@@ -1432,6 +1567,19 @@ export class InteractiveMode {
     const pendingTools = new Map<string, ToolExecutionComponent>();
 
     for (const msg of messages) {
+      if (
+        msg.role === "compaction" ||
+        msg.type === "compaction" ||
+        msg.role === "compactionSummary"
+      ) {
+        const compComponent = new CompactionSummaryMessageComponent({
+          summary: String(msg.summary || msg.content || ""),
+          tokensBefore: Number(msg.tokens_before || msg.tokensBefore || 0),
+        });
+        this.chatContainer.addChild(new Spacer(1));
+        this.chatContainer.addChild(compComponent);
+        continue;
+      }
       if (msg.role === "user") {
         const userText =
           typeof msg.content === "string"
@@ -1534,6 +1682,94 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  private renderPiSessionStats(stats: any): void {
+    let info = `${theme.bold("Session Info")}\n\n`;
+    const sessionName =
+      stats.sessionName || (this.footer as any)?.data?.sessionName;
+    if (sessionName) {
+      info += `${theme.fg("dim", "Name:")} ${sessionName}\n`;
+    }
+    info += `${theme.fg("dim", "File:")}\n${stats.sessionFile ?? "In-memory"}\n`;
+    info += `${theme.fg("dim", "ID:")} ${stats.sessionId}\n\n`;
+
+    info += `${theme.bold("Messages")}\n`;
+    info += `${theme.fg("dim", "Total:")} ${stats.totalMessages ?? 0}\n`;
+    info += `${theme.fg("dim", "User:")} ${stats.userMessages ?? 0}\n`;
+    info += `${theme.fg("dim", "Assistant:")} ${stats.assistantMessages ?? 0}\n`;
+    info += `${theme.fg("dim", "Tools:")} ${stats.toolCalls ?? 0} calls, ${stats.toolResults ?? 0} results\n\n`;
+
+    info += `${theme.bold("Tokens")}\n`;
+    const tokens = stats.tokens || {};
+    const input = Number(tokens.input ?? 0);
+    const cacheRead = Number(tokens.cacheRead ?? 0);
+    const cacheWrite = Number(tokens.cacheWrite ?? 0);
+    const output = Number(tokens.output ?? 0);
+    const promptTokens = input + cacheRead + cacheWrite;
+    const total = Number(tokens.total ?? promptTokens + output);
+
+    info += `${theme.fg("dim", "Input:")} ${promptTokens.toLocaleString()}\n`;
+    if (promptTokens > 0 && (cacheRead > 0 || cacheWrite > 0)) {
+      const hitRate = theme.fg(
+        "dim",
+        `(${((cacheRead / promptTokens) * 100).toFixed(1)}%)`,
+      );
+      info += `  ${theme.fg("dim", "Cached:")} ${cacheRead.toLocaleString()} ${hitRate}\n`;
+      const written =
+        cacheWrite > 0
+          ? ` ${theme.fg("dim", `(${cacheWrite.toLocaleString()} written to cache)`)}`
+          : "";
+      info += `  ${theme.fg("dim", "Uncached:")} ${(input + cacheWrite).toLocaleString()}${written}\n`;
+    }
+    info += `${theme.fg("dim", "Output:")} ${output.toLocaleString()}\n`;
+    info += `${theme.fg("dim", "Total:")} ${total.toLocaleString()}\n`;
+
+    const cost = Number(stats.cost ?? 0);
+    const breakdown = stats.usageBreakdown || [];
+    const cacheWaste = stats.cacheWaste || {};
+    if (cost > 0 || (cacheWaste.missedTokens && cacheWaste.missedTokens > 0)) {
+      info += `\n${theme.bold("Cost")}\n`;
+      info += `${theme.fg("dim", "Total:")} $${cost.toFixed(3)}`;
+      if (breakdown.length > 0) {
+        for (const entry of breakdown) {
+          info += `\n  ${theme.fg("dim", `${entry.key}:`)} $${Number(entry.cost ?? 0).toFixed(3)} ${theme.fg("dim", `(${formatTokens(entry.tokens ?? 0)} tokens)`)}`;
+        }
+      }
+      if (cacheWaste.missedTokens > 0) {
+        const missLabel =
+          cacheWaste.missCount === 1
+            ? "1 miss"
+            : `${cacheWaste.missCount} misses`;
+        const detail = `${cacheWaste.missedTokens.toLocaleString()} tokens, ${missLabel}`;
+        info +=
+          cacheWaste.missedCost >= 0.0001
+            ? `\n${theme.fg("dim", "Cache Re-billed:")} $${cacheWaste.missedCost.toFixed(3)} ${theme.fg("dim", `(${detail})`)}`
+            : `\n${theme.fg("dim", "Cache Re-billed:")} ${detail}`;
+      }
+    }
+
+    this.chatContainer.addChild(new Spacer(1));
+    this.chatContainer.addChild(new Text(info, 1, 0));
+    this.ui.requestRender();
+  }
+
+  private renderFallbackSessionStats(): void {
+    const sessionName = (this.footer as any)?.data?.sessionName || "default";
+    const model = this.currentModelName;
+    const thinking = this.currentThinkingLevel;
+    const messageCount = this.chatContainer.children.length;
+    const info = [
+      theme.bold("Session Info"),
+      "",
+      `  ${theme.fg("dim", "Name:")} ${sessionName}`,
+      `  ${theme.fg("dim", "Workspace:")} ${this.workspace}`,
+      `  ${theme.fg("dim", "Model:")} ${model} (thinking: ${thinking})`,
+      `  ${theme.fg("dim", "Messages:")} ${messageCount}`,
+    ].join("\n");
+    this.chatContainer.addChild(new Spacer(1));
+    this.chatContainer.addChild(new Text(info, 1, 0));
+    this.ui.requestRender();
+  }
+
   // --------------------------------------------------------------------------
   // 辅助渲染方法
   // --------------------------------------------------------------------------
@@ -1550,14 +1786,30 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  private activeLoader: Loader | null = null;
+
   private updateStatusDisplay(text: string): void {
-    this.statusContainer.clear();
-    const statusText = new Text(theme.fg("dim", `◈ ${text}`), 1, 0);
-    this.statusContainer.addChild(statusText);
+    this.clearStatusDisplay();
+    this.activeLoader = new Loader(
+      this.ui,
+      (spinner) => theme.fg("accent", spinner),
+      (msg) => theme.fg("muted", msg),
+      text,
+    );
+    this.activeLoader.start();
+    const timer = (this.activeLoader as any).intervalId;
+    if (timer && typeof timer.unref === "function") {
+      timer.unref();
+    }
+    this.statusContainer.addChild(this.activeLoader);
     this.ui.requestRender();
   }
 
   private clearStatusDisplay(): void {
+    if (this.activeLoader) {
+      this.activeLoader.stop();
+      this.activeLoader = null;
+    }
     this.statusContainer.clear();
     this.ui.requestRender();
   }
