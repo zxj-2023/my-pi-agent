@@ -1,55 +1,228 @@
 # my-pi-agent
 
-[![npm version](https://img.shields.io/npm/v/my-pi-agent.svg)](https://www.npmjs.com/package/my-pi-agent)
-[![license](https://img.shields.io/github/license/zxj-2023/my-pi-agent.svg)](LICENSE)
+<p align="center">
+  <img src="docs/assets/banner.png" alt="my-pi-agent — a minimalist Python coding-agent harness with 1:1 Pi-TUI terminal presentation" width="100%" />
+</p>
 
-**当前最好的 Python 语言 agent 框架学习项目**——从零手写一个最小但完整的 agent 框架。
-只依赖通用库（`openai` SDK、`pydantic`、`pyyaml`、`mcp` 等）与标准库，**不引入任何 agent 框架**（langchain / langgraph 等），每一行代码都可审查。
+<p align="center">
+  <strong>基于 Python 纯原生手写的极简 Agent 框架微内核与 1:1 像素级 Pi-TUI 终端交互套件。</strong>
+</p>
 
-- 📦 **npm 官方包**：[`my-pi-agent`](https://www.npmjs.com/package/my-pi-agent)
-- 📖 **博客专栏**：[my-pi-agent 学习笔记与架构剖析](https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/)
+<p align="center">
+  <a href="https://www.npmjs.com/package/my-pi-agent"><img src="https://img.shields.io/npm/v/my-pi-agent.svg?style=flat-square&color=cb3837" alt="npm version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
+  <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/"><img src="https://img.shields.io/badge/blog-series-success.svg?style=flat-square" alt="blog" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="python" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tests-666%20python%20%7C%2058%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
+</p>
 
----
-
-## 为什么从零实现
-
-市面上的 Python agent 框架很难找到称心的：要么完全依赖 AI 搭建，结构与实现冗杂、难以阅读；
-要么来自 TypeScript 生态，Python 实现偏少；而选择 Python 的大多直接套 langchain / langgraph——
-框架成了黑盒，底层原理与设计取舍都来不及亲自验证。
-
-自己实现一个 agent 框架：
-
-- **从底层学习**：ReAct 循环、原生异步流式、五大决策拦截点、树状会话回溯、分层上下文压缩、MCP 协议桥接……每个环节亲手实现一遍，才能真正理解 agent 的底层原理
-- **灵活可控**：不是所有场景都需要复杂的图编排；自研框架按需定制，配合业务需求更轻量高效
-- **工程规范**：严格遵循 TDD（测试先行）、100% 离线单元测试覆盖、Never-Throw 异常边界隔离、原子文件落盘与架构不变式约束
-
-## 风格
-
-**简洁、规范、零过度设计**——只做当前需求的最小实现，接口边界干净、职责单一、测试先行。
-代码即使由 AI 辅助生成，也**逐行人工审查**（这是投入最多的部分），实现思路与
-结构管理在此基础上反复打磨完善。
-
-## 参考
-
-功能实现整合参考 **pi**（[earendil-works/pi](https://github.com/earendil-works/pi)）、
-**Tau**（Python 版 Pi Harness 标杆，纯函数微内核、历史自愈与模块化存储）、
-**pig-mono**（[kangkona/pig-mono](https://github.com/kangkona/pig-mono)）、
-**learn-claude-code**（[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)）、
-**Hermes Agent**（[hermes-agent](https://github.com/NousResearch/Hermes-Agent)）与
-**OpenHands**（[software-agent-sdk](https://github.com/All-Hands-AI/OpenHands)）等标杆项目的架构思路。
-详细的技术设计参考、源码映射与裁剪对比见根目录的 **[REFERENCES.md](REFERENCES.md)** 以及专属对标报告 **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**。
+<p align="center">
+  <a href="#-快速开始-quickstart">快速开始</a>
+  ·
+  <a href="#-什么是-my-pi-agent">架构拓扑</a>
+  ·
+  <a href="#-核心特性全景-what-my-pi-agent-can-do">核心特性</a>
+  ·
+  <a href="#-设计哲学-philosophy">设计哲学</a>
+  ·
+  <a href="#-作为-python-库使用-use-as-a-library">Python SDK</a>
+  ·
+  <a href="docs/README.md">技术设计文档中心</a>
+  ·
+  <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/">专栏精读</a>
+</p>
 
 ---
 
-## 📚 博客专栏文章目录与学习路线
+## 📖 什么是 my-pi-agent？
 
-全套框架实现笔记与技术思考已系统沉淀至个人博客专栏：[**my-pi-agent 学习笔记与架构剖析**](https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/)。涵盖从零手搓现代 Agent 运行时的全链路设计取舍与工程落地：
+**`my-pi-agent` 是一个驻留在你的终端里的全功能编程智能体（Coding Agent）。**
 
-| 序号 | 模块主题 | 博客文章精读链接 | 核心技术要点 |
+你可以像使用资深工程师伙伴一样向它提问：“解释这个代码库”、“编写自动化测试”、“定位并修复此异常日志”。它会在受控权限内自主读取源码、外科手术式精准修改、执行测试命令、通过树状 DAG 会话持久化上下文，并以 **100% 像素级对齐 Pi 原厂终端** 的极速 TUI 将模型思考过程与工具调用动态流式呈现。
+
+它**不引入任何重型 Agent 框架**（LangChain / LangGraph 等），从零手写、完全透明、每一行代码均可单步调试学习，严格遵循 TDD 与 100% 离线单元测试。
+
+### 架构边界与分层设计
+
+对标业界标杆 Tau 与 Pi 的清晰设计哲学，项目严格划分为四大职责单一的正交层：
+
+```text
+tui (Node.js / Pi-TUI)  ⇄ [stdio JSON-RPC 2.0] ⇄  my_coding_agent  →  my_agent_core  →  my_agent_llm
+```
+
+```text
+┌─────────────────────────┐     ┌──────────────────────────────────────────────────────────┐
+│  AgentHarness (通用微内核) │ ──▶ │ 纯粹的 Agent 通用大脑：ReAct 循环、事件、Hooks、会话树、压缩管线 │
+└─────────────────────────┘     └──────────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────┐     ┌──────────────────────────────────────────────────────────┐
+│  CodingAgent (产品环境层)  │ ──▶ │ 编码产品业务包装：7大文件工具、单文件写锁、权限门禁、项目上下文 │
+└─────────────────────────┘     └──────────────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────┐     ┌──────────────────────────────────────────────────────────┐
+│    Pi-TUI (终端表现层)   │ ──▶ │ 基于 @earendil-works/pi-tui 的极速重绘终端：差量刷新、输入框动效 │
+└─────────────────────────┘     └──────────────────────────────────────────────────────────┘
+```
+
+- **`my_agent_llm`**：多提供商翻译层，将 OpenAI、DeepSeek、Anthropic 与 Antigravity（Google internal SSE）统一抽象为中立的流式事件与类型安全的结构化 `ToolCall`；
+- **`my_agent_core`**：通用的便携 Agent 微内核，管理状态机循环、12 个只读生命周期事件、五大专职 Hook 决策拦截点、树状 Session 与廉价优先四层压缩；
+- **`my_coding_agent`**：专注代码工程的产品层，封装 7 大工作区编码工具、`FileMutationQueue` 细粒度并发锁、`PermissionGate` 权限门禁与 stdio JSON-RPC 2.0 服务端；
+- **`tui`**：独立前端展示层，基于 Mario Zechner 原厂终端引擎 `@earendil-works/pi-tui`，提供无闪烁差量渲染与高辨识度卡片视觉系统。
+
+---
+
+## ⚡ 快速开始 (Quickstart)
+
+### 途径 A：npm 全球一键安装（推荐，面向终端用户）
+
+无需克隆代码仓库，只需确保电脑安装了 Node.js (>=18) 与 Python 极速工具 [uv](https://docs.astral.sh/uv/)（`my-pi-agent` 会通过 `uv run` 全自动接管依赖与内核，用户**无需手动配置虚拟环境**）：
+
+```bash
+# 全局安装 CLI
+npm install -g my-pi-agent
+
+# 在任意项目目录下直接启动终端
+my-pi-agent
+# 或使用快捷别名
+my-agent
+
+# 亦可免安装秒级拉起体验
+npx my-pi-agent
+```
+
+### 命令行常用参数 (CLI Options)
+
+```text
+Usage:
+  my-agent [options] [prompt]
+
+Options:
+  -c, --continue          一键续接当前项目最近一次历史会话
+  -r, --resume [id]       启动时直接打开交互式会话选择器或恢复指定会话
+  --new-session           强制开启全新会话 (默认)
+  -n, --name <title>      启动时直接为该会话命名
+  -m, --model <model>     指定生效模型 (如 deepseek-chat, gemini-3.8-flash)
+  --thinking <level>      指定思考深度等级 (off/minimal/low/medium/high/max)
+  --no-session            内存无痕沙箱模式 (不持久化 session 文件)
+  -w, --workspace <dir>   指定工作区目录 (默认: 当前目录)
+  --mode <mode>           权限安全模式: review (默认) | yolo | strict
+  -h, --help              查看帮助说明
+```
+
+---
+
+### 途径 B：源码克隆与本地开发运行（面向贡献者与学习者）
+
+```bash
+# 1. 克隆代码仓库
+git clone https://github.com/zxj-2023/my-pi-agent.git
+cd my-pi-agent
+
+# 2. 安装 Python 依赖并同步全局虚拟环境 (.venv)
+uv sync
+
+# 3. 安装前端 TUI 依赖并编译 TypeScript
+npm install
+npm run build
+
+# 4. 运行全量离线自动化测试套件 (100% 绿灯全通)
+uv run python -m pytest   # 666 Python tests passed
+npm test                  # 58 TUI tests passed
+
+# 5. 启动开发态终端
+npm start
+```
+
+---
+
+## ✨ 核心特性全景 (What my-pi-agent can do)
+
+- **100% 像素级 Pi 原厂终端体验 (`tui/`)**：
+  - **`CustomEditor` 顶部嵌入动效**：在模型思考或工具执行期间，输入框顶部边框实时挖槽嵌入 Braille 10 帧高频旋转指示器（`── ⠸ Working ──`），完成时平滑自愈；
+  - **思考预算深度自适应轮转**：支持 `Shift+Tab` / `Ctrl+T` 快捷键原地切换推理深度（`off` ➔ `low` ➔ `medium` ➔ `high` ➔ `max`），并联动输入框边框颜色动态变换；
+  - **三大交互模态选择器**：`ModelSelector`（支持 `Ctrl+S` 持久化默认模型）、`SessionSelector`（多级 DAG 分支线 + `Ctrl+D` 历史会话删除与活跃会话安全拦截）、`ThinkingSelector`；
+  - **可折叠卡片系统 (`Ctrl+O`)**：流式思考过程折叠块、上下文压缩摘要卡片（`[compaction]`）、细线圆角工具执行卡片；
+  - **输入行即时宏扩展管道 (`MacroEngine`)**：`!cmd`（执行并追加上下文）、`!!cmd`（静默排查零 Token 消耗）、`/skill:` 展开、`/<template>` 变量参数化注入；
+  - **财务级双行状态栏 (`FooterComponent`)**：紧凑呈现工作区、模型、分级 Token、成本核算、上下文窗口占比与真实 Prompt Cache 命中率（`CH%`）。
+- **7 大工作区核心编码工具 (`tools/`)**：
+  - `read`（2000行/50KB截断保护）、`write`（原子覆写）、`edit`（精准替换与单块容错）、`bash`（100ms流式输出+后台作业+危险黑名单拦截）、`grep`（`context`/`glob`支持）、`find`（1000限制）、`ls`（500项截断+大小写忽略排序）；
+  - `resolve_path` 宽松 CWD 路径解析（对标 Pi 原厂哲学，不做人工虚拟沙箱阻碍用户工作区调用）；
+  - `FileMutationQueue` 细粒度单文件并发互斥写锁，彻底规避并发竞争覆盖。
+- **业务安全权限审查门禁 (`PermissionGate`)**：
+  - 支持四种安全运行模式（`review` 审查 / `autonomous` 自主 / `strict` 只读 / `yolo` 全放行）；
+  - 只读工具白名单（`read`, `grep`, `find`）与安全 Shell 前缀免审批通道（`git status`, `git diff`, `pytest`, `uv run`）；
+  - `Accept-on-Diff` 词级反色代码差异比对与交互式批准/驳回机制。
+- **纯函数 ReAct 微内核与七阶段流水线 (`loop.py`)**：
+  - 约 110 行无状态异步状态机，两专职子生成器分治；
+  - 工业级七阶段流水线（截断防御 ➔ 畸形参数防崩 ➔ Preflight ➔ 门禁拦截 ➔ 进度流 ➔ 结果后处理 ➔ 批次提前退出）；
+  - `tool_history.py` 转录本三阶段自愈引擎，消除断头调用，彻底免疫大模型 API 400 校验死锁。
+- **多模型原生直连与动态模型发现**：
+  - **Antigravity 原生直连**：直连 Google internal Code Assist 原生 SSE，递归展开 JSON Schema `$defs`，解决 Protobuf 400 校验错误；
+  - **动态模型目录与 4 小时磁盘缓存**：动态同步 Google 与 DeepSeek 官方最新模型目录，自动收敛别名与思考等级；
+  - 支持 OpenAI、DeepSeek、Anthropic 与兼容 API。
+- **树状会话持久化与四层上下文压缩**：
+  - 树状 DAG 结构、逐条原子落盘（`fsync` + `os.replace`），崩溃永不损坏历史；
+  - 支持 `/tree` 查看拓扑树、`/fork` 节点分叉、`/clone` 全量探索副本；
+  - Cheap-First 四层压缩管线（L3 大结果落盘 ➔ L1 裁切中间轮 ➔ L2 旧结果占位 ➔ L4 LLM 智能摘要），配合 `retainedTail` 缓存与 `compaction_floor` 安全护栏。
+
+---
+
+## 🎯 设计哲学 (Philosophy)
+
+参考业界标杆 Tau 与 Pi 的内核工程原则，`my-pi-agent` 严格贯彻以下架构不变式：
+
+1. **Small layers beat magic（小而专胜过黑盒魔法）**：每个模块只专注一件事情，代码直白可读，绝不引入冗余的元编程包装或不可控的隐式黑盒；
+2. **Events are the contract（事件即契约）**：模型层、内核层、RPC 桥接层与 TUI 终端表现层通过强类型流式事件解耦，内核保持 100% 纯无头；
+3. **Never-Throw Guarantee（永不向上崩溃）**：所有工具调用、参数校验与 Hook 拦截异常均统一包装为结构化错误，绝不上抛崩溃 Agent，引导大模型自我修正；
+4. **Prefix Cache Invariant（前缀缓存绝对稳定）**：System Prompt 在会话周期内保持冻结快照（Frozen Snapshot），写操作仅落盘不扰乱当前会话视口，最大化利用大模型 Prompt Cache 降低延迟与成本；
+5. **Sessions are durable & inspectable（持久化与可追溯）**：会话采用只追加 JSONL 记录，每一次分叉、回溯与压缩均可检验、可导出、断电不丢数据。
+
+---
+
+## 💻 作为 Python 库使用 (Use as a Library)
+
+`my-pi-agent` 的框架内核（`my_agent_core`）与模型边界（`my_agent_llm`）完全解耦，可直接作为独立 SDK 嵌入任意 Python 自动化管线：
+
+```python
+import asyncio
+from my_agent_llm.client import LLM
+from my_agent_llm.config import Config
+from my_agent_core.agent import Agent
+from my_agent_core.session import Session
+
+async def main():
+    # 1. 声明模型客户端
+    llm = LLM(Config(provider="deepseek", model="deepseek-chat"))
+
+    # 2. 装配轻量会话与通用 Agent
+    session = Session(cwd=".")
+    agent = Agent(llm=llm, session=session)
+
+    # 3. 消费一等公民事件流
+    async for event in agent.prompt_stream("分析当前目录下的核心代码"):
+        if event.type == "message_update":
+            # 实时流式打印大模型生成文本
+            print(event.message.content, end="", flush=True)
+        elif event.type == "tool_execution_start":
+            print(f"\n[Tool Call] 正在调用工具: {event.tool_name}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+---
+
+## 📚 博客专栏文章目录与全链路学习路线
+
+全套框架从零手写的工程实战笔记与技术剖析已沉淀至博客专栏：[**my-pi-agent 学习笔记与架构剖析**](https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/)：
+
+| 序号 | 模块主题 | 博客精读文章链接 | 核心技术要点 |
 | :---: | :--- | :--- | :--- |
-| 01 | **全局架构** | [架构设计](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/) | 三层分层架构、为什么不用 LangChain、自研设计哲学与演进路线 |
+| 01 | **全局架构** | [架构设计](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/) | 三层解耦架构、为什么不用 LangChain、自研设计哲学与演进路线 |
 | 02 | **模型边界** | [模型层](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/) | Provider 抽象、StreamAccumulator 流式聚合、ToolCall 结构化防穿帮 |
-| 03 | **工具原语** | [工具系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/) | `@tool` Pydantic 提取、Never-Throw、因果并发安全、七阶段流水线 |
+| 03 | **工具原语** | [工具系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/) | `@tool` Pydantic 提取、Never-Throw 架构保证、七阶段工具流水线 |
 | 04 | **状态机外壳** | [Agent 类与 Hook 系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/) | `prompt_stream` 事件流、`_notify` 订阅广播、五大决策拦截门禁 |
 | 05 | **调度微内核** | [Loop 微内核](https://zxj-2023.github.io/2026/08/30/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--loop%E5%BE%AE%E5%86%85%E6%A0%B8/) | 纯函数无状态 ReAct 循环、9 步时序、单向传送带队列管道 |
 | 06 | **会话持久化** | [Session 管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) | 树状分支 DAG、原子 JSONL 追加存储、跨进程文件锁与分支回溯 |
@@ -64,170 +237,7 @@
 
 ---
 
-## 已实现功能
-
-### 1. 模型边界层 `my-agent-llm`（[学习笔记](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/)）
-
-- **统一 `LLM` 门面**：`chat` / `stream` / `achat` / `achat_stream` 四组接口，屏蔽多供应商差异
-- **四大 Provider**：`openai`（基准翻译）/ `deepseek`（继承 + reasoning 提取 + 动态模型发现）/ `anthropic`（block 翻译 + web_search 过滤）/ `antigravity`（Google internal SSE 原生直连 + OAuth 自省）
-- **流式增量聚合**：`StreamChunk` 流式 tool_calls 增量拼装 + usage 捕获（末块携带完整统计）
-- **核心模型**：不可变 `Config`（Pydantic frozen）、`Message`、`Response`
-
-### 2. 框架核心层 `my-agent-core`
-
-- **[纯函数 ReAct 微内核与七阶段工具流水线（loop & 7-stage pipeline）](docs/core/03-agent-loop.md)**（[学习笔记](https://zxj-2023.github.io/2026/08/30/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--loop%E5%BE%AE%E5%86%85%E6%A0%B8/)）：
-  - `run_agent_loop` 纯函数无状态异步微内核（约 110 行状态机，与类状态彻底解耦）
-  - **工业级七阶段工具执行流水线**：
-    1. 阶段 1 截断防御（`stop_reason="length"` 安全挂起未完成工具，注入自纠正指引）；
-    2. 阶段 2 畸形调用防崩（`_coerce_tool_call` 统一参数防穿帮，产生合成错误结果）；
-    3. 阶段 3 预检（`ToolExecutionStart` 严谨成对发射）；
-    4. 阶段 4 门禁拦截（`before_tool_call` 提前裁决阻断或改写）；
-    5. 阶段 5 实时进度流（`ToolExecutionUpdate` 跨线程安全队列 + 锁存器防迟到更新）；
-    6. 阶段 6 结果后处理（`after_tool_call` 改写与 `ToolExecutionEnd` 广播）；
-    7. 阶段 7 批次提前退出（`ToolResult.terminate` + Hook 三态熔断 + `any()` 退出保护 `final_text`）。
-  - **对话转录本拓扑自愈引擎（`tool_history.py`）**：三阶段状态机消除断头调用，彻底消灭 API 400 校验死锁
-  - **只读轻量事件订阅管道（`agent.subscribe`）**：支持同步/异步监听器，`_notify` 异常隔离广播（Never-Throw 保证），返回 `unsubscribe()` 闭包注销句柄
-- **[工具系统（tools & registry）](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/)**：
-  - `@tool` 装饰器：基于 Pydantic 动态提取函数签名生成 OpenAI/Anthropic 兼容的 JSON Schema
-  - `Tool` 实体：支持 `raw_schema`（外部/远程 Schema 透传）与 `is_parallel_safe`（声明式并发标记）
-  - `ToolRegistry`：支持单查、批量获取 Schema、`execute_batch` 一票否决因果时序保护（全员只读并发放行，含写严格串行保序）
-  - `ToolResult` 与 **Never-Throw 架构保证**：工具异常绝不向上抛崩 Agent，统一包装为结构化错误供大模型自愈
-- **[生命周期事件与五大决策拦截点（events & hooks）](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/)**：
-  - 12 个生命周期事件 dataclass（涵盖 Agent、Turn、Message、Tool、Context 阶段）
-  - **五大生命周期决策拦截点**：
-    1. `UserInput`（`input`）：截获用户原始输入，支持 `block` 阻断或 `updated_input` 前置改写；
-    2. `AgentStart`（`before_agent_start`）：启动前拦截，支持 `updated_system_prompt` 动态更新首条 system 消息；
-    3. `BeforeModelCall`（`context`）：调 LLM 前拦截，支持 `updated_messages` 临时改写视图（**临时 View 改写 vs 真实 Session 零污染**）；
-    4. `ToolExecutionStart`（`tool_call`）：工具执行前拦截，支持 `block` 拦截危险命令或 `updated_args` 修补参数；
-    5. `ToolExecutionEnd`（`tool_result`）：工具执行后拦截，支持 `updated_result` 篡改出参。
-  - `MessageUpdate`：流式生成中的 Token 级实时熔断（掐断时**丢弃未完成半截文本**，防止模型断句幻觉）
-  - 统一干预模型：`HookResult` dataclass
-- **[Agent 内联循环与原生异步驱动（agent & async）](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%BC%82%E6%AD%A5%E6%94%AF%E6%8C%81/)**：
-  - 单层 `Agent` 类设计（状态 + 内联 ReAct 循环 + 工具派发 + Hook 织入）
-  - 100% 纯原生异步 API：`await agent.run(prompt)`，支持多轮自动决策与工具调用
-  - 状态管理：`reset()` 重置会话并重拼提示词、`abort()` 异步中断任务、`max_iterations` 迭代上限保护
-- **[会话持久化（session）](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/)**：
-  - 树状会话结构：`SessionEntry`（带 id、parent_id）+ `SessionTree` + 当前指针 `current_id`
-  - 逐条原子落盘（临时文件 + `fsync` + `os.replace`），崩溃永不损坏历史
-  - `rewind`（指针回退，分支保留）+ `fork`（分叉派生新会话）
-  - Workspace 目录隔离（`<workspace>/.my_agent_core/sessions`）
-- **[上下文管理与压缩（context）](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/)**：
-  - `ContextManager` 四层压缩管线（cheap-first）：L3 大结果落盘 ➔ L1 裁切中间轮次 ➔ L2 旧结果占位（0 API 耗损）➔ L4 LLM 智能摘要（超阈才花 1 次 API）
-  - 6 Section 结构化约束模板（Goal / Constraints / Progress / Decisions / NextSteps / CriticalContext）与 `<read-files>` / `<modified-files>` 文件足迹自动累积
-  - Usage 锚定估算（`chars / 4` 兜底 + `Response.usage` 实测校准）
-  - `retainedTail` 缓存（摘要 + 尾部快照持久化为 `compaction` entry，重启免重算）
-  - `compaction_floor` 护栏：压缩后指针只能回退到压缩点之后，缓存永不失效
-  - 摘要提示词防注入隔离（`<analysis>` / `<summary>` 标签剥离）
-- **[Skills 声明式管理（skills）](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/)**：
-  - 三态目录发现（默认探测 `<cwd>/.agents/skills/` / 显式禁用 / 自定义目录）
-  - `SKILL.md` YAML 元数据与 Markdown 正文解析
-  - 启动阶段仅将轻量 Skills 清单注入 System Prompt，省 Token 且无工具调用开销
-  - `invoke_skill` 宿主显式触发机制
-- **[Subagents 与 SubagentTask 任务委派（subagents & subagent_tasks）](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/)**：
-  - `.agents/agents/*.md` 声明式子代理配置发现
-  - `SubagentTaskManager` 任务生命周期状态机管理（`RUNNING` ➔ `COMPLETED` / `ERROR`）
-  - **隔离子会话**：独立落盘于 `<session_dir>/subagents/agent-task_*.jsonl`，父会话不被子代理中间过程污染
-  - **防递归与隔离机制**：子代理继承工具时强制过滤 `task`、`memory` 与 `task_*` 工具，并显式配置 `subagent_dirs=[]`、`plugin_dirs=[]`、`memory_dir=False` 与 `task_store=False`
-  - `make_task_tool` 桥接：将子代理委派转化为单一标准工具 `task(prompt, agent_type)` 供主模型调用
-- **[Extension 扩展机制（extensions）](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/)**：
-  - 静态注册面 `ExtensionAPI` + 调度总管 `ExtensionManager`
-  - 模块动态发现与加载（支持 `async def extension(api)` 与同步 `def` 入口，单点故障隔离保护）
-  - 核心能力三件套：
-    1. `@api.on(Event)`：订阅 12 个生命周期事件，支持 `@overload` 类型推导与五大决策点拦截干预；
-    2. `@api.tool(...)` / `api.register_tool(tool)`：注册业务工具（后加载静默覆盖机制，赋能安全沙箱替换）；
-    3. `@api.command("name")`：注册斜杠命令，CLI 前置反射分发（0 Token 消耗，不污染历史）。
-- **[记忆系统（memory）](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/)**：
-  - `MemoryStore` 条目化存储：管理 `MEMORY.md`（上限 2200 字符）与 `USER.md`（上限 1375 字符），使用 `\n§\n` 条目切分与原子落盘
-  - **Frozen Snapshot（冻结快照）机制**：构造时冻结为 `<MEMORY_CONTEXT>` 注入 System Prompt；运行时写入只落盘不动快照，保护大模型 Prefix Cache 稳定；`reset()` 时重载
-  - `make_memory_tool` 受控维护工具：提供 `memory(target, action, content, old_text, new_content)` 工具（支持 `add/replace/remove`、唯原子串定位匹配、歧义防误删、超限引导整理），支持跨 Session 长期记忆持久化与召回
-- **[Plugin 插件分发系统（plugins）](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/)**：
-  - **100% 对齐 Claude Code 官方插件规范**：自包含 `.claude-plugin/plugin.json`（或 `.plugin/plugin.json`）、`skills/`、`agents/`、`.mcp.json`，以及根级单 `SKILL.md` 简写支持
-  - `PluginManager` 统一管理：负责插件发现、Manifest 容错解析与目录名智能推断兜底（无清单时自动以目录名生成默认元数据）
-  - **无缝解构与分发**：在 `Agent.__init__` 装配时自动提取插件内的 `skills/` 注入 `SkillManager`、`agents/` 注入 `SubagentManager`，子代理派发时自动进行递归探测隔离保护
-- **[动态干预机制与两层循环（message_queue & steering）](docs/core/11-dynamic-steering.md)**（[学习笔记](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%8A%A8%E6%80%81%E5%B9%B2%E9%A2%84%E6%9C%BA%E5%88%B6/)）：
-  - `MessageQueue` 动态干预队列：支持 `STEERING`（内层安全点转向）与 `FOLLOWUP`（外层排队追问）双类型消息
-  - **经典两层循环架构（Two-Level Loop）**：外层处理 Follow-up 宏观任务流转，内层处理 ReAct 微观步骤与 Steer 转向
-  - **三大安全点拦截**：Turn 起点原子落盘、工具批执行后即时插队、无工具输出期拦截早退
-  - `TaskManager.steer_task(task_id, msg)`：支持对后台运行中的子代理进行定向动态纠偏与追问
-- **[统一任务系统与后台异步（task_store & background）](docs/core/12-task-system-and-background.md)**（[学习笔记](https://zxj-2023.github.io/2026/08/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--todolist%E4%B8%8Ebackground/)）：
-  - **DAG 依赖状态机（`TaskItem` + `TaskStore`）**：支持单一标准入口 `todo` 工具（对标 Pi 与 Hermes-Agent，涵盖 create/update/list/get/clear/write 6 大动作）、深度传递性成环检测、单 `in_progress` 聚焦约束、自动解锁下游任务与崩溃安全原子持久化
-  - **随路看板回显投影（In-Band Echo via `ToolResult`）**：写操作工具执行后直接在返回值中回显最新紧凑 `<TASK_BOARD>`，100% 保护大模型 Prompt Prefix Cache，零额外查询往返，Session 磁盘历史绝对零污染
-  - **任务早退守卫（`TaskGuardHook`）**：对标 Pi 扩展事件哲学，解耦监听 `TurnEnd` 与 `AgentStart` 生命周期，在模型未结清在跑工单时自动调用 `steer()` 拦截并纠偏
-  - **`BackgroundRunner` 后台异步执行引擎**：支持慢命令（`bash run_in_background=True`）非阻塞运行，结果自动送入 `MessageQueue` Follow-up 队列安全点收割；跨平台整树强杀防御（Windows `taskkill /F /T` + Unix `os.killpg`，联动 `agent.abort()` 与 `atexit`，彻底杜绝孤儿进程）
-
-### 3. 产品层 `my-coding-agent`
-
-- **7 大工作区编码工具与细粒度并发锁**：`read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`，采用 Pi 宽松 CWD 路径解析（`resolve_path`）、`FileMutationQueue` 单文件细粒度并发写锁与 Prompt-Quality 精细化纠错提示（带行数、未找到建议与超时日志捕获）
-- **MCP 客户端扩展（`mcp.py`）**：
-  - 采用 Extension 插件形式实现，通过 `.mcp.json` 读取配置
-  - `AsyncExitStack` 管理物理传输层（`stdio_client` 子进程）与协议层（`ClientSession`）的异步生命周期
-  - JSON-RPC 2.0 协议交互与 Schema 动态透传（`raw_schema`）
-  - 闭包工厂消除循环中的延迟绑定陷阱
-  - 声明式 `is_parallel_safe=True` 赋予只读工具并发加速能力
-  - `/mcp` 本地状态查看命令
-- **`CodingAgent`**：开箱即用的代码助手 Agent 门面（预装编码工具集 + 自动加载 MCP 扩展）
-
-### 4. 架构设计与外部对标分析
-
-- **[docs/ 技术设计文档库](docs/README.md)**：包含 30 余篇模块级技术架构规范（模型层、核心层、产品层、Tau 深度对标分析、重构路线与缺陷修复规范）。
-- **[docs/references/tau-analysis.md](docs/references/tau-analysis.md)**：深度解构 Python 版 Pi Harness 框架 Tau（`tau-ai`），横向对比三层架构，提炼 Textual TUI、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型表、会话历史自愈机制与演进路线。
-
----
-
-## 快速开始
-
-### 1. npm 一键安装与极速运行（面向所有终端用户）
-
-无需手动克隆代码仓库，只需确保电脑安装了 Node.js (>=18) 与极速包管理器 [uv](https://docs.astral.sh/uv/)（`my-pi-agent` 会通过 `uv run` 全自动自愈接管依赖与内核，用户无需手动配置虚拟环境）：
-
-```bash
-# 方式 A：全局安装 CLI（随时随地直接使用，推荐）
-npm install -g my-pi-agent
-
-# 在任意目录下直接启动交互式终端
-my-pi-agent
-# 或使用快捷别名
-my-agent
-
-# 方式 B：免安装秒级拉起
-npx my-pi-agent
-```
-
-### 2. 源码克隆与本地开发运行（面向贡献者与开发者）
-
-```bash
-# 1. 根目录安装 Python 依赖并同步全局唯一的虚拟环境 (.venv)
-uv sync
-
-# 2. 安装前端 TUI 依赖并编译 TypeScript
-npm install
-npm run build
-
-# 3. 运行全部 Python 核心测试 (666 tests, 100% 绿灯全通)
-uv run python -m pytest
-
-# 4. 运行全部前端 TUI 自动化测试 (58 tests, 100% 绿灯全通)
-npm test
-
-# 5. 启动全新高质感 Pi-TUI 终端交互助手
-npm start
-```
-
-### 3. 运行离线测试套件
-
-本项目所有测试均使用模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
-
-```bash
-# 1. 运行全部 Python 核心测试 (666 tests, 100% 绿灯全通)
-uv run python -m pytest
-
-# 2. 运行全部前端 TUI 测试 (58 tests, 100% 绿灯全通)
-npm test
-```
-
----
-
-## 仓库目录结构
+## 🗂 仓库目录结构
 
 ```text
 my-pi-agent/
@@ -240,7 +250,7 @@ my-pi-agent/
 │   │   ├── client.py               # 统一 LLM 门面 (chat/stream/achat/achat_stream)
 │   │   ├── config.py               # Config 配置模型 (pydantic frozen)
 │   │   ├── models.py               # Message / Response / StreamChunk
-│   │   └── providers/              # Antigravity (Google OAuth) / DeepSeek / OpenAI
+│   │   └── providers/              # Antigravity (Google internal SSE) / DeepSeek / OpenAI / Anthropic
 │   │
 │   ├── my_agent_core/              # 2. 框架微内核层 (ReAct/会话树/压缩/任务系统)
 │   │   ├── agent.py                # Agent 纯异步 Harness 外壳
@@ -265,7 +275,7 @@ my-pi-agent/
 ├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
 │   ├── llm/                        # LLM 层单元测试 (76 tests)
 │   ├── core/                       # 框架内核单元测试 (337 tests)
-│   └── coding/                     # 业务与工具测试 (252 tests)
+│   └── coding/                     # 业务与工具测试 (253 tests)
 │
 ├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
@@ -279,70 +289,27 @@ my-pi-agent/
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
 │   └── test/                       # 前端 58 个自动化测试与端到端测试套件
 │
-├── docs/                           # 架构与技术设计文档中心
-├── package.json                    # 根目录 npm 工作区配置与一键启动脚本
+├── docs/                           # 架构与技术设计文档中心 (涵盖 core/ 与 coding/ 7 大规范)
+├── package.json                    # 根目录 npm 官方发布包与全局链接配置
 ├── REFERENCES.md                   # 全模块架构设计参考溯源与工程复盘
 └── README.md                       # 仓库级总览（本文件）
 ```
 
 ---
 
-## 架构文档与笔记索引
+## 📄 架构与技术文档中心索引 (`docs/`)
 
-| 模块 | 对应源码 | 学习笔记链接 |
-| --- | --- | --- |
-| **全景架构** | 整体设计 | [my-pi-agent--架构设计](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/) |
-| **模型边界层** | `my_agent_llm/` | [my-pi-agent--模型层](https://zxj-2023.github.io/2026/08/05/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E6%A8%A1%E5%9E%8B%E5%B1%82/) |
-| **工具系统** | `my_agent_core/tools/` | [my-pi-agent--工具系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%B7%A5%E5%85%B7%E7%B3%BB%E7%BB%9F/) |
-| **生命周期与 Hook** | `my_agent_core/events.py` | [my-pi-agent--agent类与hook系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/) |
-| **原生异步驱动** | `my_agent_core/agent.py` | [my-pi-agent--异步支持](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--%E5%BC%82%E6%AD%A5%E6%94%AF%E6%8C%81/) |
-| **会话持久化** | `my_agent_core/session/` | [my-pi-agent--session管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) |
-| **上下文四层压缩** | `my_agent_core/context.py` | [my-pi-agent--context管理](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/) |
-| **Skills 机制** | `my_agent_core/skills.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
-| **Subagents 委派** | `my_agent_core/subagent_tasks.py` | [my-pi-agent--subagent与task委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) |
-| **Extension 与 MCP** | `my_agent_core/extensions/`, `mcp.py` | [my-pi-agent--extension机制与mcp](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) |
-| **Memory 记忆系统** | `my_agent_core/memory.py` | [my-pi-agent--memory系统](https://zxj-2023.github.io/2026/08/27/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--memory%E7%B3%BB%E7%BB%9F/) |
-| **Plugin 插件系统** | `my_agent_core/plugins.py` | [my-pi-agent--skill与plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) |
-| **动态干预与两层循环** | `my_agent_core/message_queue.py` | [docs/core/11-dynamic-steering.md](docs/core/11-dynamic-steering.md) |
-| **统一任务与后台异步** | `my_agent_core/task_store.py`, `background.py` | [docs/core/12-task-system-and-background.md](docs/core/12-task-system-and-background.md) |
-| **工作区编码工具集** | `my_coding_agent/tools/` | [docs/coding/01-workspace-tools.md](docs/coding/01-workspace-tools.md) |
-| **原生 MCP 集成** | `my_coding_agent/mcp.py` | [docs/coding/02-mcp-integration.md](docs/coding/02-mcp-integration.md) |
-| **CodingAgent 门面** | `my_coding_agent/agent.py` | [docs/coding/03-coding-agent-facade.md](docs/coding/03-coding-agent-facade.md) |
-| **主目录与隔离配置** | `my_coding_agent/paths.py`, `settings.py` | [docs/coding/04-user-home-and-settings.md](docs/coding/04-user-home-and-settings.md) |
-| **前后端 RPC 协议** | `my_coding_agent/rpc_server.py` | [docs/coding/05-rpc-bridge-protocol.md](docs/coding/05-rpc-bridge-protocol.md) |
-| **Pi-TUI 终端交互** | `tui/src/` | [docs/coding/06-pi-tui-interactive-terminal.md](docs/coding/06-pi-tui-interactive-terminal.md) |
-| **多端分发与全局 CLI** | `tui/bin/`, `scripts/` | [docs/coding/07-distribution-and-packaging.md](docs/coding/07-distribution-and-packaging.md) |
+- [**架构总览与核心设计规范**](docs/README.md)：系统阐释双核拓扑结构与技术不变式；
+- [**工作区编码工具集规范**](docs/coding/01-workspace-tools.md)：7 大工具契约、截断防御、`resolve_path` 与单文件并发锁；
+- [**原生 MCP 集成规范**](docs/coding/02-mcp-integration.md)：`MCPClientManager`、stdio/SSE 通信与 Schema 扁平化展开；
+- [**CodingAgent 产品门面**](docs/coding/03-coding-agent-facade.md)：Dual API 设计、上下文自动注入与 `PermissionGate` 权限门禁；
+- [**用户主目录与凭据隔离**](docs/coding/04-user-home-and-settings.md)：`~/.my-pi-agent/` 目录拓扑、`auth.json` 强类型模型与零污染持久化；
+- [**前后端 RPC 通信协议**](docs/coding/05-rpc-bridge-protocol.md)：29 个 stdio JSON-RPC 2.0 方法规范与 Prompt Cache 命中率核算；
+- [**Pi-TUI 终端交互表现层**](docs/coding/06-pi-tui-interactive-terminal.md)：`CustomEditor` 边框动效、思考等级自适应与三大交互选择器；
+- [**工程分发与全局 CLI 架构**](docs/coding/07-distribution-and-packaging.md)：npm 全球发布、双引擎自愈启动与跨平台打包。
 
 ---
 
-## 未来演进路线 (Roadmap)
+## 📜 许可证 (License)
 
-项目按阶段对标业界标杆机制持续迭代演进：
-
-- [x] **Pi 风格的 Steer 与 Follow-up 动态干预机制**：
-  - **`steer`（动态转向与即时纠偏）**：在 ReAct 循环执行过程中（工具执行间隙、无工具文本输出期等安全点），支持上层宿主或子代理调度器注入转向指令，使 Agent 实时调整执行方向，而无需中断会话或丢失已产生的上下文；
-  - **`follow_up`（轮次边界任务追加）**：在当前 Turn 执行结束的自然边界自动拉取并衔接后续追问/队列任务，保持单会话连贯性；
-  - **经典两层循环与交付模式**：支持 `one-at-a-time`（单步纠偏）与 `all`（批注入）消费模式，并在 `TaskManager` 中提供子代理定向干预（`steer_task` / `follow_up_task`）。
-- [x] **统一 Task / Todo 系统与后台异步执行（Phase 8）**：
-  - 实现 `TaskItem` + `TaskStore` DAG 依赖状态机、环检测与崩溃安全原子落盘；
-  - 提供 4 增量 CRUD 工具族（`task_create`, `task_update`, `task_get`, `task_list`）与 `todo_write` 便捷工具；
-  - `BeforeModelCall` 自动 `<TASK_BOARD>` 上下文看板投影（Session 零污染）；
-  - `BackgroundRunner` 异步调度与进程树递归强杀孤儿进程防御。
-- [x] **基于 Pi 原厂 `@earendil-works/pi-tui` 的双核表现层（`tui/` 与 `src/my_coding_agent`）**：
-  - 基于 `TuiMainScreen` 差量重绘器与 CSI 2026 同步屏障的高质感终端交互层；
-  - 流式 Markdown 增量渲染、动态思考折叠块、圆角边框工具卡片、`@` 路径联想与 `/` 斜杠命令气泡；
-  - 无状态 stdio JSON-RPC 2.0 双向流通信与跨进程生命周期安全绑定；
-  - `Accept-on-Diff` 权限审查门禁与词级差异高亮；
-  - `<project_context>` 自动发现与 `AGENTS.md` 规范注入。
-- [x] **Pi 官方运行时与交互组件 1:1 深度对齐**：
-  - **完整 7 大编码工具**：补齐第 7 个工具 `ls`（500 条目 / 50KB 截断，字母忽略大小写排序，隐藏文件支持），对齐 `grep`（`glob`, `context`, `ignore_case`, `literal`）、`find`（1000 限制）、`edit`（JSON 字符串 / 单 dict 容错）与 `bash`（100ms 流式更新）；
-  - **Antigravity 原生直连与动态模型发现**：直连 Google internal Code Assist 原生 SSE，递归展开 JSON Schema `$defs` 解决 Protobuf 400 校验错误；通过 Google internal API 动态发现模型并实现别名与思考等级收敛（4小时磁盘缓存）；
-  - **DeepSeek 动态模型列表获取**：通过官方 API 获取最新模型列表并提供 4 小时磁盘缓存；
-  - **会话持久化与 DAG 分支探索**：对齐 Pi Session Header (`type: "session"`) 与 `CustomMessage` 规范；提供 `/tree` 会话分支 DAG 树状视图、`/fork` 历史节点分叉、`/clone` 全量状态探索副本，以及 `/resume` 下 `Ctrl+D` 历史会话删除与活跃会话防御保护；
-  - **精确 Token 与成本核算**：提取 native provider cache metadata（OpenAI/Anthropic/Antigravity），精确计算缓存命中率（`CH%`）与模型家族阶梯价格，真实 Context Window 动态传导至双行底栏；
-  - **输入框嵌入式转圈动效 (`CustomEditor`)**：100% 对齐 Pi 原厂 `CustomEditor`，在输入框顶部边框实时嵌入高频旋转指示器（`── ⠸ Working ──`）与上下文压缩动效（`── ⠸ Compacting context... ──`）；
-  - **思考预算与快捷键**：支持 `Shift+Tab` / `Ctrl+T` 快捷键轮转思考等级，并按模型能力自动夹逼适配；
-  - **上下文压缩卡片**：压缩摘要以可折叠卡片（`[compaction] Compacted from X tokens (Ctrl+O to expand)`）呈现。
-- [ ] **底层可靠性与网络弹性**：
-  - 流式中断与 429 / 5xx 指数退避重试；
-  - 大模型 `stop_reason` 细粒度归一化处理。
+本项目采用 [MIT License](LICENSE) 开源协议。
