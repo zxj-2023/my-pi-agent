@@ -17,9 +17,11 @@
 </p>
 
 <p align="center">
-  <a href="#-快速开始-quickstart">快速开始</a>
+  <a href="#-为什么从零实现">为什么从零实现</a>
   ·
-  <a href="#-什么是-my-pi-agent">架构拓扑</a>
+  <a href="#-什么是-my-pi-agent">什么是 my-pi-agent</a>
+  ·
+  <a href="#-快速开始-quickstart">快速开始</a>
   ·
   <a href="#-核心特性全景-what-my-pi-agent-can-do">核心特性</a>
   ·
@@ -27,10 +29,27 @@
   ·
   <a href="#-作为-python-库使用-use-as-a-library">Python SDK</a>
   ·
-  <a href="docs/README.md">技术设计文档中心</a>
+  <a href="docs/README.md">技术设计文档</a>
   ·
   <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/">专栏精读</a>
 </p>
+
+---
+
+## 💡 为什么从零实现
+
+市面上的 Python agent 框架很难找到称心的：要么完全依赖 AI 搭建，结构与实现冗杂、难以阅读；要么来自 TypeScript 生态，Python 实现偏少；而选择 Python 的大多直接套 langchain / langgraph——框架成了黑盒，底层原理与设计取舍都来不及亲自验证。
+
+自己实现一个 agent 框架：
+
+- **从底层学习**：ReAct 循环、原生异步流式、五大决策拦截点、树状会话回溯、分层上下文压缩、MCP 协议桥接……每个环节亲手实现一遍，才能真正理解 agent 的底层原理；
+- **灵活可控**：不是所有场景都需要复杂的图编排；自研框架按需定制，配合业务需求更轻量高效；
+- **工程规范**：严格遵循 TDD（测试先行）、100% 离线单元测试覆盖、Never-Throw 异常边界隔离、原子文件落盘与架构不变式约束。
+
+## 🎨 风格
+
+**简洁、规范、零过度设计**——只做当前需求的最小实现，接口边界干净、职责单一、测试先行。
+代码即使由 AI 辅助生成，也**逐行人工审查**（这是投入最多的部分），实现思路与结构管理在此基础上反复打磨完善。
 
 ---
 
