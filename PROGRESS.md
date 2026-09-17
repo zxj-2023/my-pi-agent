@@ -786,7 +786,7 @@ my-pi-agent/
     - 接入 `GET https://api.deepseek.com/models` 动态拉取模型列表并持久化 4 小时磁盘缓存，消除硬编码；
   - **会话持久化与 DAG 分支探索**：
     - 扩充 `SessionEntry` 支持 `SessionHeaderEntry` (`type: "session"`)、`CustomMessageEntry` 与 `modelId` / `firstKeptEntryId` 别名兼容；
-    - 修复 `/tree` DAG 图分支连接线（`│ `, `├─ `, `└─ `）；
+    - 修复 `/tree` DAG 图分支连接线（`│`, `├─`, `└─`）；
     - 完整实现 `/fork`（从历史节点分叉）、`/clone`（复制当前会话全量状态）、`/resume` 下 `Ctrl+D` 二次确认删除与活跃会话安全防御（前后端双拦截）；
   - **全量 Token 与成本核算**：
     - 提取各 Native Provider Cache 元数据，精确计算 Prompt Cache 命中率（`CH%`）；
