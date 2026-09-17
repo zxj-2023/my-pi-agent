@@ -26,6 +26,33 @@ def test_compute_session_usage_empty(tmp_path: Path) -> None:
     assert usage["cost"] == 0.0
 
 
+def test_compute_session_usage_non_empty(tmp_path: Path) -> None:
+    session = Session(path=tmp_path / "usage.jsonl")
+    session.add_message("user", "Write a python function")
+    session.add_message(
+        "assistant",
+        "Here is the code",
+        usage={
+            "prompt_tokens": 1000,
+            "completion_tokens": 200,
+            "cache_read_tokens": 500,
+            "cache_write_tokens": 100,
+            "total_tokens": 1800,
+        },
+    )
+
+    usage = compute_session_usage(session, "gpt-4o")
+    assert usage["input"] == 1000
+    assert usage["output"] == 200
+    assert usage["cacheRead"] == 500
+    assert usage["cacheWrite"] == 100
+    assert usage["total"] == 1800
+    assert usage["latestCacheHitRate"] > 0
+    assert usage["cost"] > 0
+    assert usage["contextTokens"] == 1000 + 200 + 500 + 100
+    assert usage["cacheHitRate"] == usage["latestCacheHitRate"]
+
+
 def test_build_tree_nodes_and_stats(tmp_path: Path) -> None:
     session = Session(path=tmp_path / "test.jsonl", cwd=str(tmp_path))
     session.add_message("user", "Hello world")

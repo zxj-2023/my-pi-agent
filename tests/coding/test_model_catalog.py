@@ -8,11 +8,14 @@ from my_agent_llm.auth.manager import AuthManager
 from my_coding_agent.paths import AgentPaths
 from my_coding_agent.model_catalog import (
     KNOWN_MODEL_CATALOG,
+    build_models_catalog,
     get_antigravity_catalog,
     get_deepseek_catalog,
+    resolve_initial_llm,
     resolve_model_context_window,
     switch_llm_model,
 )
+from my_coding_agent.settings import Settings
 
 
 def test_resolve_model_context_window() -> None:
@@ -92,3 +95,75 @@ def test_switch_llm_model_missing_key(tmp_path: Path, monkeypatch: pytest.Monkey
     assert err is None
     assert fake.model == "new-model"
     assert m_name == "new-model"
+
+
+def test_switch_llm_model_when_current_llm_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    paths = AgentPaths()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+
+    # 1. current_llm is None without API key -> returns graceful error, doesn't crash with ValueError
+    llm, m_name, prov, err = switch_llm_model(
+        current_llm=None,
+        raw_model="gpt-4o",
+        provider="openai",
+        paths=paths,
+        auth_mgr=auth_mgr,
+    )
+    assert llm is None
+    assert err is not None
+    assert "未检测到" in err
+
+    # 2. current_llm is None with API key in env -> creates new LLM successfully
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-valid-key")
+    llm, m_name, prov, err = switch_llm_model(
+        current_llm=None,
+        raw_model="gpt-4o",
+        provider="openai",
+        paths=paths,
+        auth_mgr=auth_mgr,
+    )
+    assert err is None
+    assert llm is not None
+    assert llm.config.model == "gpt-4o"
+    assert llm.config.api_key == "sk-valid-key"
+
+
+def test_build_models_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    paths = AgentPaths()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+    work = tmp_path / "work"
+    work.mkdir()
+
+    # scope="all" should return full catalog
+    configured, models = build_models_catalog(paths=paths, auth_mgr=auth_mgr, workspace=work, scope="all")
+    assert isinstance(configured, set)
+    assert len(models) > 0
+    assert all("contextWindow" in m for m in models)
+
+
+def test_resolve_initial_llm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-init-key")
+    paths = AgentPaths()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+    work = tmp_path / "work"
+    work.mkdir()
+
+    settings = Settings(default_model="gpt-4o", default_provider="openai")
+    llm = resolve_initial_llm(
+        workspace_path=work,
+        explicit_model="openai/gpt-4o",
+        settings=settings,
+        auth_mgr=auth_mgr,
+    )
+    assert llm is not None
+    assert llm.config.model == "gpt-4o"
+    assert llm.config.provider == "openai"
+    assert llm.config.api_key == "sk-init-key"

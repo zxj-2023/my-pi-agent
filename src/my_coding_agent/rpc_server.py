@@ -24,9 +24,6 @@ from my_coding_agent.agent import CodingAgent
 from my_coding_agent.macro import MacroEngine
 from my_coding_agent.model_catalog import (
     build_models_catalog,
-    get_antigravity_catalog,
-    get_configured_providers,
-    get_deepseek_catalog,
     resolve_initial_llm,
     resolve_model_context_window,
     switch_llm_model,
@@ -58,8 +55,6 @@ __all__ = [
     "serialize_message",
     "uuid7_str",
     "resolve_model_context_window",
-    "get_deepseek_catalog",
-    "get_antigravity_catalog",
     "compute_session_usage",
     "compute_session_stats",
     "list_project_sessions",
@@ -1092,9 +1087,10 @@ class RpcServer:
             auth_mgr=auth_mgr,
             default_provider=default_prov,
         )
-        if err:
-            code = -32602 if "Missing" in err else (-32002 if "未检测到" in err else -32000)
-            return self.send_response(req_id, error={"code": code, "message": err})
+        if err or new_llm is None:
+            err_msg = err or "构造模型实例失败"
+            code = -32602 if "Missing" in err_msg else (-32002 if "未检测到" in err_msg else -32000)
+            return self.send_response(req_id, error={"code": code, "message": err_msg})
 
         self.agent.agent.model = model_name
         self.agent.agent.llm = new_llm
@@ -1177,12 +1173,6 @@ class RpcServer:
                 "level": level,
             },
         )
-
-    def _get_configured_providers(self) -> set[str]:
-        paths = self.paths or AgentPaths()
-        auth_mgr = self.auth_mgr or AuthManager(auth_path=paths.auth_path)
-        ws = Path(self.agent.workspace if self.agent else ".").resolve()
-        return get_configured_providers(paths=paths, auth_mgr=auth_mgr, workspace=ws)
 
     def _handle_models_list(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         scope = params.get("scope", "configured")

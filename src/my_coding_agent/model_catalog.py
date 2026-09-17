@@ -670,55 +670,47 @@ def switch_llm_model(
                 else:
                     provider = default_provider
 
-    if hasattr(current_llm, "config"):
-        api_key = None
-        base_url = None
-        if provider:
-            cred = auth_mgr.get_credential(provider)
-            if cred is not None:
-                if isinstance(cred, ApiKeyCredential):
-                    api_key = cred.resolve_key()
-                    if cred.base_url:
-                        base_url = cred.base_url
-                elif isinstance(cred, OAuthCredential):
-                    api_key = cred.access
-
-            if not api_key:
-                api_key = os.environ.get(f"{provider.upper()}_API_KEY")
-                base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
-                if provider == "antigravity":
-                    api_key = (
-                        api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
-                    )
-
-            if provider == "deepseek" and not base_url:
-                base_url = "https://api.deepseek.com"
-
-        prov_name = provider or "openai"
-        if not api_key and prov_name != "antigravity":
-            return (
-                None,
-                model_name,
-                provider,
-                f"未检测到 {prov_name} 的有效 API Key。请使用 /login {prov_name} <key> 绑定凭据，或在系统环境变量中配置 {prov_name.upper()}_API_KEY。",
-            )
-
-        try:
-            new_config = Config(
-                provider=provider or "openai",
-                model=model_name,
-                api_key=api_key,
-                base_url=base_url,
-            )
-            return LLM(config=new_config), model_name, provider, None
-        except Exception as exc:
-            return None, model_name, provider, f"构造模型实例失败: {exc}"
-    elif current_llm is not None and hasattr(current_llm, "model"):
+    if current_llm is not None and not hasattr(current_llm, "config") and hasattr(current_llm, "model"):
         setattr(current_llm, "model", model_name)
         return current_llm, model_name, provider, None
-    else:
+
+    api_key = None
+    base_url = None
+    if provider:
+        cred = auth_mgr.get_credential(provider)
+        if cred is not None:
+            if isinstance(cred, ApiKeyCredential):
+                api_key = cred.resolve_key()
+                if cred.base_url:
+                    base_url = cred.base_url
+            elif isinstance(cred, OAuthCredential):
+                api_key = cred.access
+
+        if not api_key:
+            api_key = os.environ.get(f"{provider.upper()}_API_KEY")
+            base_url = os.environ.get(f"{provider.upper()}_BASE_URL")
+            if provider == "antigravity":
+                api_key = api_key or os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("GOOGLE_ACCESS_TOKEN")
+
+        if provider == "deepseek" and not base_url:
+            base_url = "https://api.deepseek.com"
+
+    prov_name = provider or "openai"
+    if not api_key and prov_name != "antigravity":
+        return (
+            None,
+            model_name,
+            provider,
+            f"未检测到 {prov_name} 的有效 API Key。请使用 /login {prov_name} <key> 绑定凭据，或在系统环境变量中配置 {prov_name.upper()}_API_KEY。",
+        )
+
+    try:
         new_config = Config(
             provider=provider or "openai",
             model=model_name,
+            api_key=api_key,
+            base_url=base_url,
         )
         return LLM(config=new_config), model_name, provider, None
+    except Exception as exc:
+        return None, model_name, provider, f"构造模型实例失败: {exc}"
