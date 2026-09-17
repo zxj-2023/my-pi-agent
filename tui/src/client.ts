@@ -83,7 +83,11 @@ export class PythonKernelClient extends EventEmitter {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(__dirname, "../..");
 
-    const { cmd, args } = this.resolvePythonCommand(workspace);
+    const { cmd, args } = this.resolvePythonCommand(workspace, repoRoot);
+
+    const pythonPath =
+      path.join(repoRoot, "src") +
+      (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : "");
 
     this.child = spawn(cmd, args, {
       stdio: ["pipe", "pipe", "inherit"],
@@ -91,6 +95,7 @@ export class PythonKernelClient extends EventEmitter {
       windowsHide: true,
       env: {
         ...process.env,
+        PYTHONPATH: pythonPath,
         PYTHONIOENCODING: "utf-8",
         PYTHONUTF8: "1",
       },
@@ -133,7 +138,12 @@ export class PythonKernelClient extends EventEmitter {
       for (const { reject } of this.pendingRequests.values()) {
         reject(
           new Error(
-            `无法启动 Python 内核 (${cmd}): ${err.message}。请确保已安装 uv (https://astral.sh/uv) 或 Python 3.11+。`,
+            `无法启动 Python 内核 (${cmd}): ${err.message}。\n` +
+              `my-pi-agent 采用双核驱动体系（Node.js TUI + Python 异步内核）。\n` +
+              `请安装推荐的 Python 极速环境管理工具 uv（安装后全自动自愈配置）：\n` +
+              `  macOS / Linux: curl -LsSf https://astral.sh/uv/install.sh | sh\n` +
+              `  Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"\n` +
+              `安装 uv 后重新运行 my-pi-agent 即可自动运行！`,
           ),
         );
       }
@@ -155,7 +165,10 @@ export class PythonKernelClient extends EventEmitter {
     return res;
   }
 
-  private resolvePythonCommand(workspace: string): {
+  private resolvePythonCommand(
+    workspace: string,
+    repoRoot: string,
+  ): {
     cmd: string;
     args: string[];
   } {
@@ -169,11 +182,14 @@ export class PythonKernelClient extends EventEmitter {
       return { cmd: this.options.pythonExecutable, args: rpcArgs };
     }
 
-    // 2. 探测系统 uv 极速包管理器
+    // 2. 探测系统 uv 极速包管理器（指定 --project 锚定包根目录，支持全局任意路径启动）
     try {
       const probeUv = spawnSync("uv", ["--version"], { stdio: "ignore" });
       if (probeUv.status === 0) {
-        return { cmd: "uv", args: ["run", "python", ...rpcArgs] };
+        return {
+          cmd: "uv",
+          args: ["run", "--project", repoRoot, "python", ...rpcArgs],
+        };
       }
     } catch {
       // uv 未安装
