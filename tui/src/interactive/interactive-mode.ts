@@ -753,13 +753,20 @@ export class InteractiveMode {
           if (selected) {
             try {
               this.currentModelName = selected.id;
+              const supported = this.getSupportedThinkingLevels();
+              if (!supported.includes(this.currentThinkingLevel.toLowerCase())) {
+                this.currentThinkingLevel = supported[0] || "off";
+                void this.bridge.setThinking(this.currentThinkingLevel);
+              }
               this.footer.update({
                 modelName: selected.id,
                 providerName: selected.provider,
+                thinkingLevel: this.currentThinkingLevel,
                 contextWindow:
                   selected.contextWindow ||
                   (selected.id.startsWith("gemini-") ? 1048576 : 128000),
               });
+              this.updateEditorBorderColor();
               await this.bridge.switchModel(selected.id, selected.provider);
               this.appendSystemNotice(
                 `✓ 已成功切换至模型: ${selected.id} (${selected.provider})`,
@@ -778,13 +785,20 @@ export class InteractiveMode {
           if (defaultModel) {
             try {
               this.currentModelName = defaultModel.id;
+              const supported = this.getSupportedThinkingLevels();
+              if (!supported.includes(this.currentThinkingLevel.toLowerCase())) {
+                this.currentThinkingLevel = supported[0] || "off";
+                void this.bridge.setThinking(this.currentThinkingLevel);
+              }
               this.footer.update({
                 modelName: defaultModel.id,
                 providerName: defaultModel.provider,
+                thinkingLevel: this.currentThinkingLevel,
                 contextWindow:
                   defaultModel.contextWindow ||
                   (defaultModel.id.startsWith("gemini-") ? 1048576 : 128000),
               });
+              this.updateEditorBorderColor();
               await this.bridge.switchModel(
                 defaultModel.id,
                 defaultModel.provider,
@@ -879,29 +893,72 @@ export class InteractiveMode {
     });
   }
 
-  public static readonly THINKING_LEVELS = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-  ];
+  public getSupportedThinkingLevels(): string[] {
+    const m = (this.currentModelName || "").toLowerCase();
+    // 1. 完全不支持思考的模型（如 gpt-4o, gpt-3.5, claude-haiku, claude-opus, deepseek-chat 等）
+    if (
+      m.includes("gpt-4o") ||
+      m.includes("gpt-4.1") ||
+      m.includes("gpt-3.5") ||
+      m.includes("claude-3-5-haiku") ||
+      m.includes("claude-3-opus") ||
+      m === "deepseek-chat" ||
+      m === "deepseek-v3"
+    ) {
+      return ["off"];
+    }
+
+    // 2. OpenAI o1/o3/o4 系列：API 仅支持 low, medium, high
+    if (m.includes("o1") || m.includes("o3") || m.includes("o4")) {
+      return ["low", "medium", "high"];
+    }
+
+    // 3. DeepSeek R1 / Reasoner：支持开启或关闭
+    if (m.includes("reasoner") || m.includes("r1")) {
+      return ["low", "medium", "high"];
+    }
+
+    // 4. Google Gemini 思考模型（对标 pi-antigravity，支持 off/minimal/low/medium/high，无 xhigh/max）
+    if (m.includes("gemini")) {
+      return ["off", "minimal", "low", "medium", "high"];
+    }
+
+    // 5. Claude 3.7 Sonnet 系列：支持连续 Token 预算，完整映射至 max
+    if (
+      m.includes("claude") &&
+      (m.includes("sonnet") || m.includes("3-7") || m.includes("4"))
+    ) {
+      return ["off", "minimal", "low", "medium", "high", "max"];
+    }
+
+    return ["off", "low", "medium", "high"];
+  }
 
   public updateEditorBorderColor(): void {
     if (this.defaultEditor) {
       if (this.defaultEditor.getText().startsWith("!")) {
-        this.defaultEditor.borderColor = (str: string) => theme.fg("warning", str);
+        this.defaultEditor.borderColor = (str: string) =>
+          theme.fg("warning", str);
       } else {
-        this.defaultEditor.borderColor = theme.getThinkingBorderColor(this.currentThinkingLevel);
+        this.defaultEditor.borderColor = theme.getThinkingBorderColor(
+          this.currentThinkingLevel,
+        );
       }
       this.ui.requestRender();
     }
   }
 
-  public async cycleThinkingLevel(): Promise<string> {
-    const levels = InteractiveMode.THINKING_LEVELS;
+  public async cycleThinkingLevel(): Promise<string | undefined> {
+    const levels = this.getSupportedThinkingLevels();
+    if (levels.length === 1 && levels[0] === "off") {
+      this.currentThinkingLevel = "off";
+      this.footer.update({ thinkingLevel: "off" });
+      this.updateEditorBorderColor();
+      this.appendSystemNotice("当前模型不支持思考模式 (thinking: off)");
+      this.ui.requestRender();
+      return undefined;
+    }
+
     const curIdx = levels.indexOf(this.currentThinkingLevel.toLowerCase());
     const nextIdx = (curIdx + 1) % levels.length;
     const nextLevel = levels[nextIdx];
@@ -921,7 +978,11 @@ export class InteractiveMode {
   }
 
   public showThinkingSelector(): void {
-    const levels = InteractiveMode.THINKING_LEVELS;
+    const levels = this.getSupportedThinkingLevels();
+    if (levels.length === 1 && levels[0] === "off") {
+      this.appendSystemNotice("当前模型不支持思考模式 (thinking: off)。");
+      return;
+    }
     this.showSelector((done) => {
       const selector = new ThinkingSelectorComponent(
         this.currentThinkingLevel,

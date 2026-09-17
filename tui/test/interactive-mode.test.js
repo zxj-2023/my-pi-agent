@@ -323,27 +323,36 @@ test("InteractiveMode slash commands (/model fuzzy, /thinking validation, /sessi
 
 test("InteractiveMode handles Shift+Tab (\\x1b[Z) and Ctrl+T to cycle thinking level", async () => {
   const { bridge } = createMockBridge();
-  const mode = new InteractiveMode(bridge);
+  const mode = new InteractiveMode(bridge, { model: "claude-3-7-sonnet" });
   await mode.init();
   assert.equal(mode.currentThinkingLevel, "off");
 
-  // 1. Send \x1b[Z (Shift+Tab) -> minimal
+  // 1. claude-3-7-sonnet: off -> minimal
   mode.ui.handleTerminalInput("\x1b[Z");
   assert.equal(mode.currentThinkingLevel, "minimal");
 
-  // 2. Send \x1b[Z again -> low
+  // 2. minimal -> low
   mode.ui.handleTerminalInput("\x1b[Z");
   assert.equal(mode.currentThinkingLevel, "low");
 
-  // 3. Send \x1b[Z again -> medium
+  // 3. low -> medium
   mode.ui.handleTerminalInput("\x1b[Z");
   assert.equal(mode.currentThinkingLevel, "medium");
 
-  // 4. Send \x1b[Z again -> high
+  // 4. medium -> high
   mode.ui.handleTerminalInput("\x1b[Z");
   assert.equal(mode.currentThinkingLevel, "high");
 
-  // 5. Send Ctrl+T -> xhigh
-  mode.ui.handleTerminalInput("\x14"); // Ctrl+T is ASCII 20
-  assert.equal(mode.currentThinkingLevel, "xhigh");
+  // 5. high -> max
+  mode.ui.handleTerminalInput("\x14"); // Ctrl+T
+  assert.equal(mode.currentThinkingLevel, "max");
+
+  // 6. max -> off
+  mode.ui.handleTerminalInput("\x1b[Z");
+  assert.equal(mode.currentThinkingLevel, "off");
+
+  // 7. Non-reasoning model (gpt-4o): cannot cycle, stays off
+  mode.currentModelName = "gpt-4o";
+  mode.ui.handleTerminalInput("\x1b[Z");
+  assert.equal(mode.currentThinkingLevel, "off");
 });

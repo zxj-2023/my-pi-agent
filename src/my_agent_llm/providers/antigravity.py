@@ -133,6 +133,10 @@ class AntigravityProvider(OpenAIProvider):
 
     def _resolve_runtime_model(self, model: str, thinking_level: str | None = None) -> str:
         level = (thinking_level or "low").lower()
+        if level in ("xhigh", "max"):
+            level = "high"
+        elif level == "minimal":
+            level = "low"
         if model in ANTIGRAVITY_ROUTING:
             return ANTIGRAVITY_ROUTING[model].get(level, ANTIGRAVITY_ROUTING[model].get("low", model))
         return model
