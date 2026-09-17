@@ -182,10 +182,10 @@
 # 1. 根目录安装 Python 依赖与同步全局唯一的虚拟环境
 uv sync
 
-# 2. 根目录一键运行全量 Python 单元测试 (575 passed)
+# 2. 根目录一键运行全量 Python 单元测试 (665 passed)
 uv run python -m pytest
 
-# 3. 运行前端 Pi-TUI 测试套件 (8 passed)
+# 3. 运行前端 Pi-TUI 测试套件 (57 passed)
 npm test
 
 # 4. 根目录一键启动全新高质感 Pi-TUI 终端交互助手
@@ -197,10 +197,10 @@ npm start
 本项目所有测试均使用模拟客户端，**100% 离线运行，无需网络或真实 API Key**：
 
 ```bash
-# 1. 运行全部 Python 核心测试 (575 tests, 100% 绿灯全通)
+# 1. 运行全部 Python 核心测试 (665 tests, 100% 绿灯全通)
 uv run python -m pytest
 
-# 2. 运行全部前端 TUI 测试 (8 tests, 100% 绿灯全通)
+# 2. 运行全部前端 TUI 测试 (57 tests, 100% 绿灯全通)
 npm test
 ```
 
@@ -234,7 +234,7 @@ my-pi-agent/
 │   │
 │   └── my_coding_agent/            # 3. 业务工具与 stdio RPC 服务端 (纯无头架构)
 │       ├── agent.py                # CodingAgent 门面 (Dual API: run & run_stream)
-│       ├── tools/                  # 6 大编码工具 (read/write/edit/bash/grep/find)
+│       ├── tools/                  # 7 大编码工具 (read/write/edit/bash/grep/find/ls)
 │       ├── mutation_queue.py       # FileMutationQueue 细粒度单文件并发互斥锁
 │       ├── permissions.py          # PermissionGate 业务权限审查门禁 (Accept-on-Diff)
 │       ├── mcp.py                  # Turnkey MCP 客户端自动加载与回收
@@ -244,19 +244,19 @@ my-pi-agent/
 ├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
 │   ├── llm/                        # LLM 层单元测试 (76 tests)
 │   ├── core/                       # 框架内核单元测试 (337 tests)
-│   └── coding/                     # 业务与工具测试 (162 tests)
+│   └── coding/                     # 业务与工具测试 (171 tests)
 │
 ├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
 │   ├── tsconfig.json
 │   ├── bin/
-│   │   └── my-agent.js             # CLI 执行文件
+│   │   └── my-agent.js             # CLI 执行文件 (支持全局命令 my-pi-agent / my-agent)
 │   ├── src/
 │   │   ├── app.ts                  # TuiMainScreen 状态机与组件树组装
 │   │   ├── client.ts               # PythonKernelClient (管理 uv run python 子进程)
-│   │   ├── components/             # Pi 原厂 UI 组件 (assistant-message, tool-execution, footer...)
+│   │   ├── components/             # Pi 原厂 UI 组件 (CustomEditor, status-indicator, footer...)
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
-│   └── test/                       # 前端 8 个自动化测试与端到端测试
+│   └── test/                       # 前端 57 个自动化测试与端到端测试套件
 │
 ├── docs/                           # 架构与技术设计文档中心
 ├── package.json                    # 根目录 npm 工作区配置与一键启动脚本
@@ -306,6 +306,15 @@ my-pi-agent/
   - 无状态 stdio JSON-RPC 2.0 双向流通信与跨进程生命周期安全绑定；
   - `Accept-on-Diff` 权限审查门禁与词级差异高亮；
   - `<project_context>` 自动发现与 `AGENTS.md` 规范注入。
+- [x] **Pi 官方运行时与交互组件 1:1 深度对齐**：
+  - **完整 7 大编码工具**：补齐第 7 个工具 `ls`（500 条目 / 50KB 截断，字母忽略大小写排序，隐藏文件支持），对齐 `grep`（`glob`, `context`, `ignore_case`, `literal`）、`find`（1000 限制）、`edit`（JSON 字符串 / 单 dict 容错）与 `bash`（100ms 流式更新）；
+  - **Antigravity 原生直连与动态模型发现**：直连 Google internal Code Assist 原生 SSE，递归展开 JSON Schema `$defs` 解决 Protobuf 400 校验错误；通过 Google internal API 动态发现模型并实现别名与思考等级收敛（4小时磁盘缓存）；
+  - **DeepSeek 动态模型列表获取**：通过官方 API 获取最新模型列表并提供 4 小时磁盘缓存；
+  - **会话持久化与 DAG 分支探索**：对齐 Pi Session Header (`type: "session"`) 与 `CustomMessage` 规范；提供 `/tree` 会话分支 DAG 树状视图、`/fork` 历史节点分叉、`/clone` 全量状态探索副本，以及 `/resume` 下 `Ctrl+D` 历史会话删除与活跃会话防御保护；
+  - **精确 Token 与成本核算**：提取 native provider cache metadata（OpenAI/Anthropic/Antigravity），精确计算缓存命中率（`CH%`）与模型家族阶梯价格，真实 Context Window 动态传导至双行底栏；
+  - **输入框嵌入式转圈动效 (`CustomEditor`)**：100% 对齐 Pi 原厂 `CustomEditor`，在输入框顶部边框实时嵌入高频旋转指示器（`── ⠸ Working ──`）与上下文压缩动效（`── ⠸ Compacting context... ──`）；
+  - **思考预算与快捷键**：支持 `Shift+Tab` / `Ctrl+T` 快捷键轮转思考等级，并按模型能力自动夹逼适配；
+  - **上下文压缩卡片**：压缩摘要以可折叠卡片（`[compaction] Compacted from X tokens (Ctrl+O to expand)`）呈现。
 - [ ] **底层可靠性与网络弹性**：
   - 流式中断与 429 / 5xx 指数退避重试；
   - 大模型 `stop_reason` 细粒度归一化处理。

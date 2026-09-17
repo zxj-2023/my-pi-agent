@@ -764,3 +764,41 @@ my-pi-agent/
   - 在 `tui` 中接入 `CombinedAutocompleteProvider`，原生支持 `@` 工作区文件路径联想与 `/` 斜杠命令浮窗；
   - 智能零配置凭据探测：未传 `-m` 参数时自动从 `auth.json` 挂载 `gemini-3.8-flash`。
 - **验证**：**全库 584 个测试全部 100% 绿灯全通**（Python 575 + TypeScript 9），零破坏性回归，代码已完整推送至 GitHub。
+
+---
+
+### 阶段 28：Pi 原厂运行时与交互组件 1:1 深度对齐（2026-09）
+
+**目标**：严格比对官方 Pi 系列包（`@earendil-works/pi-coding-agent`、`@earendil-works/pi-tui`、`@earendil-works/pi-ai` 与 `pi-antigravity`），在调度、工具流水线、会话 DAG 分支、Token/成本计费以及前端交互体验上达成 1:1 像素级与行为级对齐。
+
+- **改了什么**：
+  - **补齐第 7 个内置工具 `ls`**：在 `src/my_coding_agent/tools/ls.py` 实现 `make_ls_tool`，默认 500 条目 / 50KB 双重截断保护，目录自动追加 `/` 后缀，大小写不敏感排序，支持 dotfiles 隐藏文件；
+  - **工具参数规范与模型容错对齐**：
+    - `grep`：重构入参对齐 Pi 规范，接入 `glob`、`ignore_case`、`literal`、`context` 上下文行回显与 50KB 字节截断；
+    - `edit`：对标 Pi 原厂 `prepareEditArguments`，自动反序列化 JSON 字符串与包装单 dict，杜绝格式不规范模型报错；
+    - `bash`：重构为异步行流读取，每 100ms 增量触发 `on_update` 广播，彻底告别长命令执行时的界面卡顿黑盒；
+    - `find`：限制默认 1000 项结果与 50KB 截断保护；
+  - **Antigravity 原生 SSE 直连与模型自省**：
+    - 废弃伪装的 404 OpenAI 接口，直连 Google Cloud Code Assist `v1internal:streamGenerateContent` 原生 SSE；
+    - 递归内联展开 JSON Schema 中的 `$defs` 与 `$ref`，彻底解决 Google Protobuf 400 校验死锁；
+    - 对标 `pi-antigravity/grouping.ts`，基于 Google internal API 动态发现可用模型，收敛思考后缀与别名，支持 4 小时磁盘缓存；
+  - **DeepSeek 动态模型目录**：
+    - 接入 `GET https://api.deepseek.com/models` 动态拉取模型列表并持久化 4 小时磁盘缓存，消除硬编码；
+  - **会话持久化与 DAG 分支探索**：
+    - 扩充 `SessionEntry` 支持 `SessionHeaderEntry` (`type: "session"`)、`CustomMessageEntry` 与 `modelId` / `firstKeptEntryId` 别名兼容；
+    - 修复 `/tree` DAG 图分支连接线（`│ `, `├─ `, `└─ `）；
+    - 完整实现 `/fork`（从历史节点分叉）、`/clone`（复制当前会话全量状态）、`/resume` 下 `Ctrl+D` 二次确认删除与活跃会话安全防御（前后端双拦截）；
+  - **全量 Token 与成本核算**：
+    - 提取各 Native Provider Cache 元数据，精确计算 Prompt Cache 命中率（`CH%`）；
+    - 建立模型家族阶梯价格映射，计算美元开销与节省成本；
+    - 真实 Context Window 动态传导至双行底栏，紧凑渲染 `↑[in] ↓[out] R[read] W[write] CH[hit]% $[cost] [ctx]%/[win]`；
+  - **交互式组件与转圈动效对齐**：
+    - 实现 `CustomEditor` 继承 `Editor`，100% 对齐 Pi 原厂 `renderTopBorder` 算法，在输入框顶部边框实时嵌入高频旋转指示器（`── ⠸ Working ──`）；
+    - 实现 `WorkingStatusIndicator` 与 `CompactionStatusIndicator`，支持 80ms 高频 Braille 帧动画与 `unref` 定时器安全管理；
+    - 实现 `CompactionSummaryMessageComponent` 可折叠卡片，支持 `Ctrl+O` 展开全文 Markdown；
+    - 支持 `Shift+Tab` 与 `Ctrl+T` 快捷键轮转思考等级，自动根据模型能力动态夹逼与边框变色；
+  - **清理工程冗余**：
+    - 删除无引用的历史草稿 `docs/coding/05-pigmono-tau-feature-parity-design.md`；
+    - 删除无引用的外部重导出文件 `tui/src/interactive/components.ts` 与 `theme.ts`；
+    - 剥离 `tui/package.json` 对 `@earendil-works/pi-coding-agent` 的冗余依赖，使前端代码完全自主可控。
+- **验证**：全库测试规模提升至 **665 个 Python 核心测试全部通过**，**57 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。

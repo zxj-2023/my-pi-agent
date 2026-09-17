@@ -20,7 +20,10 @@
 │    • 24-bit TrueColor 调色盘 (dark.json) 与柔和卡片视觉系统                 │
 │    • 流式 Markdown 增量渲染 + 动态可折叠思考过程区块 (AssistantMessage)      │
 │    • 圆角边框工具调用卡片 + 点阵 Spinner 动效 + 实时耗时统计 (ToolExecution)  │
-│    • 多行富文本输入框 (Editor) + CURSOR_MARKER 中文输入法硬件光标精准锚定    │
+│    • 定制编辑器 (CustomEditor) 顶部边框实时嵌入高频转圈 (── ⠸ Working ──)   │
+│    • 快捷键 Shift+Tab / Ctrl+T 轮转思考深度，按模型能力动态夹逼与边框变色     │
+│    • 上下文压缩卡片 [compaction] 可折叠卡片与 Ctrl+O 展开全文                │
+│    • 树状会话 DAG 视图 (/tree) 与分叉 (/fork)、克隆 (/clone)、删除保护 (Ctrl+D)│
 │    • 模糊匹配路径联想 (@) 与斜杠命令浮窗 (/) 补全 (CombinedAutocomplete)    │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │                                      │                                      │
@@ -28,9 +31,10 @@
 │                                      ▼                                      │
 │  【后端业务与产品层】: src/my_coding_agent (Python 3.12 / 纯无头业务层)      │
 │    • CodingAgent 组装门面（Dual API: run 与 run_stream）                    │
-│    • 6 大工作区安全编码文件工具 (read / write / edit / bash / grep / find)   │
+│    • 7 大工作区安全编码文件工具 (read / write / edit / bash / grep / find / ls)│
 │    • FileMutationQueue 单文件细粒度并发写锁                                 │
 │    • PermissionGate 业务权限审查门禁 (Accept-on-Diff 词级反色高亮)          │
+│    • 全量 Token 与成本核算（Prompt Cache 命中率 CH%、模型费率映射、Context 视口）│
 │    • FileReferenceParser 提示词 @ 文件引用正则解析与首轮源码快照直通注入     │
 │    • Turnkey MCP 客户端自动加载与进程生命周期安全回收                        │
 │    • rpc_server.py stdio JSON-RPC 2.0 服务端门面与跨线程安全调度            │
@@ -57,8 +61,9 @@
 │  【模型边界层 SDK】: src/my_agent_llm (Python 3.12)                         │
 │    • 统一 LLM 门面 (chat / stream / achat / achat_stream)                   │
 │    • 结构化 ToolCall (args: dict) 一等公民生产与 TurnOutcome 中立化状态机   │
-│    • 四大 Provider (Antigravity Google OAuth 直连 / DeepSeek / OpenAI / Anthropic)│
+│    • 四大 Provider (Antigravity Google internal SSE 直连 / DeepSeek / OpenAI / Anthropic)│
 │    • AntigravityAuthResolver 动态凭据自省与自动静默刷新 (零硬编码密钥)       │
+│    • 动态模型目录获取与 4 小时磁盘缓存（Antigravity 别名收敛 / DeepSeek 列表同步）│
 │    • 流式 Tool Calls 增量聚合与末块 Response 实体直接交付                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -89,7 +94,7 @@
 
 ### 3. 产品与编码层 (`docs/coding/`)
 
-- [01-file-tools.md](coding/01-file-tools.md)：工作区安全编码文件工具集（`read` / `write` / `edit` / `bash` / `grep` / `find`）与 `_safe_path` 路径穿越逃逸防御。
+- [01-file-tools.md](coding/01-file-tools.md)：工作区安全编码文件工具集（`read` / `write` / `edit` / `bash` / `grep` / `find` / `ls`）与 `_safe_path` 路径穿越逃逸防御。
 - [02-mcp-client.md](coding/02-mcp-client.md)：原生异步 MCP 客户端扩展、`AsyncExitStack` 双扇门生命周期管理、JSON-RPC 2.0 转发与闭包工厂延迟绑定防护。
 - [03-coding-agent-product-layer.md](coding/03-coding-agent-product-layer.md)：`my_coding_agent` 产品层架构规范（Dual API: `run` / `run_stream`）、`FileMutationQueue` 细粒度并发写锁与 Prompt 上下文自动发现。
 - [04-product-layer-features-and-tui-architecture.md](coding/04-product-layer-features-and-tui-architecture.md)：交互式 CLI 与 Slash 命令系统架构设计、事件流打字机渲染器与 Windows 编码保护。

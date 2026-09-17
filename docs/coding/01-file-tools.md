@@ -2,7 +2,7 @@
 
 - **定位**：产品层专属编码文件工具集 (`packages/my-coding-agent/src/my_coding_agent/tools.py`)
 - **核心函数**：`build_coding_tools(workspace)`, `_safe_path`
-- **四大工具**：`read`, `write`, `edit`, `bash`
+- **七大核心工具**：`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`
 
 ---
 
@@ -20,12 +20,12 @@
                          ▼
         build_coding_tools(workspace_dir)
                          │
-         ┌───────────────┼───────────────┬───────────────┐
-         ▼               ▼               ▼               ▼
-       read            write           edit            bash
-   (安全读取文件)  (原子写入文件)  (局部精确替换)  (安全子进程执行)
-         │               │               │               │
-         └───────────────┴───────┬───────┴───────────────┘
+         ┌───────────────┼───────────────┬───────────────┬───────────┐
+         ▼               ▼               ▼               ▼           ▼
+       read            write           edit            bash     grep/find/ls
+   (安全读取文件)  (原子写入文件)  (局部精确替换)  (安全流式执行) (搜索与列举)
+         │               │               │               │           │
+         └───────────────┴───────┬───────┴───────────────┴───────────┘
                                  │
                                  ▼
                    _safe_path(workspace, target)
@@ -34,40 +34,62 @@
 
 ---
 
-## 二、四大核心工具与安全防线
+## 二、七大核心工具与安全防线
 
 ### 1. `_safe_path`：路径逃逸防御
 
 所有文件工具必须强制通过 `_safe_path` 校验：
 
 - 将目标路径解析为绝对物理路径；
-- 检查目标路径是否严格位于 `workspace` 根目录之内；
+- 检查目标路径是否严格位于 `workspace` 根目录之内（或安全沙箱许可范围内）；
 - 拦截 `../../etc/passwd` 等任何形式的路径穿越攻击，越界直接返回安全错误。
 
 ### 2. `read(path, offset, limit)`
 
-- 安全读取文本内容；
-- 支持大文件分页（`offset` / `limit` 行级切片），防止单次读取几万行文件冲垮 LLM 上下文；
+- 安全读取文本内容，带行号前缀（如 `123 | const a = 1;`）；
+- 支持大文件分页（`offset` / `limit` 行级切片，默认 2000 行 / 50KB 双重截断保护），防止单次读取巨量文件冲垮 LLM 上下文；
 - **精细化报错**：越界时返回明确提示（如 `Offset 200 is beyond end of file ('app.py' has only 80 lines total)`），引导模型自我纠错。
 
 ### 3. `write(path, content)`
 
 - 创建或覆盖写入文件，自动递归创建缺失的父目录；
-- **`FileMutationQueue` 单文件锁保护**：标记为 `is_parallel_safe=True`，由内部路径锁自动排队，不同文件完全并发。
+- **`FileMutationQueue` 单文件锁保护**：标记为 `is_parallel_safe=True`，由内部路径锁自动排队，不同文件完全并发；
+- 写入后回显写入字节数或行数。
 
-### 4. `edit(path, old_text, new_text)`
+### 4. `edit(path, edits)`
 
-- 外科手术式精确修改；
-- **多重匹配与未找到精准提示**：
+- 外科手术式精确修改，支持单个或批次多块替换；
+- **多模型入参容错（对标 Pi 原厂 prepareEditArguments）**：
+  - 自动探测并反序列化 JSON 字符串或包装单个 dict，杜绝 Opus/GLM 等模型因格式偏差触发的 Schema 报错；
+- **逆序精准替换与 Unified Diff 回显**：
   - 若 `old_text` 未找到：返回目标文件总行数并提示模型核对空白字符或先 `read`；
   - 若命中多处（`count > 1`）：明确提示命中次数，要求模型提供更多上下文以确保唯一匹配；
-- **`FileMutationQueue` 单文件锁保护**：标记为 `is_parallel_safe=True`，不同文件并发编辑极速完成。
+  - 修改完成后自动生成彩色 Unified Diff 供终端审查或上下文记录。
 
 ### 5. `bash(command, timeout)`
 
 - 在当前工作区执行 Shell 命令并捕获 stdout/stderr；
 - 内置高危命令黑名单与执行超时保护（默认 120 秒）；
-- **超时自动捕获 Partial Output**：命令超时时自动保留子进程已输出的最后 2000 字符日志，杜绝信息黑盒。
+- **100ms 增量流式回传（`on_update`）**：采用异步行流读取，每 100ms 向前端广播最新输出片段，彻底告别长任务黑盒；
+- **超时自动捕获 Partial Output**：命令超时时保留子进程已输出的最后 2000 字符日志。
+
+### 6. `grep(pattern, path, glob, context, ignore_case, literal, limit)`
+
+- 原生跨平台正则与文本搜索，全面对齐 Pi 原厂参数命名与行为；
+- 支持前后上下文行（`context` 参数，匹配行以 `:` 标记，上下文行以 `-` 标记）；
+- 支持大小写忽略（`ignore_case`）、纯文本字面量（`literal`）以及路径通配符过滤（`glob`）；
+- 内置 50KB 字节截断保护。
+
+### 7. `find(path, pattern, limit)`
+
+- 极速文件通配符搜索，自动过滤 `.git`、`node_modules` 等无关构建产物目录；
+- 默认 1000 项结果上限与 50KB 截断保护。
+
+### 8. `ls(path, limit)`
+
+- 对标 Pi 原厂第 7 个内置工具，列出目标目录下的文件与子文件夹；
+- 默认 500 条目上限与 50KB 字节截断；
+- 目录条目自动添加 `/` 后缀，字母大小写不敏感排序，支持显示隐藏文件（dotfiles）。
 
 ---
 

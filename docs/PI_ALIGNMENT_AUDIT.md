@@ -86,8 +86,10 @@
 
 | 交互组件/行为 | 官方 Pi 实现机制 (`@earendil-works/pi-tui`) | 本项目实现机制 (`tui/src/`) | 对齐状态 | 审查与修复要点 |
 | :--- | :--- | :--- | :---: | :--- |
-| **转圈动画 (Spinner)** | `Loader` 组件以 80ms 间隔在 Braille 10 帧间循环 | 此前写死单字符 `"⠋"`，无定时器驱动 | **已修复** | **动效对齐**：引入 10 帧 `SPINNER_FRAMES`，挂载 80ms 定时器触发终端平滑重绘 |
+| **转圈动画 (Spinner)** | `Loader` 组件以 80ms 间隔在 Braille 10 帧间循环 | `CustomEditor` 顶部边框动态嵌入 `WorkingStatusIndicator` | **已修复** | **动效对齐**：输入框上沿 `── ⠸ Working ──` 实时旋转，模型结束自动平滑自愈恢复 |
 | **工具更新状态机** | `tool_execution_update` 仅更新局部增量，保持运行态 | 此前在 update 时误调用 `updateResult(..., false)` | **已修复** | **严重状态 Bug 修复**：新增 `updatePartialResult`，运行中展示尾部日志且保持转圈 |
+| **思考等级与快捷键** | `Shift+Tab` / `Ctrl+T` 轮转思考预算，按模型支持等级截断 | 接入 `getSupportedThinkingLevels` 与 Antigravity 夹逼 | **已修复** | **体验对齐**：支持快捷键轮转思考深度，边框联动变色，不越界模型上限 |
+| **压缩卡片预览** | 紧凑渲染 `[compaction]` 卡片，支持 `Ctrl+O` 展开全文 | `CompactionSummaryMessageComponent` 折叠渲染 | **已修复** | **视觉对齐**：杜绝几千字压缩摘要刷屏，折叠为卡片且支持展开 |
 | **状态栏指标渲染** | `formatTokens` 阈值换算，双行紧凑对齐，区分缓存读/写 | `FooterComponent` 严格按 Pi 规则渲染指标与上下文使用率百分比 | **一致** | 完整呈现 `↑[in] ↓[out] R[read] W[write] CH[hit]% $[cost] [ctx]%/[win]` |
 | **模型目录选择器** | 仅显示有效已配置厂商，Tab 切换仅在有 scopedModels 时生效 | `ModelSelectorComponent` 移除多余 Catalog 头与开关，支持 `Ctrl+S` | **一致** | 纯动态模型发现，无硬编码冗余提供商 |
 | **会话选择与清理** | `Ctrl+D` 二次确认删除历史会话，禁止删除当前正在激活的活跃会话 | `SessionSelectorComponent` + 后端 `session_delete` 安全拦截 | **一致** | 双重保护（前端提示 + 后端 `-32005` 拒绝），安全防护无死角 |
@@ -125,7 +127,7 @@
    uv run python -m pytest tests/
    ```
 
-   - **结果**：`664 passed in 29.34s`（全绿灯通过，失败数为 0）。
+   - **结果**：`665 passed in 27.5s`（全绿灯通过，失败数为 0）。
 
 2. **TypeScript TUI 组件与端到端测试**：
 
@@ -133,7 +135,7 @@
    npm test
    ```
 
-   - **结果**：`54 passed, 0 failed`（全绿灯通过，失败数为 0）。
+   - **结果**：`57 passed, 0 failed`（全绿灯通过，失败数为 0）。
 
 3. **前端 TypeScript 编译**：
 
