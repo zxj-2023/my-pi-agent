@@ -1116,6 +1116,8 @@ class RpcServer:
 
         self.agent.agent.model = model_name
         self.agent.agent.llm = new_llm
+        # 压缩预算跟随模型窗口（阀值 = 80%×窗口）
+        self.agent.agent.context_manager.set_budget(resolve_model_context_window(model_name))
 
         # 向 Session 追加 ModelChangeEntry
         entry = ModelChangeEntry(

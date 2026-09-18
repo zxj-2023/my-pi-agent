@@ -22,6 +22,34 @@ def _msg(role: str, content: str, **metadata) -> Message:
     return Message(role=role, content=content, metadata=metadata or None)
 
 
+def _tool_calls(*ids: str) -> list[dict]:
+    return [{"id": i, "type": "function", "function": {"name": "f", "arguments": "{}"}} for i in ids]
+
+
+def _parallel_group(*ids: str, content: str = "r") -> list[Message]:
+    """构造一个并行工具调用组：1 个 assistant(tool_calls) + N 个工具结果（N ≥ 2）。"""
+    return [_msg("assistant", "", tool_calls=_tool_calls(*ids))] + [_msg("tool", content, tool_call_id=i) for i in ids]
+
+
+def _assert_pairing_intact(view: list[Message]) -> None:
+    """双向配对不变式：assistant(tool_calls) 后必须紧跟齐全的工具结果；tool 必须有 owner。
+
+    按组游走：遇到带 tool_calls 的 assistant 就消费其后 N 条工具结果，组外出现 tool 即孤儿。
+    """
+    i = 0
+    while i < len(view):
+        m = view[i]
+        calls = (m.metadata or {}).get("tool_calls") or []
+        if m.role == "assistant" and calls:
+            block = view[i + 1 : i + 1 + len(calls)]
+            assert len(block) == len(calls), f"assistant@{i} 工具结果缺失（期望 {len(calls)} 条）"
+            assert all(r.role == "tool" for r in block), f"assistant@{i} 之后不是纯工具结果"
+            i += 1 + len(calls)
+            continue
+        assert m.role != "tool", f"孤儿 tool@{i}: 前置没有 assistant(tool_calls)"
+        i += 1
+
+
 def test_estimate_tokens_monotonic():
     """估算随消息增长单调递增；空列表≈0；ratio 修正（#1）。"""
     assert estimate_tokens([]) <= estimate_tokens([_msg("user", "hi")])
@@ -33,7 +61,7 @@ def test_estimate_tokens_monotonic():
 
 
 def test_snip_keeps_pairing():
-    """L1：>50 消息裁中间 + [snipped] 占位，不拆 assistant(tool_calls)+tool 配对（#5）。"""
+    """L1：>50 消息裁中间 + [snipped] 占位，双向配对不变式完好（#5）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
     msgs = [_msg("user", f"q{i}") for i in range(40)]
     msgs.append(_msg("assistant", "", tool_calls=tc))  # index 40
@@ -42,10 +70,29 @@ def test_snip_keeps_pairing():
     view = snip_messages(msgs)
     assert len(view) <= 50
     assert any(m.content.startswith("[snipped") for m in view)
-    # 配对完整：view 里 assistant(tool_calls) 后紧跟 tool
-    for i, m in enumerate(view):
-        if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
-            assert i + 1 < len(view) and view[i + 1].role == "tool"
+    _assert_pairing_intact(view)
+
+
+def test_snip_head_boundary_inside_parallel_tool_group():
+    """头边界落在并行工具组内部（第 2 个结果上）→ 组不得被切成两半（回归）。"""
+    msgs = [_msg("user", "q0")] + _parallel_group("a", "b")  # [1]assistant(2) [2]tool [3]tool
+    msgs += [_msg("user", f"t{i}") for i in range(49)]  # 共 53 条 → head 边界=3 落在组内
+    view = snip_messages(msgs)
+    assert any(m.content.startswith("[snipped") for m in view)
+    _assert_pairing_intact(view)
+
+
+def test_snip_tail_boundary_inside_parallel_tool_group():
+    """尾边界落在并行工具组内部 → 整组并回尾部，不留孤儿 tool（回归）。"""
+    msgs = [_msg("user", f"q{i}") for i in range(4)]  # [0..3]
+    msgs += _parallel_group("a", "b")  # [4]assistant(2) [5]tool [6]tool
+    msgs += [_msg("user", f"t{i}") for i in range(45)]  # 共 52 条 → tail 边界=6 落在组内
+    view = snip_messages(msgs)
+    assert view[-1].content == "t44"  # 尾部仍然保留
+    _assert_pairing_intact(view)
+    # 组完整保留在视图里（未被切成两半）
+    kept = [(m.metadata or {}).get("tool_call_id") for m in view if m.role == "tool"]
+    assert kept == ["a", "b"]
 
 
 def test_snip_below_limit_noop():
@@ -131,6 +178,69 @@ async def test_prepare_below_threshold_no_summary():
     view = await ctx.prepare(msgs)
     assert view == msgs
     assert len(llm.calls) == 0  # 无摘要调用
+
+
+@pytest.mark.anyio
+async def test_prepare_gate_below_threshold_leaves_everything_untouched(tmp_path):
+    """门控未开：条数超 L1 阈值、单条超 L3 阈值，也一条都不动（本次新行为核心）。"""
+    llm = FakeLLM()
+    ctx = _small_ctx(llm, budget=1_000_000, results_dir=tmp_path)
+    old_tools = [_msg("tool", "y" * 500, tool_call_id=f"c{i}") for i in range(8)]
+    big = _msg("tool", "z" * 30000, tool_call_id="big")
+    msgs = [_msg("user", "q") for _ in range(60)] + old_tools + [big]  # 69 条
+    view = await ctx.prepare(msgs)
+    assert view == msgs  # 逐条相等：L1/L2/L3 全部未生效
+    assert len(llm.calls) == 0
+    assert not list(tmp_path.iterdir())  # 没有落盘
+
+
+@pytest.mark.anyio
+async def test_prepare_gate_above_threshold_runs_l3_spill(tmp_path):
+    """门控开启：超阈 → L3 落盘（以落盘副作用证明整批管线确实跑过）。"""
+    llm = FakeLLM()
+    ctx = _small_ctx(llm, budget=8000, results_dir=tmp_path)
+    msgs = [_msg("user", "q"), _msg("tool", "z" * 30000, tool_call_id="big")]
+    view = await ctx.prepare(msgs)
+    assert any("<persisted-output>" in m.content for m in view)
+    assert (tmp_path / "big.txt").read_text(encoding="utf-8") == "z" * 30000
+    assert len(llm.calls) == 0  # 压缩后已低于阈值 → 不烧摘要
+
+
+@pytest.mark.anyio
+async def test_prepare_gate_above_threshold_runs_l2_compact():
+    """门控开启：超阈 → L2 旧工具结果占位，最近 5 条保留原文。"""
+    llm = FakeLLM()
+    ctx = _small_ctx(llm, budget=10_000)
+    msgs = [_msg("user", "q")] + [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    view = await ctx.prepare(msgs)
+    assert any("[Earlier tool result compacted]" in m.content for m in view)
+    assert sum(1 for m in view if m.content == "y" * 5000) == 5  # 最近 5 条保留
+    assert len(llm.calls) == 0
+
+
+@pytest.mark.anyio
+async def test_prepare_gate_cache_branch_below_threshold_no_free_layers(tmp_path):
+    """缓存分支同样受门控：重建视图未超阈 → 新增大结果原样保留，不落盘、不重摘。"""
+    llm = FakeLLM([_response(content="## Goal")])
+    ctx = _small_ctx(llm, budget=1_000_000, keep_recent_tokens=100, results_dir=tmp_path)
+    msgs = [_msg("user", "x" * 300) for _ in range(5)]
+    await ctx.force_compact(msgs)  # 手动建立摘要缓存（绕过门控）
+    assert len(llm.calls) == 1
+    big = _msg("tool", "z" * 30000, tool_call_id="big")
+    view = await ctx.prepare(msgs + [big])
+    assert len(llm.calls) == 1  # 未触发迭代摘要
+    assert any(m.content == "z" * 30000 for m in view)  # 新增大结果未被 L3 落盘
+    assert not list(tmp_path.iterdir())
+    assert any("[Context summary" in m.content for m in view)  # 摘要仍在视图里
+
+
+def test_set_budget_recomputes_threshold():
+    """set_budget：budget 与 80% 阈值同步重算（切模型后由业务层调用）。"""
+    ctx = _small_ctx(FakeLLM(), budget=1000)
+    assert ctx.budget_threshold == 800
+    ctx.set_budget(1_048_576)
+    assert ctx.budget == 1_048_576
+    assert ctx.budget_threshold == 1_048_576 * 4 // 5
 
 
 @pytest.mark.anyio

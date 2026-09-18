@@ -33,29 +33,25 @@ def _has_tool_calls(msg: Message) -> bool:
     return bool(msg.metadata and msg.metadata.get("tool_calls"))
 
 
+def _snap_cut_to_group(messages: list[Message], cut: int) -> int:
+    """把切点回退到合法组边界：assistant(tool_calls)+tool* 组不得被切成两半。"""
+    while cut > 0 and (messages[cut].role == "tool" or _has_tool_calls(messages[cut - 1])):
+        cut -= 1
+    return cut
+
+
 def snip_messages(messages: list[Message], max_messages: int = 50) -> list[Message]:
     """L1：len > max_messages → 留头 3 + 尾 (max-4)，中间删，插一条 [snipped N] 占位。
 
     占位符计入预算，故尾留 max-4（3 头 + 1 占位 + max-4 尾 = max_messages）。
-    边界：不拆开 assistant(tool_calls)+tool 配对（协议配对不变式）。
+    边界：两个切点一律回退到组边界，绝不拆开 assistant(tool_calls)+tool*（协议配对不变式）。
+    边界与组重叠时宁可少裁（正确性优先于预算），head_end ≥ tail_start 则原样返回。
     """
     if len(messages) <= max_messages:
         return messages
-    keep_head, keep_tail = 3, max_messages - 4
-    head_end = keep_head
-    tail_start = len(messages) - keep_tail
-    # 头边界：head_end-1 是 assistant(tool_calls) → 并进后续 tool 消息
-    if head_end > 0 and _has_tool_calls(messages[head_end - 1]):
-        while head_end < len(messages) and messages[head_end].role == "tool":
-            head_end += 1
-    # 尾边界：tail_start 是 tool 且前一条是 assistant(tool_calls) → 并进
-    if (
-        tail_start > 0
-        and tail_start < len(messages)
-        and messages[tail_start].role == "tool"
-        and _has_tool_calls(messages[tail_start - 1])
-    ):
-        tail_start -= 1
+    keep_tail = max_messages - 4
+    head_end = _snap_cut_to_group(messages, 3)
+    tail_start = _snap_cut_to_group(messages, len(messages) - keep_tail)
     if head_end >= tail_start:
         return messages
     snipped = tail_start - head_end
@@ -257,9 +253,10 @@ def _serialize_messages(messages: list[Message]) -> str:
 
 
 class ContextManager:
-    """四层压缩管线 + usage 锚定估算 + retainedTail 缓存。
+    """阀值门控的四层压缩管线 + usage 锚定估算 + retainedTail 缓存。
 
     纯视图逻辑：prepare 只返回新 list，绝不修改传入 messages；缓存/树交互由 Agent 做。
+    门控：未超 budget_threshold（80% budget）→ 四层一条都不跑，原样返回。
     """
 
     def __init__(
@@ -270,11 +267,10 @@ class ContextManager:
         keep_recent_tokens: int | None = None,
         results_dir: Path | None = None,
     ):
-        self.budget = budget
         self.llm = llm
         self.keep_recent_tokens = keep_recent_tokens if keep_recent_tokens is not None else budget // 4
         self.results_dir = Path(results_dir) if results_dir else None
-        self.budget_threshold = (self.budget * 4) // 5
+        self.set_budget(budget)
         self._summary: str | None = None
         self._covered_count: int | None = None
         self._retained_tail: list[dict[str, Any]] | None = None
@@ -288,6 +284,11 @@ class ContextManager:
         self._covered_count = covered_count
         self._retained_tail = retained_tail
 
+    def set_budget(self, budget: int) -> None:
+        """更新压缩预算（业务层在构造后与切模型后同步当前模型窗口）：阀值同步重算为 80%。"""
+        self.budget = budget
+        self.budget_threshold = (budget * 4) // 5
+
     def record_usage(self, usage: dict[str, Any] | None) -> None:
         """每轮 llm.chat 后喂 usage → 更新锚定比例（ratio = 实测 prompt_tokens / 上次视图字符数）。"""
         if usage and self._last_view_chars > 0:
@@ -296,19 +297,27 @@ class ContextManager:
                 self._ratio = prompt_tokens / self._last_view_chars
 
     async def prepare(self, messages: list[Message]) -> list[Message]:
-        """四层管线 → 返回发送视图（非破坏）。有缓存先试缓存视图；仍超阈 → 迭代再摘要。"""
+        """阈值门控的四层压缩管线 → 返回发送视图（非破坏）。
+
+        未超 budget_threshold（80% budget）→ 四层一条都不跑，原样返回；
+        超阈 → 整批执行免费层（L3 → L1 → L2），仍超阈才烧 L4 摘要。
+        """
         self.pending_compaction = None
         if self._summary is not None:
-            view = self._prepare_with_cache(messages)
+            view = self._build_cached_view(messages)
+            if estimate_tokens(view, self._ratio) <= self.budget_threshold:
+                self._last_view_chars = _chars_of(view)
+                return view
+            view = self._apply_free_layers(view)
             self._last_view_chars = _chars_of(view)
             if estimate_tokens(view, self._ratio) <= self.budget_threshold:
                 return view
             # 缓存视图仍超阈 → 迭代再摘要（_call_summarizer 附旧摘要）
             return await self._do_summarize(messages)
-        view = list(messages)
-        view = budget_tool_results(view, results_dir=self.results_dir)
-        view = snip_messages(view)
-        view = micro_compact(view)
+        if estimate_tokens(messages, self._ratio) <= self.budget_threshold:
+            self._last_view_chars = _chars_of(messages)
+            return list(messages)
+        view = self._apply_free_layers(list(messages))
         self._last_view_chars = _chars_of(view)
         if estimate_tokens(view, self._ratio) <= self.budget_threshold:
             return view
@@ -346,27 +355,22 @@ class ContextManager:
 
     # ── 内部 ──
 
-    def _prepare_with_cache(self, messages: list[Message]) -> list[Message]:
-        """缓存分支：原 system + 摘要 + retained_tail 快照 + 之后新增（新增段也跑免费层）。
-
-        压缩后继续对话产生的新消息同样可能超限——对新增段跑 L3/L2（CC 顺序：budget 先
-        落盘、micro 再占位），整个视图跑 L1（对话继续增长后快照也需进一步压缩）。
-        """
+    def _build_cached_view(self, messages: list[Message]) -> list[Message]:
+        """缓存分支重建视图：原 system + 摘要 + retained_tail 快照 + 之后新增（零免费层）。"""
         assert self._summary is not None and self._covered_count is not None
         assert self._retained_tail is not None
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
-        tail_len = len(self._retained_tail)
-        start = self._covered_count + tail_len
+        start = self._covered_count + len(self._retained_tail)
         newly = messages[start:] if len(messages) > start else []
-        # 新增段免费层：大结果落盘 + 旧结果占位（避免压缩后免费层失效）
-        newly = budget_tool_results(newly, results_dir=self.results_dir)
-        newly = micro_compact(newly)
         view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + self._summary)]
         view += [Message(**d) for d in self._retained_tail]
-        view += newly
-        # L1：整个视图消息数超限 → 裁中间
+        return view + newly
+
+    def _apply_free_layers(self, view: list[Message]) -> list[Message]:
+        """免费层整批执行：L3 大结果落盘 → L1 条数裁切 → L2 旧结果占位。"""
+        view = budget_tool_results(view, results_dir=self.results_dir)
         view = snip_messages(view)
-        return view
+        return micro_compact(view)
 
     async def _do_summarize(self, messages: list[Message]) -> list[Message]:
         """无缓存时的首次压缩（或缓存失效的后备）。定 cut → 摘要调用 → 写缓存。"""

@@ -15,9 +15,10 @@ pytestmark = [pytest.mark.anyio]
 
 
 class FakeCodingLLM:
-    def __init__(self, responses: list[Response]):
+    def __init__(self, responses: list[Response], config=None):
         self.responses = responses
         self.idx = 0
+        self.config = config
 
     async def achat(self, messages, tools=None, **kwargs):
         resp = self.responses[self.idx]
@@ -160,3 +161,31 @@ async def test_coding_agent_permission_gate(tmp_path: Path):
     # ToolCallHook should be registered in agent.agent.hooks
     handlers = agent.agent.hooks._handlers.get(ToolCallHook, [])
     assert gate in handlers
+
+
+async def test_context_budget_follows_model_window(tmp_path: Path):
+    """压缩预算 = 当前模型窗口（阀值 = 80%）：不再硬编码 100k。"""
+    from my_agent_llm import Config
+
+    fake_llm = FakeCodingLLM(
+        [Response(content="ok", model="fake")], config=Config(provider="antigravity", model="gemini-3.8-flash")
+    )
+    session = Session(path=tmp_path / "session_budget.jsonl")
+    agent = CodingAgent(workspace=tmp_path, llm=fake_llm, session=session)
+
+    ctx = agent.agent.context_manager
+    assert ctx.budget == 1_048_576
+    assert ctx.budget_threshold == 1_048_576 * 4 // 5
+
+
+async def test_context_budget_explicit_override_wins(tmp_path: Path):
+    """显式 context_budget 优先于模型窗口推导。"""
+    from my_agent_llm import Config
+
+    fake_llm = FakeCodingLLM(
+        [Response(content="ok", model="fake")], config=Config(provider="antigravity", model="gemini-3.8-flash")
+    )
+    session = Session(path=tmp_path / "session_budget2.jsonl")
+    agent = CodingAgent(workspace=tmp_path, llm=fake_llm, session=session, context_budget=1000)
+
+    assert agent.agent.context_manager.budget == 1000

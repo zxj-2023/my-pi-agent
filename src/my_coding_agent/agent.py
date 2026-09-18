@@ -16,6 +16,7 @@ from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
 
 from my_coding_agent.file_reference import FileReferenceParser
 from my_coding_agent.mcp import MCPClientManager
+from my_coding_agent.model_catalog import resolve_model_context_window
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.prompt import build_default_coding_prompt
 from my_coding_agent.tools import build_coding_tools
@@ -66,7 +67,11 @@ class CodingAgent:
             else build_default_coding_prompt(self.workspace, global_instructions_path=global_agents)
         )
 
-        # 2. 构造框架通用 Agent
+        # 2. 构造框架通用 Agent（压缩预算默认 = 当前模型窗口，阀值 = 80%×窗口）
+        kw.setdefault(
+            "context_budget",
+            resolve_model_context_window(getattr(getattr(llm, "config", None), "model", None) or ""),
+        )
         self.agent = Agent(
             llm=llm,
             session=session,

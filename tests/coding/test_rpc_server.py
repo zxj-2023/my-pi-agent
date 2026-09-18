@@ -279,6 +279,45 @@ async def test_rpc_server_zero_pollution_workspace(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_model_switch_updates_context_budget(tmp_path: Path, monkeypatch):
+    """切模型后压缩预算跟随新窗口（阀值 = 80%×窗口）：业务层显式同步。"""
+    custom_home = tmp_path / "agent_home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    paths = AgentPaths(home=custom_home)
+    paths.ensure_directories()
+    AuthManager(auth_path=paths.auth_path).set_api_key("deepseek", "sk-test-key")
+
+    workspace_dir = tmp_path / "ws"
+    workspace_dir.mkdir()
+    server = RpcServer(llm=FakeLLM())
+    init_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(workspace_dir), "model": "deepseek/deepseek-flash"},
+        }
+    )
+    assert init_resp["result"]["status"] == "ok"
+    assert server.agent is not None
+    ctx = server.agent.agent.context_manager
+    assert ctx.budget == 128_000  # 注入的 FakeLLM 无 config.model → 未知模型回落
+
+    switch_resp = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "model_switch",
+            "params": {"model": "deepseek/deepseek-chat"},
+        }
+    )
+    assert switch_resp["result"]["status"] == "ok"
+    # 同一个 ContextManager 对象被就地更新（非重建）
+    assert ctx.budget == 64_000  # deepseek-chat → 64K 窗口
+    assert ctx.budget_threshold == 64_000 * 4 // 5
+
+
+@pytest.mark.anyio
 async def test_rpc_server_login_updates_auth_manager_and_env(tmp_path: Path, monkeypatch):
     custom_home = tmp_path / "custom_agent_home"
     monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
