@@ -35,7 +35,13 @@ export interface TurnStartSessionEvent {
   iteration: number;
 }
 
-export interface TurnEndSessionEvent {
+/** 逐轮统计：Footer 的上下文占用与 ↑↓R/CH%/$ 全靠它，翻译层必须原样透传。 */
+interface UsageStatsPassThrough {
+  usage?: Record<string, number | undefined>;
+  contextWindow?: number;
+}
+
+export interface TurnEndSessionEvent extends UsageStatsPassThrough {
   type: "turn_end";
 }
 
@@ -49,7 +55,7 @@ export interface MessageUpdateSessionEvent {
   message: AssistantMessageState;
 }
 
-export interface MessageEndSessionEvent {
+export interface MessageEndSessionEvent extends UsageStatsPassThrough {
   type: "message_end";
   message: AssistantMessageState;
 }
@@ -76,7 +82,7 @@ export interface ToolExecutionEndSessionEvent {
   isError: boolean;
 }
 
-export interface AgentEndSessionEvent {
+export interface AgentEndSessionEvent extends UsageStatsPassThrough {
   type: "agent_end";
   iterations: number;
   stopReason: string;
@@ -101,6 +107,19 @@ export type StandardSessionEvent =
   | AgentEndSessionEvent
   | ContextCompactedSessionEvent
   | Record<string, unknown>;
+
+/** 原样提取逐轮统计（usage / contextWindow）；缺失时为 undefined，便于调用方判断。 */
+function extractUsageStats(event: Record<string, unknown>): UsageStatsPassThrough {
+  const rawUsage = event.usage;
+  const rawWindow = event.contextWindow ?? event.context_window;
+  return {
+    usage:
+      typeof rawUsage === "object" && rawUsage !== null
+        ? (rawUsage as Record<string, number | undefined>)
+        : undefined,
+    contextWindow: typeof rawWindow === "number" ? rawWindow : undefined,
+  };
+}
 
 export class EventTranslator {
   private currentAssistantMessage: AssistantMessageState | null = null;
@@ -155,6 +174,7 @@ export class EventTranslator {
       case "turn_end": {
         return {
           type: "turn_end",
+          ...extractUsageStats(event),
         };
       }
 
@@ -228,12 +248,14 @@ export class EventTranslator {
           return {
             type: "message_end",
             message: completedMessage,
+            ...extractUsageStats(event),
           };
         }
         const rawMsg = event.message as AssistantMessageState | undefined;
         return {
           type: "message_end",
           message: rawMsg ?? { role: "assistant", content: [], stopReason },
+          ...extractUsageStats(event),
         };
       }
 
@@ -288,6 +310,7 @@ export class EventTranslator {
           stopReason: String(
             event.stop_reason ?? event.stopReason ?? "completed",
           ),
+          ...extractUsageStats(event),
         };
       }
 

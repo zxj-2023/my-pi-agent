@@ -103,6 +103,63 @@ test("EventTranslator translates agent lifecycle events (agent_start, turn_end, 
   assert.equal(endEv.stopReason, "completed");
 });
 
+test("EventTranslator passes usage stats through on turn_end/message_end/agent_end", () => {
+  // 回归：Footer 的上下文占用与 ↑↓R/CH%/$ 全部依赖这三个事件里的 usage 与 contextWindow，
+  // 翻译层一旦丢弃，状态栏会永远停在初始化时的 0.0%。
+  const translator = new EventTranslator();
+  const usage = {
+    input: 100,
+    output: 20,
+    cacheRead: 50,
+    cacheWrite: 0,
+    cacheHitRate: 33.3,
+    total: 120,
+    contextTokens: 5415,
+    cost: 0.04,
+  };
+
+  const turnEnd = translator.translate({
+    type: "turn_end",
+    usage,
+    contextWindow: 1048576,
+  });
+  assert.equal(turnEnd.type, "turn_end");
+  assert.deepEqual(turnEnd.usage, usage);
+  assert.equal(turnEnd.contextWindow, 1048576);
+
+  translator.translate({
+    type: "message_start",
+    message: { role: "assistant", content: "" },
+  });
+  const msgEnd = translator.translate({
+    type: "message_end",
+    message: { role: "assistant", content: "hi" },
+    usage,
+    contextWindow: 1048576,
+  });
+  assert.equal(msgEnd.type, "message_end");
+  assert.deepEqual(msgEnd.usage, usage);
+  assert.equal(msgEnd.contextWindow, 1048576);
+
+  const agentEnd = translator.translate({
+    type: "agent_end",
+    iterations: 1,
+    stop_reason: "end_turn",
+    usage,
+    contextWindow: 1048576,
+  });
+  assert.equal(agentEnd.type, "agent_end");
+  assert.deepEqual(agentEnd.usage, usage);
+  assert.equal(agentEnd.contextWindow, 1048576);
+});
+
+test("EventTranslator omits usage stats when the kernel sends none", () => {
+  const translator = new EventTranslator();
+  const turnEnd = translator.translate({ type: "turn_end" });
+  assert.equal(turnEnd.usage, undefined);
+  assert.equal(turnEnd.contextWindow, undefined);
+});
+
 test("EventTranslator handles tool execution start, update, and end", () => {
   const translator = new EventTranslator();
 
