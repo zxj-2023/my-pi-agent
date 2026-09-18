@@ -353,7 +353,7 @@ class RpcServer:
                         self.session_usage["latestCacheHitRate"] = hit_rate
                         self.session_usage["cacheHitRate"] = hit_rate
 
-                    model_id = getattr(self.agent.agent, "model", "") or ""
+                    model_id = self._get_current_model_name()
                     model_lower = model_id.lower()
                     if "gemini" in model_lower:
                         self.session_usage["cost"] += (
@@ -377,7 +377,7 @@ class RpcServer:
                             prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25
                         ) / 1000000.0
 
-            model_name = getattr(self.agent.agent, "model", "") if self.agent else ""
+            model_name = self._get_current_model_name()
             ctx_win = resolve_model_context_window(model_name)
             # 上下文占用 = 本次视图的锚定估算（与压缩门控同源）；无视图时回落最近一次单次调用规模
             ctx_inst = getattr(getattr(self.agent, "agent", None), "context_manager", None)

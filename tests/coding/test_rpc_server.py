@@ -17,6 +17,7 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
+from my_agent_llm import Config
 from my_agent_llm.auth.manager import AuthManager
 from my_agent_llm.auth.schema import ApiKeyCredential
 from my_agent_llm.models import Message, Response, StreamChunk
@@ -354,6 +355,61 @@ async def test_footer_context_tokens_is_view_estimate_not_session_total(tmp_path
     assert 0 < last["contextTokens"] < 51_000  # 修复后：上下文占用（视图估算）
     assert server.agent is not None
     assert last["contextTokens"] == server.agent.agent.context_manager.context_tokens
+
+
+class DeepseekFlashFakeLLM(FakeLLM):
+    """deepseek-flash 替身：config 带真实模型名，用于校验窗口与成本解析。"""
+
+    def __init__(self):
+        super().__init__()
+        self.config = Config(provider="deepseek", model="deepseek-flash")
+
+    async def achat_stream(self, *a, **kw):
+        yield StreamChunk(
+            content="ok",
+            usage={
+                "prompt_tokens": 50_000,
+                "completion_tokens": 100,
+                "cache_read_tokens": 1700,
+                "total_tokens": 51_800,
+            },
+        )
+
+
+@pytest.mark.anyio
+async def test_footer_context_window_resolves_from_llm_config_model(tmp_path: Path):
+    """逐轮 stats 的窗口与成本必须用可回落解析的模型名（启动时 agent.model 为空）。
+
+    回归：曾用 getattr(agent, "model", "") → 空串 → 窗口回落 128k（与 deepseek-flash
+    真实的 1M、与已接线到模型的压缩预算自相矛盾），且成本分支全不命中导致 cost 恒为 0。
+    """
+    in_buf, out_buf, err_buf = io.StringIO(), io.StringIO(), io.StringIO()
+    server = RpcServer(stdin=in_buf, stdout=out_buf, stderr=err_buf, llm=DeepseekFlashFakeLLM())
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(tmp_path), "model": "deepseek/deepseek-flash"},
+        }
+    )
+    await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "hello"}})
+
+    events = [json.loads(line) for line in out_buf.getvalue().splitlines() if line.strip()]
+    windows = [
+        e["params"]["contextWindow"]
+        for e in events
+        if e.get("method") == "event" and isinstance(e.get("params", {}).get("contextWindow"), int)
+    ]
+    assert windows, "没有任何携带 contextWindow 的事件通知"
+    assert all(w == 1_000_000 for w in windows)  # deepseek-flash → 1M，而非 128k 兜底
+
+    costs = [
+        e["params"]["usage"]["cost"]
+        for e in events
+        if e.get("method") == "event" and isinstance(e.get("params", {}).get("usage"), dict)
+    ]
+    assert costs and costs[-1] > 0  # 成本匹配必须命中 deepseek 分支
 
 
 @pytest.mark.anyio
