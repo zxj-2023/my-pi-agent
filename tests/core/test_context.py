@@ -243,6 +243,40 @@ def test_set_budget_recomputes_threshold():
     assert ctx.budget_threshold == 1_048_576 * 4 // 5
 
 
+def test_context_tokens_zero_before_any_signal():
+    """既无 usage 也无视图 → 占用为 0。"""
+    ctx = _small_ctx(FakeLLM(), budget=1000)
+    assert ctx.context_tokens == 0
+
+
+@pytest.mark.anyio
+async def test_context_tokens_tracks_view_estimate():
+    """prepare() 后 context_tokens = 本次视图的锚定估算（与压缩门控同源，非会话累计）。"""
+    ctx = _small_ctx(FakeLLM(), budget=1_000_000)
+    msgs = [_msg("user", "x" * 400) for _ in range(5)]
+    view = await ctx.prepare(msgs)
+    assert ctx.context_tokens == estimate_tokens(view, ctx._ratio)
+    assert ctx.context_tokens > 0
+
+
+@pytest.mark.anyio
+async def test_context_tokens_falls_back_to_measured_input():
+    """尚无视图时（恢复会话后的首个请求前）→ 回落到最近一次实测输入规模（prompt+缓存）。"""
+    ctx = _small_ctx(FakeLLM(), budget=1_000_000)
+    ctx.record_usage({"prompt_tokens": 100, "cache_read_tokens": 20})
+    assert ctx.context_tokens == 120
+
+
+@pytest.mark.anyio
+async def test_context_tokens_reflects_compressed_view():
+    """超阀走完整管线时，占用反映**压缩后**的最终视图。"""
+    ctx = _small_ctx(FakeLLM(), budget=10_000)
+    msgs = [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    view = await ctx.prepare(msgs)
+    assert ctx.context_tokens == estimate_tokens(view, ctx._ratio)
+    assert ctx.context_tokens < estimate_tokens(msgs, ctx._ratio)
+
+
 @pytest.mark.anyio
 async def test_prepare_trigger_summary_non_destructive():
     """超阈触发：视图 = [摘要 + 尾部]；原 messages 未修改（#7）。"""

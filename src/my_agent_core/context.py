@@ -33,6 +33,14 @@ def _has_tool_calls(msg: Message) -> bool:
     return bool(msg.metadata and msg.metadata.get("tool_calls"))
 
 
+def _as_token_count(value: Any) -> int:
+    """provider 返回的 token 计数 → 安全 int（None / 非数字 / NaN / Inf 一律 0）。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _snap_cut_to_group(messages: list[Message], cut: int) -> int:
     """把切点回退到合法组边界：assistant(tool_calls)+tool* 组不得被切成两半。"""
     while cut > 0 and (messages[cut].role == "tool" or _has_tool_calls(messages[cut - 1])):
@@ -276,6 +284,8 @@ class ContextManager:
         self._retained_tail: list[dict[str, Any]] | None = None
         self._ratio: float | None = None
         self._last_view_chars = 0
+        self._last_view_tokens = 0
+        self._last_prompt_tokens = 0
         self.pending_compaction: CompactionInfo | None = None
 
     def restore_cache(self, *, summary: str, covered_count: int, retained_tail: list[dict[str, Any]]) -> None:
@@ -290,11 +300,33 @@ class ContextManager:
         self.budget_threshold = (budget * 4) // 5
 
     def record_usage(self, usage: dict[str, Any] | None) -> None:
-        """每轮 llm.chat 后喂 usage → 更新锚定比例（ratio = 实测 prompt_tokens / 上次视图字符数）。"""
-        if usage and self._last_view_chars > 0:
-            prompt_tokens = usage.get("prompt_tokens")
-            if isinstance(prompt_tokens, (int, float)):
-                self._ratio = prompt_tokens / self._last_view_chars
+        """每轮 llm.chat 后喂 usage → 更新锚定比例（ratio = 实测 prompt_tokens / 上次视图字符数）。
+
+        同时记录实测输入规模（prompt + 缓存），供尚无视图时（如恢复会话）估算上下文占用。
+        """
+        if not usage:
+            return
+        prompt_tokens = _as_token_count(usage.get("prompt_tokens") or usage.get("input"))
+        cache_read = _as_token_count(
+            usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead")
+        )
+        cache_write = _as_token_count(
+            usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite")
+        )
+        if prompt_tokens or cache_read or cache_write:
+            self._last_prompt_tokens = prompt_tokens + cache_read + cache_write
+        if prompt_tokens and self._last_view_chars > 0:
+            self._ratio = prompt_tokens / self._last_view_chars
+
+    @property
+    def context_tokens(self) -> int:
+        """上下文占用：优先本次视图的锚定估算（与压缩门控同源），无视图时回落最近实测输入规模。"""
+        return self._last_view_tokens or self._last_prompt_tokens
+
+    def _record_view(self, view: list[Message], tokens: int) -> None:
+        """记录本次发送视图的规模（usage 锚定与 Footer 上下文占用共用同一来源）。"""
+        self._last_view_chars = _chars_of(view)
+        self._last_view_tokens = tokens
 
     async def prepare(self, messages: list[Message]) -> list[Message]:
         """阈值门控的四层压缩管线 → 返回发送视图（非破坏）。
@@ -305,21 +337,25 @@ class ContextManager:
         self.pending_compaction = None
         if self._summary is not None:
             view = self._build_cached_view(messages)
-            if estimate_tokens(view, self._ratio) <= self.budget_threshold:
-                self._last_view_chars = _chars_of(view)
+            tokens = estimate_tokens(view, self._ratio)
+            if tokens <= self.budget_threshold:
+                self._record_view(view, tokens)
                 return view
             view = self._apply_free_layers(view)
-            self._last_view_chars = _chars_of(view)
-            if estimate_tokens(view, self._ratio) <= self.budget_threshold:
+            tokens = estimate_tokens(view, self._ratio)
+            if tokens <= self.budget_threshold:
+                self._record_view(view, tokens)
                 return view
             # 缓存视图仍超阈 → 迭代再摘要（_call_summarizer 附旧摘要）
             return await self._do_summarize(messages)
-        if estimate_tokens(messages, self._ratio) <= self.budget_threshold:
-            self._last_view_chars = _chars_of(messages)
+        tokens = estimate_tokens(messages, self._ratio)
+        if tokens <= self.budget_threshold:
+            self._record_view(messages, tokens)
             return list(messages)
         view = self._apply_free_layers(list(messages))
-        self._last_view_chars = _chars_of(view)
-        if estimate_tokens(view, self._ratio) <= self.budget_threshold:
+        tokens = estimate_tokens(view, self._ratio)
+        if tokens <= self.budget_threshold:
+            self._record_view(view, tokens)
             return view
         return await self._do_summarize(messages)
 
@@ -394,8 +430,8 @@ class ContextManager:
         if not summary.strip():
             return list(messages)  # 空摘要视同失败
         view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + summary)] + retained
-        self._last_view_chars = _chars_of(view)
         tokens_after = estimate_tokens(view, self._ratio)
+        self._record_view(view, tokens_after)
 
         self._summary = summary
         self._covered_count = cut

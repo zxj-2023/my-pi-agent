@@ -379,12 +379,11 @@ class RpcServer:
 
             model_name = getattr(self.agent.agent, "model", "") if self.agent else ""
             ctx_win = resolve_model_context_window(model_name)
-            context_tok = 0
-            ctx_inst = getattr(self.agent, "_ctx", None) or getattr(getattr(self.agent, "agent", None), "_ctx", None)
-            if ctx_inst is not None:
-                context_tok = getattr(ctx_inst, "total_tokens", 0) or getattr(ctx_inst, "last_token_count", 0)
+            # 上下文占用 = 本次视图的锚定估算（与压缩门控同源）；无视图时回落最近一次单次调用规模
+            ctx_inst = getattr(getattr(self.agent, "agent", None), "context_manager", None)
+            context_tok = getattr(ctx_inst, "context_tokens", 0) if ctx_inst is not None else 0
             if not context_tok:
-                context_tok = self.session_usage["total"]
+                context_tok = self.session_usage.get("contextTokens", 0)
 
             stats = {
                 "usage": {

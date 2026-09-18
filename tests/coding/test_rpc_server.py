@@ -317,6 +317,45 @@ async def test_model_switch_updates_context_budget(tmp_path: Path, monkeypatch):
     assert ctx.budget_threshold == 64_000 * 4 // 5
 
 
+class UsageFakeLLM(FakeLLM):
+    """带 usage 的替身：让会话累计量显著大于真实上下文占用。"""
+
+    async def achat_stream(self, *a, **kw):
+        yield StreamChunk(
+            content="ok",
+            usage={"prompt_tokens": 50_000, "completion_tokens": 100, "total_tokens": 51_000},
+        )
+
+
+@pytest.mark.anyio
+async def test_footer_context_tokens_is_view_estimate_not_session_total(tmp_path: Path):
+    """Footer 的上下文占用必须是「本次视图估算」，不是「会话累计消耗」（回归）。"""
+    in_buf, out_buf, err_buf = io.StringIO(), io.StringIO(), io.StringIO()
+    server = RpcServer(stdin=in_buf, stdout=out_buf, stderr=err_buf, llm=UsageFakeLLM())
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(tmp_path), "model": "fake-model"},
+        }
+    )
+    await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "prompt", "params": {"text": "hello"}})
+
+    events = [json.loads(line) for line in out_buf.getvalue().splitlines() if line.strip()]
+    usages = [
+        e["params"]["usage"]
+        for e in events
+        if e.get("method") == "event" and isinstance(e.get("params", {}).get("usage"), dict)
+    ]
+    assert usages, "没有任何携带 usage 的事件通知"
+    last = usages[-1]
+    assert last["total"] >= 51_000  # 会话累计量确实很大（旧实现把它当了分子）
+    assert 0 < last["contextTokens"] < 51_000  # 修复后：上下文占用（视图估算）
+    assert server.agent is not None
+    assert last["contextTokens"] == server.agent.agent.context_manager.context_tokens
+
+
 @pytest.mark.anyio
 async def test_rpc_server_login_updates_auth_manager_and_env(tmp_path: Path, monkeypatch):
     custom_home = tmp_path / "custom_agent_home"
