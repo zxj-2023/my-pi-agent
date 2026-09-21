@@ -34,6 +34,10 @@
   <a href="docs/README.md">技术设计文档</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="my-pi-agent terminal demo" width="100%" />
+</p>
+
 ---
 
 ## 💡 为什么从零实现
