@@ -255,3 +255,58 @@ async def test_agent_abort_clears_queue(tmp_path):
     res = await agent.run("hello")
     assert res == "(cancelled)"
     assert len(agent.message_queue) == 0
+
+
+@pytest.mark.anyio
+async def test_steer_queued_before_run_delivers_after_turn1_tools(tmp_path):
+    """测试在任务初始提交时收到的 steering 消息，严格对标 Pi 契约：首轮工具跑完后再交付，避免首轮 prompt 歧义。"""
+    store = SessionStore(tmp_path)
+    session = store.create()
+
+    @tool(name="read_file", description="读文件")
+    def read_file(path: str) -> str:
+        _ = path
+        return "progress file content"
+
+    responses = [
+        # Round 1: 执行工具
+        Response(
+            content="",
+            model="fake",
+            tool_calls=[
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path": "p.md"}'},
+                }
+            ],
+        ),
+        # Round 2: 看到工具结果和暂停指令后停止
+        Response(content="已响应转向指令，停止后续操作", model="fake"),
+    ]
+    llm = SequenceFakeLLM(responses)
+    agent = Agent(
+        llm=llm,
+        session=session,
+        tools=[read_file],
+        skill_dirs=[],
+        subagent_dirs=[],
+        memory_dir=False,
+        plugin_dirs=[],
+    )
+
+    # 模拟在任务刚触发、首轮尚未出结果前收到了 steer
+    agent.steer("暂停")
+
+    final = await agent.run("帮我读取一下progress")
+    assert final == "已响应转向指令，停止后续操作"
+    assert llm.call_count == 2
+
+    # Round 1 messages 应该只有初始 prompt，不能混入 "暂停"
+    r1_user_msgs = [m.content for m in llm.received_messages[0] if m.role == "user"]
+    assert r1_user_msgs == ["帮我读取一下progress"]
+
+    # Round 2 messages 应该包含工具结果和 "暂停"
+    r2_msgs = llm.received_messages[1]
+    assert any(m.role == "tool" for m in r2_msgs)
+    assert any(m.role == "user" and m.content == "暂停" for m in r2_msgs)

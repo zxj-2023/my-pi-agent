@@ -253,6 +253,42 @@ test("AgentApp handles slash commands (/clear, /help, /steer, /followup) locally
   assert.ok(app.chatContainer.children.length > 0);
 });
 
+test("AgentApp routes in-flight user input and slash commands to steer/followup during execution", async () => {
+  const app = new AgentApp({ workspace: "." });
+
+  let capturedSteer = "";
+  let capturedFollowup = "";
+  app["client"].steer = async (msg) => {
+    capturedSteer = msg;
+  };
+  app["client"].followup = async (msg) => {
+    capturedFollowup = msg;
+  };
+
+  // 模拟智能体正在流式运行
+  app.interactiveMode.isStreaming = true;
+
+  // 1. 运行中输入普通文本 -> 自动转为 steer
+  await app.handleUserSubmit("暂停，不要继续读取 worktrees");
+  assert.equal(capturedSteer, "暂停，不要继续读取 worktrees");
+
+  // 2. 运行中显式输入 /steer 命令 -> 转为 steer
+  capturedSteer = "";
+  await app.handleUserSubmit("/steer 转向新目录");
+  assert.equal(capturedSteer, "转向新目录");
+
+  // 3. 运行中显式输入 /followup 命令 -> 转为 followup
+  await app.handleUserSubmit("/followup 随后执行构建");
+  assert.equal(capturedFollowup, "随后执行构建");
+
+  // 4. 运行中输入其他管理斜杠命令 (如 /model) -> 友好拦截，不打断流式
+  await app.handleUserSubmit("/model deepseek-chat");
+  const errOutput = app.chatContainer.children.at(-1).render(120).join("\n");
+  assert.ok(errOutput.includes("正在执行中"));
+
+  app.interactiveMode.isStreaming = false;
+});
+
 test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree, /fork, /clone, /thinking, /logout, /reload, /trust)", async () => {
   const app = new AgentApp({ workspace: "." });
 

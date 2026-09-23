@@ -598,3 +598,83 @@ async def test_rpc_server_debug_mode_and_dump(tmp_path: Path, monkeypatch):
     # 关闭服务端
     await server.handle_request({"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": {}})
     assert server.tracer is None
+
+
+@pytest.mark.anyio
+async def test_rpc_server_steer_accepts_flexible_keys(tmp_path: Path):
+    """验证 steer 方法支持 message, prompt, text 三种参数命名。"""
+    server = RpcServer()
+    server.agent = CodingAgent(workspace=tmp_path, llm=FakeLLM(), session=tmp_path / "s.jsonl")
+
+    # 1. params: { message: "msg1" }
+    r1 = await server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "steer", "params": {"message": "msg1"}})
+    assert r1["result"]["status"] == "ok"
+    assert server.agent.agent.message_queue.get_steering_messages()[0].content == "msg1"
+
+    # 2. params: { prompt: "msg2" }
+    r2 = await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "steer", "params": {"prompt": "msg2"}})
+    assert r2["result"]["status"] == "ok"
+    assert server.agent.agent.message_queue.get_steering_messages()[0].content == "msg2"
+
+    # 3. params: { text: "msg3" }
+    r3 = await server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "steer", "params": {"text": "msg3"}})
+    assert r3["result"]["status"] == "ok"
+    assert server.agent.agent.message_queue.get_steering_messages()[0].content == "msg3"
+
+
+@pytest.mark.anyio
+async def test_rpc_server_concurrent_prompt_routes_to_steer(tmp_path: Path):
+    """当已有 prompt 在执行时，携带 streamingBehavior='steer' 的 prompt 自动转为 steer。"""
+    class LongRunningLLM:
+        def __init__(self):
+            self.model = "long-model"
+
+        async def achat_stream(self, *a, **kw):
+            for _ in range(5):
+                await asyncio.sleep(0.04)
+                yield StreamChunk(content="chunk")
+
+    server = RpcServer(llm=LongRunningLLM())
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(tmp_path)},
+        }
+    )
+
+    # 启动第一个 Prompt
+    task1 = asyncio.create_task(
+        server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompt",
+                "params": {"text": "first prompt"},
+            }
+        )
+    )
+
+    # 等待第一任务启动
+    await asyncio.sleep(0.02)
+    assert server.is_prompt_running is True
+
+    # 发送第二个带有 streamingBehavior='steer' 的 Prompt
+    resp2 = await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "prompt",
+            "params": {"text": "steer prompt", "streamingBehavior": "steer"},
+        }
+    )
+    assert resp2["result"]["status"] == "ok"
+    assert resp2["result"].get("action") == "steered"
+
+    # 验证 steer 消息已进入队列
+    assert server.agent.agent.message_queue.has_steering()
+
+    await task1
+    assert server.is_prompt_running is False
+

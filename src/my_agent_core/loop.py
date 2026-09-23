@@ -95,10 +95,7 @@ def _provider_context(messages: Sequence[Message]) -> list[Message]:
         for m in messages
         if not (
             m.role == "assistant"
-            and bool(
-                m.metadata
-                and m.metadata.get("stop_reason") in {"error", "aborted", "cancelled"}
-            )
+            and bool(m.metadata and m.metadata.get("stop_reason") in {"error", "aborted", "cancelled"})
             and not m.content
         )
     )
@@ -116,9 +113,7 @@ async def _assistant_turn(
 ) -> AsyncIterator[Event]:
     """专职大模型推理车间：纯粹转译模型层产出的高阶 StreamEvent（对标 Tau _assistant_events）。"""
     if hasattr(llm, "astream_events"):
-        event_stream = llm.astream_events(
-            messages=view, tools=tool_schemas, model=model, signal=signal
-        )
+        event_stream = llm.astream_events(messages=view, tools=tool_schemas, model=model, signal=signal)
     else:
         acc = StreamAccumulator()
         event_stream = acc.stream(
@@ -142,11 +137,7 @@ async def _assistant_turn(
                 chunk=StreamChunk(content="", tool_calls=[ev.tool_call]),
             )
         elif isinstance(ev, StreamDoneEvent):
-            if (
-                ev.usage
-                and context_manager is not None
-                and hasattr(context_manager, "record_usage")
-            ):
+            if ev.usage and context_manager is not None and hasattr(context_manager, "record_usage"):
                 with contextlib.suppress(Exception):
                     context_manager.record_usage(ev.usage)
             yield MessageEnd(ev.message)
@@ -156,9 +147,7 @@ async def _assistant_turn(
 
 def _as_messages(items: Sequence[Message | str]) -> list[Message]:
     """安全归一化字符串或消息序列为标准 Message 列表。"""
-    return [
-        m if isinstance(m, Message) else Message(role="user", content=m) for m in items
-    ]
+    return [m if isinstance(m, Message) else Message(role="user", content=m) for m in items]
 
 
 def _synthesize_interrupted_tool_calls(
@@ -235,14 +224,8 @@ async def _execute_tools_turn(
     *,
     tool_calls: Sequence[Any],
     registry: ToolRegistry,
-    before_tool_call: (
-        Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None]
-        | None
-    ) = None,
-    after_tool_call: (
-        Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None]
-        | None
-    ) = None,
+    before_tool_call: (Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None] | None) = None,
+    after_tool_call: (Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None] | None) = None,
     signal: CancellationToken | None = None,
 ) -> AsyncIterator[Event]:
     """专职工具批处理执行车间：Preflight 广播 -> 审批改参 -> 并发批执行 -> 结果改写 -> 结果广播。
@@ -257,9 +240,7 @@ async def _execute_tools_turn(
     # ── 阶段 A1: Preflight 广播（按 source order 先行发射 ToolExecutionStart）
     parsed_calls: list[ToolCall] = [_coerce_tool_call(tc) for tc in tool_calls]
     for call in parsed_calls:
-        yield ToolExecutionStart(
-            tool_call_id=call.id, tool_name=call.name, args=call.args
-        )
+        yield ToolExecutionStart(tool_call_id=call.id, tool_name=call.name, args=call.args)
 
     # ── 阶段 A2: 前置审查与参数改写 (before_tool_call)
     prepared_calls: list[tuple[int, ToolCall, dict[str, Any]]] = []
@@ -279,11 +260,7 @@ async def _execute_tools_turn(
         block_terminate: bool = False
         if before_tool_call is not None:
             try:
-                decision = before_tool_call(
-                    ToolCallHook(
-                        tool_call_id=call.id, tool_name=call.name, args=current_args
-                    )
-                )
+                decision = before_tool_call(ToolCallHook(tool_call_id=call.id, tool_name=call.name, args=current_args))
                 if inspect.isawaitable(decision):
                     decision = await decision
                 if decision is not None:
@@ -297,9 +274,7 @@ async def _execute_tools_turn(
                 err = f"Error in before_tool_call for '{call.name}': {exc}"
 
         if err is not None:
-            direct_results[idx] = ToolResult(
-                ok=False, error=err, terminate=block_terminate
-            )
+            direct_results[idx] = ToolResult(ok=False, error=err, terminate=block_terminate)
         else:
             prepared_calls.append((idx, call, current_args))
 
@@ -321,9 +296,7 @@ async def _execute_tools_turn(
                 with contextlib.suppress(RuntimeError):
                     loop.call_soon_threadsafe(queue.put_nowait, item)
 
-        def make_on_update(
-            call_id: str, tool_name: str, args: dict[str, Any]
-        ) -> Callable[[Any], None]:
+        def make_on_update(call_id: str, tool_name: str, args: dict[str, Any]) -> Callable[[Any], None]:
             def on_update(partial: Any) -> None:
                 safe_put(
                     ToolExecutionUpdate(
@@ -366,9 +339,7 @@ async def _execute_tools_turn(
         except Exception as exc:
             for idx, _, _ in prepared_calls:
                 if idx not in direct_results:
-                    direct_results[idx] = ToolResult(
-                        ok=False, error=f"Tool execution failed: {exc}"
-                    )
+                    direct_results[idx] = ToolResult(ok=False, error=f"Tool execution failed: {exc}")
         finally:
             if not runner.done():
                 runner.cancel()
@@ -377,17 +348,13 @@ async def _execute_tools_turn(
 
     # ── 阶段 C: 后置改写与 ToolExecutionEnd 广播
     for idx, call in enumerate(parsed_calls):
-        res = direct_results.get(
-            idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT)
-        )
+        res = direct_results.get(idx, ToolResult(ok=False, error=_INTERRUPTED_TOOL_RESULT))
         obs = res.serialize()
         is_err = not res.ok
         effective_terminate = res.terminate
 
         # 触发决策点 5: tool_result (after_tool_call 结果篡改与熔断介入)
-        if after_tool_call is not None and not (
-            signal is not None and signal.is_cancelled()
-        ):
+        if after_tool_call is not None and not (signal is not None and signal.is_cancelled()):
             try:
                 decision = after_tool_call(
                     ToolResultHook(
@@ -455,19 +422,10 @@ async def run_agent_loop(
     get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
     before_model_call: (
-        Callable[
-            [BeforeModelCallHook], Awaitable[HookResult | None] | HookResult | None
-        ]
-        | None
+        Callable[[BeforeModelCallHook], Awaitable[HookResult | None] | HookResult | None] | None
     ) = None,
-    before_tool_call: (
-        Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None]
-        | None
-    ) = None,
-    after_tool_call: (
-        Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None]
-        | None
-    ) = None,
+    before_tool_call: (Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None] | None) = None,
+    after_tool_call: (Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None] | None) = None,
 ) -> AsyncIterator[Event]:
     """对标 Tau 的极简纯函数异步微内核，主状态机约 110 行。"""
     if isinstance(tools, ToolRegistry):
@@ -511,7 +469,8 @@ async def run_agent_loop(
     iteration = 0
     final_text: str | None = None
     pending_messages: list[Message] = []
-    if get_steering_messages is not None:
+    # 若初始已传入 prompts 任务，首轮推理严格执行初始任务；steering 消息统一在首轮工具执行完毕后交付（对标 Pi 契约）
+    if not converted_prompts and get_steering_messages is not None:
         init_steer = get_steering_messages()
         if init_steer:
             pending_messages.extend(_as_messages(init_steer))
@@ -550,17 +509,10 @@ async def run_agent_loop(
 
             # 前置清洗与上下文准备
             clean_messages = _provider_context(messages)
-            view = (
-                await context_manager.prepare(clean_messages)
-                if context_manager
-                else clean_messages
-            )
+            view = await context_manager.prepare(clean_messages) if context_manager else clean_messages
 
             # 派发上下文压缩事件（若触发了 L4/L2 压缩）
-            if (
-                context_manager is not None
-                and getattr(context_manager, "pending_compaction", None) is not None
-            ):
+            if context_manager is not None and getattr(context_manager, "pending_compaction", None) is not None:
                 info = context_manager.pending_compaction
                 yield ContextCompacted(
                     tokens_before=info.tokens_before,
@@ -571,9 +523,7 @@ async def run_agent_loop(
             # Hook 3: BeforeModelCallHook (context 审查)
             if before_model_call is not None:
                 try:
-                    decision = before_model_call(
-                        BeforeModelCallHook(messages=list(view), iteration=iteration)
-                    )
+                    decision = before_model_call(BeforeModelCallHook(messages=list(view), iteration=iteration))
                     if inspect.isawaitable(decision):
                         decision = await decision
                     if decision is not None:
@@ -661,11 +611,7 @@ async def run_agent_loop(
                         messages.append(ev.message)
 
                 # 阶段 7: 批量优雅熔断判定（any 语义）
-                terminating_obs = [
-                    m.content
-                    for m in tool_results
-                    if (m.metadata or {}).get("terminate")
-                ]
+                terminating_obs = [m.content for m in tool_results if (m.metadata or {}).get("terminate")]
                 if terminating_obs:
                     has_more_tools = False
                     final_text = assistant.content or terminating_obs[-1]

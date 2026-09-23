@@ -190,6 +190,9 @@ export class InteractiveMode {
   public transcriptScrollView?: any;
   public isStreaming = false;
   public isWorking = false;
+  public isSubmitting = false;
+  public pendingSteeringList: string[] = [];
+  public pendingFollowupList: string[] = [];
   public currentThinkingLevel = "off";
   public currentModelName = "default";
   public workspace: string;
@@ -320,6 +323,29 @@ export class InteractiveMode {
     });
   }
 
+  public updatePendingMessagesDisplay(): void {
+    this.pendingMessagesContainer.clear();
+    if (this.pendingSteeringList.length === 0 && this.pendingFollowupList.length === 0) {
+      this.ui.requestRender();
+      return;
+    }
+
+    for (const text of this.pendingSteeringList) {
+      this.pendingMessagesContainer.addChild(
+        new Text(theme.dim(`Steering: ${text}`), 0, 0),
+      );
+    }
+    for (const text of this.pendingFollowupList) {
+      this.pendingMessagesContainer.addChild(
+        new Text(theme.dim(`Follow-up: ${text}`), 0, 0),
+      );
+    }
+    this.pendingMessagesContainer.addChild(
+      new Text(theme.dim("  ↳ Alt+Up to edit queued messages"), 0, 0),
+    );
+    this.ui.requestRender();
+  }
+
   public handleAgentEvent(event: any): void {
     if (!event || !event.type) return;
 
@@ -342,7 +368,30 @@ export class InteractiveMode {
       }
 
       case "message_start": {
-        if (event.message?.role === "assistant") {
+        if (event.message?.role === "user") {
+          const content =
+            typeof event.message?.content === "string"
+              ? event.message.content
+              : Array.isArray(event.message?.content)
+                ? event.message.content.map((b: any) => b.text || "").join("")
+                : "";
+          if (content) {
+            const steerIdx = this.pendingSteeringList.indexOf(content);
+            if (steerIdx !== -1) {
+              this.pendingSteeringList.splice(steerIdx, 1);
+            } else {
+              const followIdx = this.pendingFollowupList.indexOf(content);
+              if (followIdx !== -1) {
+                this.pendingFollowupList.splice(followIdx, 1);
+              }
+            }
+            this.updatePendingMessagesDisplay();
+
+            const userMsg = new UserMessageComponent(content);
+            this.chatContainer.addChild(userMsg);
+            this.chatContainer.addChild(new Spacer(1));
+          }
+        } else if (event.message?.role === "assistant") {
           this.currentStreamingAssistant = new AssistantMessageComponent();
           this.chatContainer.addChild(this.currentStreamingAssistant);
           this.chatContainer.addChild(new Spacer(1));
@@ -481,6 +530,10 @@ export class InteractiveMode {
       case "agent_end": {
         this.isStreaming = false;
         this.isWorking = false;
+        this.isSubmitting = false;
+        this.pendingSteeringList = [];
+        this.pendingFollowupList = [];
+        this.updatePendingMessagesDisplay();
         if (this.currentStreamingAssistant) {
           if (
             !this.currentStreamingAssistant.getContentText() &&
@@ -663,10 +716,65 @@ export class InteractiveMode {
   }
 
   public async handleUserInput(input: string): Promise<void> {
-    if (this.isStreaming) {
-      this.appendErrorMessage(
-        "当前智能体正在执行中，请等待完成或按 Esc 中断后再提交。",
-      );
+    const isBusy = this.isStreaming || this.isWorking || this.isSubmitting;
+
+    // ── 运行期/提交中动态分流与即时转向 (Smart Steer Routing) ──
+    if (isBusy) {
+      if (input.startsWith("/steer")) {
+        const steerText = input.replace(/^\/steer\s*/i, "").trim();
+        if (steerText) {
+          this.pendingSteeringList.push(steerText);
+          this.updatePendingMessagesDisplay();
+          await this.bridge.steer(steerText);
+        } else {
+          this.appendErrorMessage("用法: /steer <转向指令>");
+        }
+        return;
+      }
+
+      if (input.startsWith("/followup")) {
+        const followupText = input.replace(/^\/followup\s*/i, "").trim();
+        if (followupText) {
+          this.pendingFollowupList.push(followupText);
+          this.updatePendingMessagesDisplay();
+          await this.bridge.followUp(followupText);
+        } else {
+          this.appendErrorMessage("用法: /followup <后续指令>");
+        }
+        return;
+      }
+
+      if (input === "/abort" || input.startsWith("/abort ")) {
+        void this.bridge.abort();
+        this.isStreaming = false;
+        this.isWorking = false;
+        this.isSubmitting = false;
+        this.pendingSteeringList = [];
+        this.pendingFollowupList = [];
+        this.updatePendingMessagesDisplay();
+        this.clearStatusDisplay();
+        this.footer.update({ isBusy: false });
+        this.appendSystemNotice("执行已中断。");
+        this.ui.requestRender();
+        return;
+      }
+
+      if (input.startsWith("/")) {
+        this.appendErrorMessage(
+          "当前智能体正在执行中，请等待完成或输入 /steer 插话、按 Esc 中断后再执行其他管理命令。",
+        );
+        this.ui.requestRender();
+        return;
+      }
+
+      // 运行期普通文本输入直接加入 Pending 转向队列并在下方待发区展示
+      this.pendingSteeringList.push(input);
+      this.updatePendingMessagesDisplay();
+      try {
+        await this.bridge.steer(input);
+      } catch (err: any) {
+        this.appendErrorMessage(`转向注入异常: ${err.message || String(err)}`);
+      }
       return;
     }
 
@@ -727,6 +835,7 @@ export class InteractiveMode {
     }
 
     // 4. 普通文本输入：渲染用户气泡并提交给 Python
+    this.isSubmitting = true;
     const userMsg = new UserMessageComponent(input);
     this.chatContainer.addChild(userMsg);
     this.chatContainer.addChild(new Spacer(1));
@@ -741,6 +850,8 @@ export class InteractiveMode {
       this.isWorking = false;
       this.clearStatusDisplay();
       this.footer.update({ isBusy: false });
+    } finally {
+      this.isSubmitting = false;
     }
   }
 
@@ -771,10 +882,14 @@ export class InteractiveMode {
       }
 
       if (matchesKey(data, "ctrl+c")) {
-        if (this.isStreaming) {
+        if (this.isStreaming || this.isSubmitting || this.isWorking) {
           void this.bridge.abort();
           this.isStreaming = false;
           this.isWorking = false;
+          this.isSubmitting = false;
+          this.pendingSteeringList = [];
+          this.pendingFollowupList = [];
+          this.updatePendingMessagesDisplay();
           this.clearStatusDisplay();
           this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
@@ -789,20 +904,34 @@ export class InteractiveMode {
         void this.handleExit();
         return { consume: true };
       } else if (matchesKey(data, "ctrl+d")) {
-        if (this.defaultEditor.getText().length === 0 && !this.isStreaming) {
+        if (this.defaultEditor.getText().length === 0 && !this.isStreaming && !this.isSubmitting) {
           void this.handleExit();
           return { consume: true };
         }
       } else if (matchesKey(data, "escape")) {
-        if (this.isStreaming) {
+        if (this.isStreaming || this.isSubmitting || this.isWorking) {
           void this.bridge.abort();
           this.isStreaming = false;
           this.isWorking = false;
+          this.isSubmitting = false;
+          this.pendingSteeringList = [];
+          this.pendingFollowupList = [];
+          this.updatePendingMessagesDisplay();
           this.clearStatusDisplay();
           this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
           this.ui.requestRender();
           return { consume: true };
+        }
+      } else if (matchesKey(data, "alt+up") || matchesKey(data, "alt+q")) {
+        if (this.pendingSteeringList.length > 0 || this.pendingFollowupList.length > 0) {
+          const last = this.pendingSteeringList.pop() || this.pendingFollowupList.pop();
+          if (last) {
+            this.defaultEditor.setText(last);
+            this.updatePendingMessagesDisplay();
+            this.ui.requestRender();
+            return { consume: true };
+          }
         }
       } else if (matchesKey(data, "ctrl+o")) {
         if (this.startupResources) {

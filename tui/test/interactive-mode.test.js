@@ -246,21 +246,22 @@ test("InteractiveMode renders session history with structured array content safe
 });
 
 test("InteractiveMode guards against concurrent submission and session commands during streaming", async () => {
-  const { bridge } = createMockBridge();
+  const { bridge, calls } = createMockBridge();
   const mode = new InteractiveMode(bridge);
 
   mode.isStreaming = true;
 
-  // 提交输入时被拦截
+  // 运行中普通文本输入自动转为即时转向 (Steering) 并挂载到 Pending 区域
   await mode.handleUserInput("Test input while streaming");
   const rendered = mode.ui.render(80).join("\n");
-  assert.ok(rendered.includes("当前智能体正在执行中"));
+  assert.ok(rendered.includes("Steering: Test input while streaming"));
+  assert.equal(calls.at(-1)?.method, "steer");
 
-  // 破坏性命令被拦截
-  await mode.handleSlashCommand("/new");
+  // 运行中管理/破坏性命令被拦截
+  await mode.handleUserInput("/new");
   const renderedAfterNew = mode.ui.render(80).join("\n");
   assert.ok(
-    renderedAfterNew.includes("当前智能体正在执行中，无法执行 /new 操作"),
+    renderedAfterNew.includes("当前智能体正在执行中"),
   );
 });
 
