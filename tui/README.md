@@ -40,6 +40,7 @@ Options:
   -m, --model <model>     指定生效模型 (如 deepseek-chat, gemini-3.8-flash)
   --thinking <level>      指定思考深度等级 (off/minimal/low/medium/high/max)
   --no-session            内存无痕沙箱模式 (不持久化 session 文件)
+  -d, --debug             启用事件级 Debug 日志落盘模式
   -w, --workspace <dir>   指定工作区目录 (默认: 当前目录)
   --mode <mode>           权限安全模式: review (默认) | yolo | strict
   -h, --help              查看帮助说明
@@ -65,6 +66,11 @@ Options:
   - **Thinking Block**：模型流式思考过程折叠预览，按 `Ctrl+O` 一键展开查看完整思维链；
   - **Compaction Card**：上下文压缩摘要卡片（`[compaction] Compacted from X tokens (Ctrl+O to expand)`），避免多千字长文本冲刷视口；
   - **Tool Execution**：圆角细线卡片展示工具参数、执行进度、100ms 增量输出与耗时统计。
+- **动态即时插话与待发区呈现 (Steering & Pending Dock)**：
+  - 智能体运行期输入普通文本或 `/steer <msg>` 敲回车，自动作为 Steering 转向指令送入内核；
+  - 输入框上方实时灰显呈现 `Steering: 暂停` 待发状态，支持 `Alt+Up` / `Alt+Q` 召回编辑，当前轮工具执行完毕后精准交付模型；
+- **全屏与分会话调试诊断 (`/debug` 与双轨日志)**：
+  - 输入 `/debug` 一键导出终端渲染现场快照与当前会话的专属 `.debug.log` 和 `.events.jsonl` 日志绝对路径。
 - **输入行即时宏扩展管道 (`MacroEngine`)**：
   - `!cmd`：本地 Shell 命令同步执行并自动追加至模型上下文（以 `!` 开头键入时边框即时响应黄色预警）；
   - `!!cmd`：静默执行探查命令，打上 `exclude_from_context` 标记，彻底排除在模型上下文之外（0 Token 消耗）；
@@ -84,7 +90,7 @@ npm install
 # 2. 编译 TypeScript
 npm run build
 
-# 3. 运行 TUI 自动化测试套件 (58 tests, 100% 绿灯全通)
+# 3. 运行 TUI 自动化测试套件 (65 tests, 100% 绿灯全通)
 npm test
 
 # 4. 本地启动交互终端
