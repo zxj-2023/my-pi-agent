@@ -802,3 +802,32 @@ my-pi-agent/
     - 删除无引用的外部重导出文件 `tui/src/interactive/components.ts` 与 `theme.ts`；
     - 剥离 `tui/package.json` 对 `@earendil-works/pi-coding-agent` 的冗余依赖，使前端代码完全自主可控。
 - **验证**：全库测试规模提升至 **665 个 Python 核心测试全部通过**，**57 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
+
+---
+
+### 阶段 29：Steering 即时转向时序修复与分会话双轨制 Debug 模式（2026-09）
+
+**目标**：彻底解决运行期即时插话（Steering）在首轮启动时的时序倒挂与语义歧义，对齐 Pi 原厂 Pending 待发区呈现规范；重构 Debug 模式为“分会话独立双轨制”，实现人类可读时序与机器可读事件流的物理隔离。
+
+- **改了什么**：
+  - **Steering 交付时序对标 Pi 契约 (`src/my_agent_core/loop.py`)**：
+    - 修复了框架在 `run_agent_loop` 启动前急躁收割 Steering 消息导致初始 Prompt 与“暂停”并列输入大模型引发的歧义；
+    - 首轮推理严格专注原初任务，运行期转向指令统一在**首轮工具执行完毕后、次轮推理发起前**交付，大模型精准感知用户打断意图并立即停止。
+  - **后端 RPC 互斥锁与流式分流保护 (`src/my_coding_agent/rpc_server.py`)**：
+    - 为 `_handle_prompt` 增加 `_prompt_lock` 与 `_is_prompt_running` 状态锁，杜绝重叠请求穿透；
+    - 运行中到来的重叠 Prompt 自动识别 `streamingBehavior: "steer"` 合流至当前活跃任务的 `message_queue`；
+    - `_handle_steer` / `_handle_followup` 兼容 `{ message, prompt, text }` 任意参数名。
+  - **TUI 待发区呈现与智能插话分流 (`tui/src/interactive/interactive-mode.ts`)**：
+    - 运行期敲回车输入的普通文本默认 100% 作为 Steering 插话发送；
+    - 启用输入框上方的 `pendingMessagesContainer`，待交付插话灰显呈现为 `Steering: <内容>`，并在内核正式交付时移入主聊天区；
+    - 增加 `Alt+Up` / `Alt+Q` 快捷键，支持将排队的插话召回编辑框；
+    - 增加 `isSubmitting` 同步锁消灭毫秒级按键时间差；
+    - 修复 `message_start` 无条件追加导致普通提问气泡在屏幕上渲染两次的前端 Bug。
+  - **分会话双轨制 Debug 架构 (`paths.py`, `tracer.py`)**：
+    - 告别全局单文件混写，在 `~/.my-pi-agent/logs/<slug>-<hash>/` 下按会话隔离：
+      - `<session-id>.debug.log`：人类可读时序耗时、工具调用状态与 Token 增量；
+      - `<session-id>.events.jsonl`：对标 Pi `--mode json` 的标准机器可读不可变事件流（过滤打字机单字碎片）；
+    - 实现 `tracer.rebind()`，在会话切换（`/new`, `/resume`, `/fork`, `/clone`）时自动轮转文件句柄；
+    - 前端 `/debug` 命令联动输出当前会话的双轨日志绝对路径。
+- **验证**：Python 核心测试扩充至 **671 个全部通过**，TUI 自动化测试扩充至 **65 个全部通过**，`npm run build` TypeScript 编译 100% 成功。
+

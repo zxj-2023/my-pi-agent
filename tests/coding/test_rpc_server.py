@@ -630,6 +630,7 @@ async def test_rpc_server_steer_accepts_flexible_keys(tmp_path: Path):
 @pytest.mark.anyio
 async def test_rpc_server_concurrent_prompt_routes_to_steer(tmp_path: Path):
     """当已有 prompt 在执行时，携带 streamingBehavior='steer' 的 prompt 自动转为 steer。"""
+
     class LongRunningLLM:
         def __init__(self):
             self.model = "long-model"
@@ -683,4 +684,3 @@ async def test_rpc_server_concurrent_prompt_routes_to_steer(tmp_path: Path):
 
     await task1
     assert server.is_prompt_running is False
-

@@ -154,4 +154,3 @@ def test_project_logs_dir_and_session_log_paths(tmp_path: Path) -> None:
 
     assert log_file == logs_dir / f"{session_id}.debug.log"
     assert events_file == logs_dir / f"{session_id}.events.jsonl"
-

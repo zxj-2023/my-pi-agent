@@ -110,10 +110,13 @@ def test_tracer_dual_track_and_rebind(tmp_path: Path) -> None:
     assert session1_log.is_file()
     assert session1_events.is_file()
     s1_log_content = session1_log.read_text(encoding="utf-8")
-    assert "[AGENT_START] prompt=\"prompt 1\"" in s1_log_content
+    assert '[AGENT_START] prompt="prompt 1"' in s1_log_content
 
     import json
-    s1_events_lines = [json.loads(line) for line in session1_events.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    s1_events_lines = [
+        json.loads(line) for line in session1_events.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
     assert len(s1_events_lines) >= 5
     assert any(e.get("type") == "agent_start" and e.get("user_input") == "prompt 1" for e in s1_events_lines)
     assert any(e.get("type") == "turn_start" and e.get("iteration") == 1 for e in s1_events_lines)
@@ -134,7 +137,6 @@ def test_tracer_dual_track_and_rebind(tmp_path: Path) -> None:
 
     assert session2_log.is_file()
     assert session2_events.is_file()
-    assert "[AGENT_START] prompt=\"prompt 2\"" in session2_log.read_text(encoding="utf-8")
+    assert '[AGENT_START] prompt="prompt 2"' in session2_log.read_text(encoding="utf-8")
     # session 1 应该没有 prompt 2
     assert "prompt 2" not in session1_log.read_text(encoding="utf-8")
-

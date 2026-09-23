@@ -113,3 +113,27 @@ class QueuedMessage:
    - 当大模型生成了最终答复文本（无 tool_calls），但流式输出期间注入了 Steer，内层循环**不退出**，直接把 Steer 指令追加进上下文并 `continue` 开启下一轮推理。
 4. **取消隔离（`abort()` 保证）**：
    - 调用 `agent.abort()` 时立即清空 `message_queue` 并置 `_aborted = True`，立即跳出双层循环，绝不执行遗留的 Follow-up 追问。
+5. **首轮工具执行完毕后交付契约（Turn-Boundary Delivery Contract）**：
+   - 若初始已传入 Prompts 任务，首轮推理严格仅消费初始任务；
+   - 在任务刚触发到首轮工具执行期间进入队列的转向指令，**严格在首轮工具全部执行完毕后、次轮推理发起前交付**。
+   - 彻底避免在第 1 轮将初始 Prompt 与 Steering 消息并列塞入模型导致的“复合长句”误读歧义。
+
+---
+
+## 四、前端 TUI 待发区呈现规范 (`interactive-mode.ts`)
+
+为了 100% 对齐 Pi 原厂终端交互规范，Steering 在 TUI 表现层具备独立的视口对接能力：
+
+1. **运行期回车默认转向 (Smart Steer Routing)**：
+   - 当智能体处于忙碌/流式生成或工具执行期间（`isStreaming || isWorking || isSubmitting`），用户在输入框键入**任何普通文本**或 `/steer <msg>` 并敲回车，**默认 100% 作为 Steering 即时插话**送入内核。
+2. **输入框上方待发区呈现 (Pending Dock)**：
+   - 回车后输入框立即清空，在输入框上方挂载灰暗色（`theme.dim`）单行指示：
+     ```text
+     Steering: 暂停
+       ↳ Alt+Up to edit queued messages
+     ```
+   - 在当前工具批次未结束前，插话**停留在待发区，不抢先挂载到主聊天历史**，给用户清晰的交付预期；
+   - 当内核完成当前轮工具并在次轮通过 `message_start(role="user")` 正式交付时，自动从 Pending 区移除，并无感移入主聊天记录区。
+3. **快捷召回编辑 (`Alt+Up` / `Alt+Q`)**：
+   - 处于待发状态的转向消息支持一键弹回编辑框重新修改；按 `Esc` 中断时自动清空并同步释放。
+

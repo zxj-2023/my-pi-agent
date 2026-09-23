@@ -36,12 +36,16 @@
                     【TUI / RPC 生产交互态】        【无头脚本 / 单元测试态】
                              │                             │
                              ▼                             ▼
-              ~/.my-pi-agent/logs/debug.log         控制台彩色时序瀑布流
-              (支持另开终端 tail -f 实时观测)           (标准错误流 sys.stderr 打印)
+              ~/.my-pi-agent/logs/<slug>-<hash>/<id>.debug.log   控制台彩色时序瀑布流
+              (支持另开终端 tail -f 实时观测)                       (标准错误流 sys.stderr 打印)
+                             │
+                             ▼
+              ~/.my-pi-agent/logs/<slug>-<hash>/<id>.events.jsonl
+              (对标 Pi --mode json 的原始结构化事件流)
                              │
                              ▼
                     交互式隐藏命令 /debug
-              (一键导出 debug-dump.json 运行时快照)
+              (一键导出 debug-dump.json 运行时快照并返回日志路径)
 ```
 
 ### 1. 核心设计原则
@@ -57,36 +61,47 @@
 ## 三、调试系统三大核心组件
 
 ### 1. 事件时序日志追踪器 (`DebugEventTracer`)
-当用户通过 `--debug` 启动或设置 `MY_AGENT_DEBUG=1` 时激活：
+当用户通过 `--debug` 启动或设置 `MY_AGENT_DEBUG=1` 时激活，全面采用**分会话双轨制**输出：
+- **轨 1 (`<session-id>.debug.log`)**：记录高可读性人类时序耗时、工具调用状态与 Token 增量；
+- **轨 2 (`<session-id>.events.jsonl`)**：按行输出结构化不可变事件（过滤打字机单字碎片，杜绝磁盘风暴）；
+- **动态重绑定 (`rebind`)**：会话切换（`/new`、`/resume`、`/fork`、`/clone`）时自动轮转文件句柄，实现会话级物理隔离。
 
 ```python
 class DebugEventTracer:
-    """监听全部不可变生命周期事件，计算毫秒级时序耗时并持久化为易读的 debug.log。"""
+    """监听全部不可变生命周期事件，计算毫秒级时序耗时并持久化为双轨日志。"""
     
-    def __init__(self, log_path: Path, console_output: bool = False):
-        self.log_path = log_path
-        self.console_output = console_output
-        self._tool_starts: dict[str, float] = {}
-        self._turn_start_ts: float = 0.0
+    def __init__(
+        self,
+        log_path: Path | str | None = None,
+        events_path: Path | str | None = None,
+        console_output: bool = False,
+    ):
+        ...
 
-    def __call__(self, event: Event) -> None:
-        # 针对 AgentStart, TurnStart, ToolExecutionStart/End, MessageEnd, AgentEnd
-        # 格式化时间戳 [YYYY-MM-DD HH:MM:SS.mmm] 并写入文件
+    def rebind(self, log_path: Path | str | None = None, events_path: Path | str | None = None) -> None:
+        """会话切换时安全刷新旧文件并换绑至新会话路径。"""
+        ...
 ```
 
-**日志样例输出**：
+**日志样例输出 (`.debug.log`)**：
 ```log
-[2026-09-17 16:10:01.210] [AGENT_START] session=01a0af.. workspace=D:/code/python/my-pi-agent
-[2026-09-17 16:10:01.215]   ↳ UserInput: "请帮我读取 package.json 的版本号"
+[2026-09-17 16:10:01.210] [AGENT_START] prompt="请帮我读取 package.json 的版本号"
 [2026-09-17 16:10:01.220] [TURN_START] iteration=1
-[2026-09-17 16:10:02.450] [LLM_RESPONSE] duration=1230ms model=deepseek-flash in_tokens=1250 out_tokens=38
-[2026-09-17 16:10:02.455]   ↳ Thinking: "用户需要读取 package.json，我将调用 read 工具..."
-[2026-09-17 16:10:02.460] [TOOL_CALL_START] call_id=call_01 tool=read
-[2026-09-17 16:10:02.462]   ↳ Args: {"path": "package.json"}
-[2026-09-17 16:10:02.482] [TOOL_CALL_END] call_id=call_01 tool=read status=OK duration=20ms
-[2026-09-17 16:10:02.483]   ↳ Result: {"name": "my-pi-agent", "version": "0.1.0"} (340 bytes)
-[2026-09-17 16:10:02.490] [TURN_END] iteration=1 duration=1270ms
-[2026-09-17 16:10:03.200] [AGENT_END] stop_reason=end_turn total_iterations=2 total_cost=$0.0003
+[2026-09-17 16:10:02.450] [LLM_RESPONSE] duration=1230ms in_tokens=1250 out_tokens=38
+[2026-09-17 16:10:02.460] [TOOL_CALL_START] tool=read id=call_01 args={"path": "package.json"}
+[2026-09-17 16:10:02.482] [TOOL_CALL_END] tool=read id=call_01 status=OK duration=20ms result="{\"name\": \"my-pi-agent\"}"
+[2026-09-17 16:10:02.490] [TURN_END] duration=1270ms
+[2026-09-17 16:10:03.200] [AGENT_END] stop_reason=end_turn iterations=2
+```
+
+**事件流输出 (`.events.jsonl`)**：
+```json
+{"type": "agent_start", "user_input": "请帮我读取 package.json 的版本号", "timestamp": 1790166667.210}
+{"type": "turn_start", "iteration": 1, "timestamp": 1790166667.220}
+{"type": "tool_execution_start", "tool_call_id": "call_01", "tool_name": "read", "args": {"path": "package.json"}}
+{"type": "tool_execution_end", "tool_call_id": "call_01", "result": "...", "is_error": false}
+{"type": "turn_end", "timestamp": 1790166668.490}
+{"type": "agent_end", "stop_reason": "end_turn", "iterations": 2}
 ```
 
 ### 2. 交互式隐藏快照命令 (`/debug`)
@@ -98,8 +113,14 @@ class DebugEventTracer:
   2. 当前系统提示词（`system_prompt`）；
   3. 当前激活的全部工具列表（`registered_tools`）；
   4. SessionTree DAG 当前分支节点与父子依赖拓扑；
-  5. 累计 Token 统计与上下文容量占比。
-- **界面提示**：在终端弹出通知：`✓ 调试快照已导出至 ~/.my-pi-agent/logs/debug-dump.json`。
+  5. 累计 Token 统计与上下文容量占比；
+  6. **当前活跃会话的专属调试日志路径 (`log_file`, `events_file`)**。
+- **界面提示**：在终端弹出通知：
+  ```text
+  ✓ 调试快照已导出至: ~/.my-pi-agent/logs/debug-dump.json
+    会话调试日志: ~/.my-pi-agent/logs/<slug>-<hash>/<session-id>.debug.log
+    会话事件流: ~/.my-pi-agent/logs/<slug>-<hash>/<session-id>.events.jsonl
+  ```
 
 ### 3. 异常死循环检测看门狗 (`AnomalyWatchdog`)
 在长循环或大任务执行时，自动检测潜在异常并输出高亮警告（不强行中断，或可配置熔断阈值）：

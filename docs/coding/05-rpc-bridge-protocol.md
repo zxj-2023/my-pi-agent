@@ -44,9 +44,9 @@
 | :--- | :--- | :--- | :--- |
 | `initialize` | `{"workspace"?: string, "model"?: string, "thinking"?: string, "mode"?: string, "continue"?: boolean, "new_session"?: boolean, "name"?: string}` | `{"status": "ok", "workspace": "...", "model": "...", "provider": "...", "context_window": N, "usage": {...}, "thinking_level": "...", "session_id": "...", "session_file": "...", "session_name": "...", "messages": [...]}` | 双端协议握手，同步工作区与默认运行时上下文 |
 | `shutdown` | `{}` | `{"status": "ok"}` | 优雅终止 Python 内核，妥善释放子进程与会话文件锁 |
-| `prompt` | `{"text": string}` | `{"status": "completed"}` | 发起用户提问，触发 ReAct 微内核调度，后续事件以 `event` 异步推送 |
-| `steer` | `{"message": string}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令 |
-| `followup` | `{"message": string}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
+| `prompt` | `{"text": string, "streamingBehavior"?: "steer" \| "followUp"}` | `{"status": "completed"}` 或 `{"status": "ok", "action": "steered"}` | 发起用户提问，微内核互斥锁保护；若已有活跃任务在执行且指定 `steer`，自动合流即时转向 |
+| `steer` | `{"message"?: string, "prompt"?: string, "text"?: string}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令（支持灵活键名） |
+| `followup` | `{"message"?: string, "prompt"?: string, "text"?: string}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
 | `abort` | `{}` | `{"status": "ok"}` | 协作式中断当前正在运行的模型流式生成或工具执行进程 |
 
 #### (2) 会话管理与 DAG 分支漫游
@@ -82,13 +82,14 @@
 | `auth_logout` | `{"provider": string}` | `{"status": "ok", "provider": "..."}` | 从凭据中心注销并移除指定提供商的凭据信息 |
 | `trust_set` | `{"path"?: string, "trusted": boolean, "parent"?: boolean}` | `{"status": "ok", "path": string, "trusted": boolean, "decision": string}` | 记录或更新对特定工作区路径的脚本执行信任授权 |
 
-#### (5) Shell 宏展开与资源热重载
+#### (5) Shell 宏展开、调试快照与资源热重载
 
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
 | `shell_exec` | `{"command": string, "exclude_from_context"?: boolean, "timeout"?: number}` | `{"status": "ok", "output": string, "exit_code": number}` | 前端触发本地 Shell 命令执行（区分静默与上下文注入） |
 | `macro_expand` | `{"text": string, "skills_dir"?: string, "prompts_dir"?: string}` | `{"status": "ok", "text": string, "expanded": boolean, "expanded_text": string}` | 服务端执行 `MacroEngine` 对输入行宏（`/skill:`, `/<template>`）的即时展开 |
 | `resource_reload` | `{}` | `{"status": "ok", "message": "..."}` | 动态重新扫描并热重载本地 Skills、Prompts 与 Templates 资源 |
+| `debug_dump` | `{"output_path"?: string}` | `{"status": "ok", "dump_file": string, "log_file"?: string, "events_file"?: string, "snapshot": {...}}` | 导出运行时内存快照并返回当前活跃会话的调试日志与事件流路径 |
 
 #### (6) 配置读取与设置
 
