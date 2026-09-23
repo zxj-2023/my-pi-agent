@@ -129,6 +129,32 @@ test("InteractiveMode handles agent streaming events without throwing", () => {
   assert.equal(mode.activeToolCalls.size, 0);
 });
 
+test("InteractiveMode does not duplicate UserMessageComponent when message_start arrives for normal prompt", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  // 用户提交普通 prompt
+  await mode.handleUserInput("为什么显示两次");
+
+  // 此时 chatContainer 中应有 1 个 UserMessageComponent
+  const userMsgCount1 = mode.chatContainer.children.filter(
+    (c) => c.constructor.name === "UserMessageComponent",
+  ).length;
+  assert.equal(userMsgCount1, 1);
+
+  // 内核发回 message_start(role="user")
+  mode.handleAgentEvent({
+    type: "message_start",
+    message: { role: "user", content: "为什么显示两次" },
+  });
+
+  // 绝不能重复追加第二个 UserMessageComponent
+  const userMsgCount2 = mode.chatContainer.children.filter(
+    (c) => c.constructor.name === "UserMessageComponent",
+  ).length;
+  assert.equal(userMsgCount2, 1);
+});
+
 test("InteractiveMode showSelector lifecycle handles mount and cleanup", () => {
   const { bridge } = createMockBridge();
   const mode = new InteractiveMode(bridge);

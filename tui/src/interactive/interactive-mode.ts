@@ -376,20 +376,26 @@ export class InteractiveMode {
                 ? event.message.content.map((b: any) => b.text || "").join("")
                 : "";
           if (content) {
+            let isQueued = false;
             const steerIdx = this.pendingSteeringList.indexOf(content);
             if (steerIdx !== -1) {
               this.pendingSteeringList.splice(steerIdx, 1);
+              isQueued = true;
             } else {
               const followIdx = this.pendingFollowupList.indexOf(content);
               if (followIdx !== -1) {
                 this.pendingFollowupList.splice(followIdx, 1);
+                isQueued = true;
               }
             }
             this.updatePendingMessagesDisplay();
 
-            const userMsg = new UserMessageComponent(content);
-            this.chatContainer.addChild(userMsg);
-            this.chatContainer.addChild(new Spacer(1));
+            // 仅对从待发队列出队的插话/追问渲染气泡；普通 Prompt 已在 handleUserInput 中先行挂载，杜绝重复渲染！
+            if (isQueued) {
+              const userMsg = new UserMessageComponent(content);
+              this.chatContainer.addChild(userMsg);
+              this.chatContainer.addChild(new Spacer(1));
+            }
           }
         } else if (event.message?.role === "assistant") {
           this.currentStreamingAssistant = new AssistantMessageComponent();
