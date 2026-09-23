@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import logging
@@ -28,7 +29,7 @@ from my_agent_core.events import (
     TurnEnd,
     TurnStart,
 )
-from my_coding_agent.serialization import serialize_message
+from my_coding_agent.serialization import serialize_event, serialize_message
 
 logger = logging.getLogger(__name__)
 
@@ -51,26 +52,58 @@ def redact_sensitive_data(data: Any) -> Any:
 
 
 class DebugEventTracer:
-    """监听不可变事实事件流，输出结构化毫秒级调试日志。"""
+    """监听不可变事实事件流，输出结构化毫秒级调试日志与机器可读事件流 (双轨制)。"""
 
     def __init__(
         self,
         log_path: Path | str | None = None,
+        events_path: Path | str | None = None,
         console_output: bool = False,
     ) -> None:
         self.console_output = console_output
+        self.log_path: Path | None = None
+        self.events_path: Path | None = None
         self._file: TextIO | None = None
+        self._events_file: TextIO | None = None
         self._tool_starts: dict[str, float] = {}
         self._turn_start_ts: float = 0.0
         self._llm_start_ts: float = 0.0
 
+        if log_path is not None or events_path is not None:
+            self.rebind(log_path=log_path, events_path=events_path)
+
+    def rebind(
+        self,
+        log_path: Path | str | None = None,
+        events_path: Path | str | None = None,
+    ) -> None:
+        """安全刷新并关闭旧文件句柄，重新绑定至新会话的日志路径。"""
+        self.close()
+        self._tool_starts.clear()
+        self._turn_start_ts = 0.0
+        self._llm_start_ts = 0.0
+
         if log_path is not None:
             p = Path(log_path).resolve()
             p.parent.mkdir(parents=True, exist_ok=True)
+            self.log_path = p
             try:
                 self._file = open(p, "a", encoding="utf-8")  # noqa: SIM115
             except OSError:
                 self._file = None
+        else:
+            self.log_path = None
+
+        if events_path is not None:
+            ep = Path(events_path).resolve()
+            ep.parent.mkdir(parents=True, exist_ok=True)
+            self.events_path = ep
+            try:
+                self._events_file = open(ep, "a", encoding="utf-8")  # noqa: SIM115
+            except OSError:
+                self._events_file = None
+        else:
+            self.events_path = None
 
     def _format_ts(self, ts: float) -> str:
         dt = datetime.datetime.fromtimestamp(ts)
@@ -86,9 +119,25 @@ class DebugEventTracer:
         if self.console_output:
             print(line, file=sys.stderr)
 
+    def _write_event(self, event: Event) -> None:
+        """向 events.jsonl 写入一条序列化的机器可读事件。"""
+        if self._events_file and not self._events_file.closed:
+            try:
+                payload = serialize_event(event)
+                safe_payload = redact_sensitive_data(payload)
+                self._events_file.write(json.dumps(safe_payload, ensure_ascii=False) + "\n")
+                self._events_file.flush()
+            except Exception:
+                pass
+
     def __call__(self, event: Event) -> None:
         """事件旁路广播回调。"""
+        # 忽略高频打字机 Token 碎片与工具输出增量，避免磁盘风暴
+        if isinstance(event, (MessageUpdate, ToolExecutionUpdate)):
+            return
+
         ts_str = self._format_ts(event.timestamp)
+        self._write_event(event)
 
         if isinstance(event, AgentStart):
             prompt_preview = (event.user_input or "").strip().splitlines()[0][:80] if event.user_input else ""
@@ -103,9 +152,6 @@ class DebugEventTracer:
             role = getattr(event.message, "role", "unknown")
             if role == "assistant":
                 self._llm_start_ts = event.timestamp
-
-        elif isinstance(event, MessageUpdate):
-            pass
 
         elif isinstance(event, MessageEnd):
             role = getattr(event.message, "role", "unknown")
@@ -131,9 +177,6 @@ class DebugEventTracer:
             self._write_line(
                 f"[{ts_str}] [TOOL_CALL_START] tool={event.tool_name} id={event.tool_call_id} args={args_str}"
             )
-
-        elif isinstance(event, ToolExecutionUpdate):
-            pass
 
         elif isinstance(event, ToolExecutionEnd):
             start = self._tool_starts.pop(event.tool_call_id, event.timestamp)
@@ -167,19 +210,23 @@ class DebugEventTracer:
 
     def flush(self) -> None:
         if self._file and not self._file.closed:
-            try:
+            with contextlib.suppress(Exception):
                 self._file.flush()
-            except Exception:
-                pass
+        if self._events_file and not self._events_file.closed:
+            with contextlib.suppress(Exception):
+                self._events_file.flush()
 
     def close(self) -> None:
         if self._file and not self._file.closed:
-            try:
+            with contextlib.suppress(Exception):
                 self._file.flush()
                 self._file.close()
-            except Exception:
-                pass
             self._file = None
+        if self._events_file and not self._events_file.closed:
+            with contextlib.suppress(Exception):
+                self._events_file.flush()
+                self._events_file.close()
+            self._events_file = None
 
 
 def export_debug_dump(agent: Any, output_path: Path | str) -> dict[str, Any]:

@@ -6,6 +6,7 @@ from my_agent_core.events import (
     AgentEnd,
     AgentStart,
     MessageEnd,
+    MessageStart,
     ToolExecutionEnd,
     ToolExecutionStart,
     TurnEnd,
@@ -91,3 +92,49 @@ def test_export_debug_dump(tmp_path: Path) -> None:
     assert len(data["messages"]) == 2
     assert "read" in data["registered_tools"]
     assert "write" in data["registered_tools"]
+
+
+def test_tracer_dual_track_and_rebind(tmp_path: Path) -> None:
+    session1_log = tmp_path / "s1.debug.log"
+    session1_events = tmp_path / "s1.events.jsonl"
+    tracer = DebugEventTracer(log_path=session1_log, events_path=session1_events)
+
+    msg = Message(role="assistant", content="hello s1")
+    tracer(AgentStart(system_prompt="sys", user_input="prompt 1"))
+    tracer(TurnStart(iteration=1))
+    tracer(MessageStart(message=msg))
+    tracer(MessageEnd(message=msg))
+    tracer(TurnEnd())
+    tracer(AgentEnd(messages=[msg], iterations=1, stop_reason="end_turn", final_text="done"))
+
+    assert session1_log.is_file()
+    assert session1_events.is_file()
+    s1_log_content = session1_log.read_text(encoding="utf-8")
+    assert "[AGENT_START] prompt=\"prompt 1\"" in s1_log_content
+
+    import json
+    s1_events_lines = [json.loads(line) for line in session1_events.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(s1_events_lines) >= 5
+    assert any(e.get("type") == "agent_start" and e.get("user_input") == "prompt 1" for e in s1_events_lines)
+    assert any(e.get("type") == "turn_start" and e.get("iteration") == 1 for e in s1_events_lines)
+    assert any(e.get("type") == "agent_end" and e.get("stop_reason") == "end_turn" for e in s1_events_lines)
+
+    # 动态切换/重绑定至 Session 2
+    session2_log = tmp_path / "s2.debug.log"
+    session2_events = tmp_path / "s2.events.jsonl"
+    tracer.rebind(log_path=session2_log, events_path=session2_events)
+
+    msg2 = Message(role="assistant", content="hello s2")
+    tracer(AgentStart(system_prompt="sys2", user_input="prompt 2"))
+    tracer(TurnStart(iteration=1))
+    tracer(MessageEnd(message=msg2))
+    tracer(AgentEnd(messages=[msg2], iterations=1, stop_reason="end_turn", final_text="done2"))
+
+    tracer.close()
+
+    assert session2_log.is_file()
+    assert session2_events.is_file()
+    assert "[AGENT_START] prompt=\"prompt 2\"" in session2_log.read_text(encoding="utf-8")
+    # session 1 应该没有 prompt 2
+    assert "prompt 2" not in session1_log.read_text(encoding="utf-8")
+

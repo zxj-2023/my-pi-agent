@@ -83,6 +83,23 @@ class AgentPaths:
     def default_session_path(self, cwd: Path) -> Path:
         return self.project_session_dir(cwd) / "default.jsonl"
 
+    def project_logs_dir(self, cwd: Path) -> Path:
+        """根据项目 cwd 计算全局唯一的 logs/<slug>-<hash> 目录。"""
+        resolved = cwd.resolve()
+        digest = sha256(str(resolved).encode("utf-8")).hexdigest()[:6]
+        slug = self._slugify_path(resolved)
+        target = self.logs_dir / f"{slug}-{digest}"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def session_log_path(self, cwd: Path, session_id: str) -> Path:
+        """获取指定会话的可读调试日志文件路径 (<session-id>.debug.log)。"""
+        return self.project_logs_dir(cwd) / f"{session_id}.debug.log"
+
+    def session_events_path(self, cwd: Path, session_id: str) -> Path:
+        """获取指定会话的标准机器可读事件流文件路径 (<session-id>.events.jsonl)。"""
+        return self.project_logs_dir(cwd) / f"{session_id}.events.jsonl"
+
     def ensure_directories(self) -> None:
         """初次启动自动建巢，静默初始化目录骨架。"""
         for d in (

@@ -572,11 +572,14 @@ async def test_rpc_server_debug_mode_and_dump(tmp_path: Path, monkeypatch):
         }
     )
 
-    # 验证日志文件生成
+    # 验证分会话日志与事件流文件生成
+    session_id = init_resp["result"]["session_id"]
     paths = AgentPaths(home=custom_home)
-    debug_log = paths.logs_dir / "debug.log"
-    assert debug_log.is_file()
-    content = debug_log.read_text(encoding="utf-8")
+    session_log = paths.session_log_path(workspace_dir, session_id)
+    session_events = paths.session_events_path(workspace_dir, session_id)
+    assert session_log.is_file()
+    assert session_events.is_file()
+    content = session_log.read_text(encoding="utf-8")
     assert "[AGENT_START]" in content
 
     # 导出 debug_dump
@@ -591,6 +594,8 @@ async def test_rpc_server_debug_mode_and_dump(tmp_path: Path, monkeypatch):
     assert dump_resp["result"]["status"] == "ok"
     dump_file = Path(dump_resp["result"]["dump_file"])
     assert dump_file.is_file()
+    assert dump_resp["result"]["log_file"] == str(session_log)
+    assert dump_resp["result"]["events_file"] == str(session_events)
     snapshot = dump_resp["result"]["snapshot"]
     assert "messages" in snapshot
     assert "system_prompt" in snapshot
@@ -673,6 +678,7 @@ async def test_rpc_server_concurrent_prompt_routes_to_steer(tmp_path: Path):
     assert resp2["result"].get("action") == "steered"
 
     # 验证 steer 消息已进入队列
+    assert server.agent is not None
     assert server.agent.agent.message_queue.has_steering()
 
     await task1

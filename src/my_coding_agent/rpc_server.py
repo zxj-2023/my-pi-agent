@@ -117,6 +117,18 @@ class RpcServer:
         self.debug_mode: bool = False
         self.tracer: DebugEventTracer | None = None
 
+    def _bind_tracer_to_session(self, workspace_path: Path, session_id: str) -> None:
+        """为当前会话动态绑定/重绑定独立的日志与事件流文件句柄。"""
+        if self.debug_mode and self.paths:
+            log_file = self.paths.session_log_path(workspace_path, session_id)
+            events_file = self.paths.session_events_path(workspace_path, session_id)
+            if self.tracer is None:
+                self.tracer = DebugEventTracer(log_path=log_file, events_path=events_file)
+            else:
+                self.tracer.rebind(log_path=log_file, events_path=events_file)
+            if self.agent:
+                self.agent.subscribe(self.tracer)
+
     @property
     def is_prompt_running(self) -> bool:
         """检查当前是否有活跃的模型推理/Prompt 任务正在执行。"""
@@ -282,9 +294,7 @@ class RpcServer:
         debug_param = bool(params.get("debug", False) or os.environ.get("MY_AGENT_DEBUG"))
         self.debug_mode = debug_param
         if self.debug_mode:
-            log_file = paths.logs_dir / "debug.log"
-            self.tracer = DebugEventTracer(log_path=log_file)
-            self.agent.subscribe(self.tracer)
+            self._bind_tracer_to_session(workspace_path, target_session.id)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -634,8 +644,8 @@ class RpcServer:
             permission_gate=gate,
             skill_dirs=skill_dirs,
         )
-        if self.debug_mode and self.tracer:
-            self.agent.subscribe(self.tracer)
+        if self.debug_mode:
+            self._bind_tracer_to_session(workspace_path, new_session.id)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -798,8 +808,8 @@ class RpcServer:
             skill_dirs=skill_dirs,
         )
 
-        if self.debug_mode and self.tracer:
-            self.agent.subscribe(self.tracer)
+        if self.debug_mode:
+            self._bind_tracer_to_session(workspace_path, session_id)
 
         # 彻底重置会话统计指标为 0
         self.session_usage = {
@@ -950,8 +960,8 @@ class RpcServer:
             session=new_session,
             permission_gate=gate,
         )
-        if self.debug_mode and self.tracer:
-            self.agent.subscribe(self.tracer)
+        if self.debug_mode:
+            self._bind_tracer_to_session(workspace_path, new_session.id)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -1000,8 +1010,8 @@ class RpcServer:
             session=new_session,
             permission_gate=gate,
         )
-        if self.debug_mode and self.tracer:
-            self.agent.subscribe(self.tracer)
+        if self.debug_mode:
+            self._bind_tracer_to_session(workspace_path, new_session.id)
 
         messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
 
@@ -1432,14 +1442,17 @@ class RpcServer:
         paths.logs_dir.mkdir(parents=True, exist_ok=True)
         dump_path = paths.logs_dir / "debug-dump.json"
         data = export_debug_dump(self.agent, dump_path)
-        return self.send_response(
-            req_id,
-            result={
-                "status": "ok",
-                "dump_file": str(dump_path),
-                "snapshot": data,
-            },
-        )
+        result: dict[str, Any] = {
+            "status": "ok",
+            "dump_file": str(dump_path),
+            "snapshot": data,
+        }
+        if self.tracer:
+            if self.tracer.log_path:
+                result["log_file"] = str(self.tracer.log_path)
+            if self.tracer.events_path:
+                result["events_file"] = str(self.tracer.events_path)
+        return self.send_response(req_id, result=result)
 
     async def _handle_shutdown(self, req_id: Any) -> dict[str, Any]:
         self.is_shutting_down = True

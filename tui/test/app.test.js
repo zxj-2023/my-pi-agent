@@ -421,7 +421,12 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
       };
     }
     if (method === "debug_dump") {
-      return { status: "ok", dump_file: "/tmp/debug-dump.json" };
+      return {
+        status: "ok",
+        dump_file: "/tmp/debug-dump.json",
+        log_file: "/tmp/s1.debug.log",
+        events_file: "/tmp/s1.events.jsonl",
+      };
     }
     return { status: "ok" };
   };
@@ -530,6 +535,8 @@ test("AgentApp handles new slash commands (/new, /resume, /name, /compact, /tree
   await app.handleUserSubmit("/debug");
   const debugText = app.chatContainer.children.at(-1).render(120).join("\n");
   assert.ok(debugText.includes("debug-dump.json"));
+  assert.ok(debugText.includes("s1.debug.log"));
+  assert.ok(debugText.includes("s1.events.jsonl"));
 });
 
 test("AgentApp handles shell macro (!cmd, !!cmd) and switches border color on !", async () => {

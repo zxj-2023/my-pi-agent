@@ -137,3 +137,21 @@ def test_agent_paths_frozen_immutable(tmp_path: Path) -> None:
     paths = AgentPaths(home=tmp_path / "agent_home")
     with pytest.raises(FrozenInstanceError):
         paths.home = tmp_path / "other"  # type: ignore[misc]
+
+
+def test_project_logs_dir_and_session_log_paths(tmp_path: Path) -> None:
+    paths: AgentPaths = AgentPaths(home=tmp_path / "agent_home")
+    proj = tmp_path / "my_project"
+    proj.mkdir()
+
+    logs_dir = paths.project_logs_dir(proj)
+    assert logs_dir.parent == paths.logs_dir
+    assert logs_dir.exists()
+
+    session_id = "01a0ce3f-59e4-72b5-ad5c-231e9d2eca91"
+    log_file = paths.session_log_path(proj, session_id)
+    events_file = paths.session_events_path(proj, session_id)
+
+    assert log_file == logs_dir / f"{session_id}.debug.log"
+    assert events_file == logs_dir / f"{session_id}.events.jsonl"
+

@@ -1905,7 +1905,14 @@ export class InteractiveMode {
               (await client?.request?.("debug_dump", {})) ||
               (await client?.sendRequest?.("debug_dump", {}));
             if (res?.dump_file) {
-              this.appendSystemNotice(`✓ 调试快照已导出至: ${res.dump_file}`);
+              const lines = [`✓ 调试快照已导出至: ${res.dump_file}`];
+              if (res?.log_file) {
+                lines.push(`  会话调试日志: ${res.log_file}`);
+              }
+              if (res?.events_file) {
+                lines.push(`  会话事件流: ${res.events_file}`);
+              }
+              this.appendSystemNotice(lines.join("\n"));
             } else {
               this.appendErrorMessage("导出调试快照失败。");
             }
