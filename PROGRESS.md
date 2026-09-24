@@ -855,4 +855,27 @@ my-pi-agent/
     - 在 `PythonKernelClient` 与 `KernelBridge` 中实现 `clearQueue()` 封装并覆盖完整测试用例。
 - **验证**：全库测试规模提升至 **713 个 Python 核心测试全部通过**，**68 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
 
+---
+
+### 阶段 31：Windows Git Bash 智能适配、退出码错误状态修复与 Esc 中断孤儿残片清理（2026-09）
+
+**目标**：彻底解决 Windows 下 bash 工具因退化至 cmd.exe 引发的 Linux 工具链失效与 GBK 乱码；修复工具非零退出码误标为成功绿勾 `✓` 的严重违和感；解决按下 Escape 中断后未完成流式助手文本（如 `"Windows"`）残留在 TUI 视口的 Bug。
+
+- **改了什么**：
+  - **Windows Git Bash 智能探查与环境对齐 (`src/my_coding_agent/tools/bash.py`)**：
+    - 对标 Pi 原厂 `getShellConfig` 策略，增加 `_resolve_shell()` 智能探测器；
+    - 优先识别用户环境变量 `PI_BASH_PATH`/`SHELL_PATH` 与 Git 常见安装目录（`D:\gitbash\Git\bin\bash.exe`, `%ProgramFiles%\Git\bin\bash.exe` 等），以 `bash.exe -c <cmd>` 模式执行；
+    - 自动注入 `LANG=C.UTF-8` 与 `LC_ALL=C.UTF-8`，并在 `_decode_stream_bytes()` 中实现“UTF-8 优先 + 本地编码防御回退”双解，彻底杜绝 Mojibake 乱码；
+    - 让大模型自然的 Linux 管道命令（`ls`, `find`, `head`, `grep` 等）在 Windows 下 100% 顺畅执行。
+  - **工具失败退出码显式判定与 TUI 红叉对齐 (`bash.py`, `ToolResult`)**：
+    - 当命令退出码 `exit_code != 0` 时，显式返回 `BashResult(ok=False, data=msg, error=msg)`；
+    - 解决旧逻辑直接返回字符串导致 `@tool` 误包装为 `ok=True` 的缺陷；
+    - 使 TUI `ToolExecutionComponent` 准确呈现红色 `✗` 与 `(失败)`，报错原文如实透传给大模型纠错。
+  - **TUI 中断清理半截残片组件 (`tui/src/interactive/interactive-mode.ts`)**：
+    - 在用户按 `Escape` / `Ctrl+C` / `/abort` 中断时，立即从 `chatContainer` 中将正在流式的半截 `currentStreamingAssistant` 安全移除并置空；
+    - 在 `message_end` 与 `agent_end` 中拦截 `stop_reason === "cancelled" / "aborted"`，彻底杜绝已被丢弃的孤儿单字在视口中新建气泡；
+    - 确保 `执行已中断。` 通知在清爽的界面中规范呈现。
+- **验证**：全库测试规模提升至 **714 个 Python 核心测试全部通过**，**69 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
+
+
 

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import inspect
 import os
+import shutil
 import signal
 import sys
 import tempfile
@@ -56,6 +57,60 @@ class BashResult(StringCompatibleToolResult):
     """Bash 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
+def _resolve_shell() -> tuple[str, bool]:
+    """解析当前环境最合适的 Shell 执行器。
+
+    Windows 下对齐 Pi 原厂策略：优先探测 Git Bash，获得一致的 Linux 工具链 (ls/find/head/grep/cat)；
+    若未安装则降级为系统默认 cmd.exe。
+    返回 (shell_path, is_bash)。
+    """
+    if sys.platform == "win32":
+        # 1. 优先检查用户自定义环境变量
+        custom = os.environ.get("PI_BASH_PATH") or os.environ.get("SHELL_PATH")
+        if custom and os.path.exists(custom):
+            return custom, True
+
+        # 2. 探查 Git Bash 常见安装路径
+        candidates = [
+            r"D:\gitbash\Git\bin\bash.exe",
+            os.path.expandvars(r"%ProgramFiles%\Git\bin\bash.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Git\bin\bash.exe"),
+            os.path.expandvars(r"%LocalAppData%\Programs\Git\bin\bash.exe"),
+        ]
+        for c in candidates:
+            if c and os.path.exists(c):
+                return c, True
+
+        # 3. 探查 PATH 上的 bash
+        found = shutil.which("bash.exe") or shutil.which("bash")
+        if found:
+            norm = found.replace("/", "\\").lower()
+            if not norm.endswith(r"\windows\system32\bash.exe"):
+                return found, True
+
+        return "cmd.exe", False
+
+    # POSIX 平台
+    found = shutil.which("bash") or "/bin/sh"
+    return found, True
+
+
+def _decode_stream_bytes(data: bytes) -> str:
+    """健壮解码子进程字节流，优先 UTF-8，自动防御性回退本地 OEM/GBK 编码，消灭乱码。"""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    try:
+        import locale
+
+        enc = locale.getpreferredencoding(False) or "gbk"
+        return data.decode(enc, errors="replace")
+    except Exception:
+        return data.decode("utf-8", errors="replace")
+
+
+
 def make_bash_tool(
     workspace: Path | str,
     background_runner: BackgroundRunner | None = None,
@@ -73,17 +128,23 @@ def make_bash_tool(
         timeout: int = 120,
         run_in_background: bool = False,
         on_update: Callable[[Any], None] | None = None,
-    ) -> str:
+    ) -> Any:
         for blocked in BLOCKED_COMMANDS:
             if blocked in command:
-                return f"Error: Blocked dangerous command pattern '{blocked}'."
+                msg = f"Error: Blocked dangerous command pattern '{blocked}'."
+                return BashResult(ok=False, data=msg, error=msg)
 
         if run_in_background:
             if background_runner is None:
-                return "Error: Background task execution not configured on this agent."
+                msg = "Error: Background task execution not configured on this agent."
+                return BashResult(ok=False, data=msg, error=msg)
             res = background_runner.run_process(command, cwd=workspace)
             task_id = await res if inspect.isawaitable(res) else res
-            return f"Background task started with ID: {task_id}"
+            return BashResult(
+                ok=True,
+                data=f"Background task started with ID: {task_id}",
+                error=None,
+            )
 
         try:
             kwargs: dict[str, Any] = {
@@ -95,7 +156,20 @@ def make_bash_tool(
             if sys.platform != "win32":
                 kwargs["preexec_fn"] = os.setsid
 
-            proc = await asyncio.create_subprocess_shell(command, **kwargs)
+            shell_path, is_bash = _resolve_shell()
+            env = dict(os.environ)
+            if is_bash:
+                env.setdefault("LANG", "C.UTF-8")
+                env.setdefault("LC_ALL", "C.UTF-8")
+                proc = await asyncio.create_subprocess_exec(
+                    shell_path,
+                    "-c",
+                    command,
+                    env=env,
+                    **kwargs,
+                )
+            else:
+                proc = await asyncio.create_subprocess_shell(command, env=env, **kwargs)
 
             output_chunks: list[str] = []
             loop = asyncio.get_running_loop()
@@ -109,7 +183,7 @@ def make_bash_tool(
                     line_bytes = await proc.stdout.readline()
                     if not line_bytes:
                         break
-                    text = line_bytes.decode("utf-8", errors="replace")
+                    text = _decode_stream_bytes(line_bytes)
                     output_chunks.append(text)
                     now = loop.time()
                     if on_update is not None and (now - last_update_time >= 0.1):
@@ -127,7 +201,8 @@ def make_bash_tool(
                     _kill_process_tree(proc.pid)
                     with contextlib.suppress(Exception):
                         await asyncio.wait_for(proc.wait(), timeout=2.0)
-                return f"Error: Command timed out after {timeout} seconds: {command}"
+                msg = f"Error: Command timed out after {timeout} seconds: {command}"
+                return BashResult(ok=False, data=msg, error=msg)
             except (asyncio.CancelledError, GeneratorExit):
                 if proc.pid:
                     _kill_process_tree(proc.pid)
@@ -171,11 +246,17 @@ def make_bash_tool(
                 )
 
             if exit_code != 0:
-                return f"Command failed with exit code {exit_code}:\n{output}"
+                msg = f"Command failed with exit code {exit_code}:\n{output}"
+                return BashResult(ok=False, data=msg, error=msg)
 
-            return output or "(Command executed with no output)"
+            return BashResult(
+                ok=True,
+                data=output or "(Command executed with no output)",
+                error=None,
+            )
         except Exception as e:
-            return f"Error: {e}"
+            msg = f"Error: {e}"
+            return BashResult(ok=False, data=msg, error=msg)
 
     orig_execute = bash.execute
 
@@ -194,6 +275,10 @@ def make_bash_tool(
             on_update=on_update,
             tool_call_id=tool_call_id,
         )
+        if isinstance(res, BashResult):
+            return res
+        if isinstance(res.data, BashResult):
+            return res.data
         return BashResult(
             ok=res.ok,
             data=res.data,

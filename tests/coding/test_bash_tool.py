@@ -29,7 +29,7 @@ async def test_bash_timeout_kills_process(tmp_path: Path):
         timeout=1,
     )
     assert "timed out after 1 seconds" in res
-    assert res.ok is True
+    assert res.ok is False
 
 
 async def test_bash_blocked_commands(tmp_path: Path):
@@ -81,8 +81,9 @@ async def test_bash_byte_truncation_spills_log(tmp_path: Path):
 async def test_bash_command_failure_exit_code(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     res = await tool.execute(command="python -c \"import sys; print('error details'); sys.exit(42)\"")
-    assert "Command failed with exit code 42:" in res
-    assert "error details" in res
+    assert res.ok is False
+    assert "Command failed with exit code 42:" in str(res)
+    assert "error details" in str(res)
 
 
 async def test_bash_no_output(tmp_path: Path):
@@ -182,3 +183,14 @@ async def test_bash_on_update_streaming(tmp_path: Path):
     assert "step1" in str(res.data)
     assert "step2" in str(res.data)
     assert len(updates) > 0
+
+
+def test_resolve_shell_detection():
+    """测试 Windows 下优先解析 Git Bash 路径。"""
+    from my_coding_agent.tools.bash import _resolve_shell
+    shell_path, is_bash = _resolve_shell()
+    assert isinstance(shell_path, str)
+    assert isinstance(is_bash, bool)
+    if is_bash:
+        assert "bash" in shell_path.lower()
+

@@ -549,4 +549,47 @@ test("InteractiveMode restores queued messages on Escape when streaming", async 
   assert.ok(calls.some((c) => c.method === "clear_queue"));
 });
 
+test("InteractiveMode removes incomplete streaming assistant message on Escape interrupt and cancelled events", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  await mode.init();
+
+  // 1. 模拟模型开始流式吐出半截文本 "Windows"
+  mode.handleAgentEvent({
+    type: "agent_start",
+  });
+  mode.handleAgentEvent({
+    type: "message_start",
+    message: { role: "assistant", content: "" },
+  });
+  mode.handleAgentEvent({
+    type: "message_update",
+    message: { role: "assistant", content: "Windows" },
+  });
+
+  const renderedDuringStream = mode.ui.render(80).join("\n");
+  assert.ok(renderedDuringStream.includes("Windows"));
+
+  // 2. 用户此时按下 Escape 键中断
+  mode.ui.handleTerminalInput("\x1b");
+
+  // 3. 后端发回 message_end (stop_reason="cancelled") 和 agent_end (stop_reason="cancelled")
+  mode.handleAgentEvent({
+    type: "message_end",
+    message: { role: "assistant", content: "Windows", metadata: { stop_reason: "cancelled" } },
+  });
+  mode.handleAgentEvent({
+    type: "agent_end",
+    iterations: 1,
+    stop_reason: "cancelled",
+    final_text: "",
+  });
+
+  // 4. 验证断言：半截文本 "Windows" 已从主聊天容器中彻底移除，仅呈现干净的中断提示
+  const renderedAfterInterrupt = mode.ui.render(80).join("\n");
+  assert.ok(!renderedAfterInterrupt.includes("Windows"), "Incomplete assistant fragment 'Windows' must be removed");
+  assert.ok(renderedAfterInterrupt.includes("执行已中断。"), "Interruption notice must be rendered");
+  assert.equal(mode.isStreaming, false);
+});
+
 

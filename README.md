@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
   <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/"><img src="https://img.shields.io/badge/blog-series-success.svg?style=flat-square" alt="blog" /></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/tests-713%20python%20%7C%2068%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tests-714%20python%20%7C%2069%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
 </p>
 
 <p align="center">
@@ -174,8 +174,8 @@ npm install
 npm run build
 
 # 4. 运行全量离线自动化测试套件 (100% 绿灯全通)
-uv run python -m pytest   # 713 Python tests passed
-npm test                  # 68 TUI tests passed
+uv run python -m pytest   # 714 Python tests passed
+npm test                  # 69 TUI tests passed
 
 # 5. 启动开发态终端
 npm start
@@ -193,7 +193,7 @@ npm start
   - **输入行即时宏扩展管道 (`MacroEngine`)**：`!cmd`（执行并追加上下文）、`!!cmd`（静默排查零 Token 消耗）、`/skill:` 展开、`/<template>` 变量参数化注入；
   - **财务级双行状态栏 (`FooterComponent`)**：紧凑呈现工作区、模型、分级 Token、成本核算、上下文窗口占比与真实 Prompt Cache 命中率（`CH%`）。
 - **7 大工作区核心编码工具 (`tools/`)**：
-  - `read`（2000行/50KB截断保护）、`write`（原子覆写）、`edit`（精准替换与单块容错）、`bash`（100ms流式输出+后台作业+危险黑名单拦截）、`grep`（`context`/`glob`支持）、`find`（1000限制）、`ls`（500项截断+大小写忽略排序）；
+  - `read`（2000行/50KB截断保护）、`write`（原子覆写）、`edit`（精准替换与单块容错）、`bash`（Windows Git Bash 智能探查+100ms流式输出+编码防乱码+失败状态精准红叉标示+后台作业+危险黑名单拦截）、`grep`（`context`/`glob`支持）、`find`（1000限制）、`ls`（500项截断+大小写忽略排序）；
   - `resolve_path` 宽松 CWD 路径解析（对标 Pi 原厂哲学，不做人工虚拟沙箱阻碍用户工作区调用）；
   - `FileMutationQueue` 细粒度单文件并发互斥写锁，彻底规避并发竞争覆盖。
 - **业务安全权限审查门禁 (`PermissionGate`)**：

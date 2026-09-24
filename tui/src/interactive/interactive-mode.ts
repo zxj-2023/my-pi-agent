@@ -482,6 +482,14 @@ export class InteractiveMode {
 
       case "message_end": {
         if (this.currentStreamingAssistant) {
+          const isCancelled =
+            event.message?.metadata?.stop_reason === "cancelled" ||
+            event.message?.metadata?.stop_reason === "aborted";
+          if (isCancelled) {
+            this.chatContainer.removeChild(this.currentStreamingAssistant);
+            this.currentStreamingAssistant = undefined;
+            break;
+          }
           if (
             !this.currentStreamingAssistant.getContentText() &&
             event.message?.content
@@ -510,6 +518,13 @@ export class InteractiveMode {
           event.message?.content &&
           event.message?.role === "assistant"
         ) {
+          if (
+            event.message.metadata?.stop_reason === "cancelled" ||
+            event.message.metadata?.stop_reason === "aborted"
+          ) {
+            // 中断废弃的半截文本直接忽略，不新建气泡挂载
+            break;
+          }
           if (event.message.metadata?.stop_reason === "error") {
             this.appendErrorMessage(event.message.content);
             this.hasRenderedTurnError = true;
@@ -583,9 +598,11 @@ export class InteractiveMode {
         this.updatePendingMessagesDisplay();
         if (this.currentStreamingAssistant) {
           if (
-            !this.currentStreamingAssistant.getContentText() &&
-            event.final_text &&
-            event.stop_reason === "error"
+            event.stop_reason === "cancelled" ||
+            event.stop_reason === "aborted" ||
+            (!this.currentStreamingAssistant.getContentText() &&
+              event.final_text &&
+              event.stop_reason === "error")
           ) {
             this.chatContainer.removeChild(this.currentStreamingAssistant);
           } else {
@@ -799,6 +816,10 @@ export class InteractiveMode {
         this.pendingSteeringList = [];
         this.pendingFollowupList = [];
         this.updatePendingMessagesDisplay();
+        if (this.currentStreamingAssistant) {
+          this.chatContainer.removeChild(this.currentStreamingAssistant);
+          this.currentStreamingAssistant = undefined;
+        }
         this.clearStatusDisplay();
         this.footer.update({ isBusy: false });
         this.appendSystemNotice("执行已中断。");
@@ -937,6 +958,10 @@ export class InteractiveMode {
           this.pendingSteeringList = [];
           this.pendingFollowupList = [];
           this.updatePendingMessagesDisplay();
+          if (this.currentStreamingAssistant) {
+            this.chatContainer.removeChild(this.currentStreamingAssistant);
+            this.currentStreamingAssistant = undefined;
+          }
           this.clearStatusDisplay();
           this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
@@ -965,6 +990,10 @@ export class InteractiveMode {
           this.isWorking = false;
           this.isSubmitting = false;
           void this.restoreQueuedMessagesToEditor({ abort: true });
+          if (this.currentStreamingAssistant) {
+            this.chatContainer.removeChild(this.currentStreamingAssistant);
+            this.currentStreamingAssistant = undefined;
+          }
           this.clearStatusDisplay();
           this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
