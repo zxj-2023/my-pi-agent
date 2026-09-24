@@ -134,6 +134,21 @@ def test_cancellation_token_lifecycle():
     assert token.is_cancelled()
 
 
+def test_cancellation_token_callbacks():
+    """验证 CancellationToken.add_callback 支持在取消时同步回调，或在已取消时立即触发。"""
+    token = CancellationToken()
+    calls = []
+    token.add_callback(lambda: calls.append("cb1"))
+    assert calls == []
+
+    token.cancel()
+    assert calls == ["cb1"]
+
+    # 已取消后再加 callback 立即执行
+    token.add_callback(lambda: calls.append("cb2"))
+    assert calls == ["cb1", "cb2"]
+
+
 # ── run_agent_loop Tests ─────────────────────────────────────────────────────
 
 

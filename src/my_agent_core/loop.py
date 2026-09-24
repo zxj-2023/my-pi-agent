@@ -69,6 +69,7 @@ class CancellationToken:
 
     def __init__(self) -> None:
         self._cancelled: bool = False
+        self._callbacks: list[Callable[[], None]] = []
 
     def is_cancelled(self) -> bool:
         """检查是否已请求取消。"""
@@ -77,6 +78,17 @@ class CancellationToken:
     def cancel(self) -> None:
         """触发协作式取消。"""
         self._cancelled = True
+        for cb in list(self._callbacks):
+            with contextlib.suppress(Exception):
+                cb()
+
+    def add_callback(self, cb: Callable[[], None]) -> None:
+        """注册取消时的回调函数。若已处于取消态，立即同步执行。"""
+        if self._cancelled:
+            with contextlib.suppress(Exception):
+                cb()
+        else:
+            self._callbacks.append(cb)
 
     @property
     def cancelled(self) -> bool:

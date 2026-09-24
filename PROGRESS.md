@@ -871,11 +871,16 @@ my-pi-agent/
     - 当命令退出码 `exit_code != 0` 时，显式返回 `BashResult(ok=False, data=msg, error=msg)`；
     - 解决旧逻辑直接返回字符串导致 `@tool` 误包装为 `ok=True` 的缺陷；
     - 使 TUI `ToolExecutionComponent` 准确呈现红色 `✗` 与 `(失败)`，报错原文如实透传给大模型纠错。
+  - **CancellationToken 回调机制与 bash 工具瞬时中断 (`loop.py`, `bash.py`)**：
+    - 在 `CancellationToken` 中实现 `add_callback(cb)` 注册取消监听；
+    - `bash.py` 参数列表显式接入 `signal` 并在进程启动时绑定监听，用户按 Esc 时毫秒级杀死子进程树（杜绝跑 30 秒才停的体验卡顿）；
+    - 在 Git Bash 执行前置注入 `set -o pipefail`，保证管道命令（如 `pytest | tail`）中任何一步失败均能如实传递退出码；
+    - 优化工具描述明确 POSIX 语法，引导模型首轮直出标准 Linux 探测命令。
   - **TUI 中断清理半截残片组件 (`tui/src/interactive/interactive-mode.ts`)**：
     - 在用户按 `Escape` / `Ctrl+C` / `/abort` 中断时，立即从 `chatContainer` 中将正在流式的半截 `currentStreamingAssistant` 安全移除并置空；
     - 在 `message_end` 与 `agent_end` 中拦截 `stop_reason === "cancelled" / "aborted"`，彻底杜绝已被丢弃的孤儿单字在视口中新建气泡；
     - 确保 `执行已中断。` 通知在清爽的界面中规范呈现。
-- **验证**：全库测试规模提升至 **714 个 Python 核心测试全部通过**，**69 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
+- **验证**：全库测试规模提升至 **717 个 Python 核心测试全部通过**，**69 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
 
 
 

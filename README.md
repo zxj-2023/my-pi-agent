@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
   <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/"><img src="https://img.shields.io/badge/blog-series-success.svg?style=flat-square" alt="blog" /></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/tests-714%20python%20%7C%2069%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tests-717%20python%20%7C%2069%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
 </p>
 
 <p align="center">
@@ -174,7 +174,7 @@ npm install
 npm run build
 
 # 4. 运行全量离线自动化测试套件 (100% 绿灯全通)
-uv run python -m pytest   # 714 Python tests passed
+uv run python -m pytest   # 717 Python tests passed
 npm test                  # 69 TUI tests passed
 
 # 5. 启动开发态终端

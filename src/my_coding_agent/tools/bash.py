@@ -119,7 +119,7 @@ def make_bash_tool(
 
     @tool(
         name="bash",
-        description="Execute a bash/shell command in the workspace with timeout protection and process tree killing.",
+        description="Execute a bash command in the workspace (POSIX / Git Bash syntax; do not use cmd.exe syntax like 'dir' or 'cd /d'). Returns stdout and stderr.",
         is_parallel_safe=False,
     )
     async def bash(
@@ -127,7 +127,23 @@ def make_bash_tool(
         timeout: int = 120,
         run_in_background: bool = False,
         on_update: Callable[[Any], None] | None = None,
+        signal: Any | None = None,
     ) -> Any:
+        def _is_cancelled() -> bool:
+            if signal is None:
+                return False
+            check = getattr(signal, "is_cancelled", None)
+            if callable(check):
+                return bool(check())
+            return bool(getattr(signal, "cancelled", False))
+
+        if _is_cancelled():
+            return BashResult(
+                ok=False,
+                data="Tool call interrupted by user",
+                error="Tool call interrupted by user",
+            )
+
         for blocked in BLOCKED_COMMANDS:
             if blocked in command:
                 msg = f"Error: Blocked dangerous command pattern '{blocked}'."
@@ -160,15 +176,23 @@ def make_bash_tool(
             if is_bash:
                 env.setdefault("LANG", "C.UTF-8")
                 env.setdefault("LC_ALL", "C.UTF-8")
+                resolved_cmd = f"set -o pipefail\n{command}"
                 proc = await asyncio.create_subprocess_exec(
                     shell_path,
                     "-c",
-                    command,
+                    resolved_cmd,
                     env=env,
                     **kwargs,
                 )
             else:
                 proc = await asyncio.create_subprocess_shell(command, env=env, **kwargs)
+
+            def _abort_proc() -> None:
+                if proc.pid:
+                    _kill_process_tree(proc.pid)
+
+            if signal is not None and hasattr(signal, "add_callback"):
+                signal.add_callback(_abort_proc)
 
             output_chunks: list[str] = []
             loop = asyncio.get_running_loop()
@@ -179,6 +203,9 @@ def make_bash_tool(
                 if proc.stdout is None:
                     return
                 while True:
+                    if _is_cancelled():
+                        _abort_proc()
+                        break
                     line_bytes = await proc.stdout.readline()
                     if not line_bytes:
                         break
@@ -196,18 +223,26 @@ def make_bash_tool(
                 await proc.wait()
                 output = "".join(output_chunks)
             except asyncio.TimeoutError:
-                if proc.pid:
-                    _kill_process_tree(proc.pid)
-                    with contextlib.suppress(Exception):
-                        await asyncio.wait_for(proc.wait(), timeout=2.0)
+                _abort_proc()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
                 msg = f"Error: Command timed out after {timeout} seconds: {command}"
                 return BashResult(ok=False, data=msg, error=msg)
             except (asyncio.CancelledError, GeneratorExit):
-                if proc.pid:
-                    _kill_process_tree(proc.pid)
-                    with contextlib.suppress(Exception):
-                        await asyncio.wait_for(proc.wait(), timeout=2.0)
+                _abort_proc()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
                 raise
+
+            if _is_cancelled():
+                _abort_proc()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(proc.wait(), timeout=1.0)
+                return BashResult(
+                    ok=False,
+                    data="Tool call interrupted by user",
+                    error="Tool call interrupted by user",
+                )
 
             exit_code = proc.returncode
 
