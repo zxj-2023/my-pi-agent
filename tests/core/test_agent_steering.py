@@ -333,4 +333,3 @@ async def test_agent_clear_queue(tmp_path):
     cleared = agent.clear_queue()  # pyright: ignore[reportAttributeAccessIssue]
     assert len(cleared) == 2
     assert len(agent.message_queue) == 0
-

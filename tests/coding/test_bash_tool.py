@@ -188,9 +188,9 @@ async def test_bash_on_update_streaming(tmp_path: Path):
 def test_resolve_shell_detection():
     """测试 Windows 下优先解析 Git Bash 路径。"""
     from my_coding_agent.tools.bash import _resolve_shell
+
     shell_path, is_bash = _resolve_shell()
     assert isinstance(shell_path, str)
     assert isinstance(is_bash, bool)
     if is_bash:
         assert "bash" in shell_path.lower()
-

@@ -711,4 +711,3 @@ async def test_rpc_server_clear_queue(tmp_path: Path):
     assert resp["result"]["cleared"] is True
     assert resp["result"]["count"] == 2
     assert len(server.agent.agent.message_queue) == 0
-

@@ -110,7 +110,6 @@ def _decode_stream_bytes(data: bytes) -> str:
         return data.decode("utf-8", errors="replace")
 
 
-
 def make_bash_tool(
     workspace: Path | str,
     background_runner: BackgroundRunner | None = None,

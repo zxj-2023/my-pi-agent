@@ -103,12 +103,16 @@
 - [07-distribution-and-packaging.md](coding/07-distribution-and-packaging.md)：工程发布、全平台分发与全局 CLI 规范（npm workspaces 与 `npm link` 全局命令 `my-pi-agent` / `my-agent`、uv 单一虚拟环境、跨平台独立分发路线）。
 - [08-observability-and-debug-mode.md](coding/08-observability-and-debug-mode.md)：可观察性与调试诊断体系规范（双模事件驱动调试、`DebugEventTracer` 毫秒级时序落盘 `~/.my-pi-agent/logs/debug.log`、终端瀑布流、交互式 `/debug` 瞬时快照与死循环看门狗）。
 
-### 4. 原厂对齐审计与分发部署 (`docs/`)
+### 4. 自动化评测层 (`docs/eval/`)
+
+- [01-evaluation-harness-architecture.md](eval/01-evaluation-harness-architecture.md)：自动化评测系统架构与设计规范（对标 DeepSeek Harness `dsh-eval` 与 Pi `pi-terminal-bench`，无头模式驱动、三大主力评测集 SWE-bench Verified / SWE-bench Multilingual / Terminal-Bench 2.1 协议、10 项标准化量化指标体系与 A/B 判定机制）。
+
+### 5. 原厂对齐审计与分发部署 (`docs/`)
 
 - [PI_ALIGNMENT_AUDIT.md](PI_ALIGNMENT_AUDIT.md)：Pi 官方实现 1:1 对标审计报告（涵盖核心微内核、工具契约、会话 DAG 分支、上下文压缩与 TUI 组件）。
 - [DISTRIBUTION.md](DISTRIBUTION.md)：全平台 CLI 分发指南（npm link / uv / 全局单命令接入）。
 
-### 5. 外部调研与对标分析 (`docs/references/`)
+### 6. 外部调研与对标分析 (`docs/references/`)
 
 - [tau-analysis.md](references/tau-analysis.md)：深度调研与剖析 `tau-ai`（Python 版 Pi Harness 框架）三层架构，横向对比 TUI 终端界面、OAuth 认证链、JSONL RPC 模式、models.dev 动态模型库、会话历史自愈机制与演进路线图。
 
