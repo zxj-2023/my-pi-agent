@@ -122,18 +122,37 @@ class QueuedMessage:
 
 ## 四、前端 TUI 待发区呈现规范 (`interactive-mode.ts`)
 
-为了 100% 对齐 Pi 原厂终端交互规范，Steering 在 TUI 表现层具备独立的视口对接能力：
+为了 100% 对齐 Pi 原厂终端交互规范，Steering 与 Follow-up 在 TUI 表现层具备统一的视口对接与按键拦截能力：
 
 1. **运行期回车默认转向 (Smart Steer Routing)**：
-   - 当智能体处于忙碌/流式生成或工具执行期间（`isStreaming || isWorking || isSubmitting`），用户在输入框键入**任何普通文本**或 `/steer <msg>` 并敲回车，**默认 100% 作为 Steering 即时插话**送入内核。
-2. **输入框上方待发区呈现 (Pending Dock)**：
-   - 回车后输入框立即清空，在输入框上方挂载灰暗色（`theme.dim`）单行指示：
+   - 当智能体处于忙碌/流式生成或工具执行期间（`isStreaming || isWorking || isSubmitting`），用户在输入框键入**任何普通文本**或 `/steer <msg>` 并敲回车，**默认 100% 作为 Steering 即时插话**送入内核；
+   - 处于空闲态时按回车直接发起常规提问。
+2. **全平台快捷追问 (`Ctrl+Q` Follow-up)**：
+   - **空闲态**：按下 `Ctrl+Q` 行为等价于直接按回车，立即提交执行；
+   - **运行态**：按下 `Ctrl+Q` 自动将当前输入框内容提取为 **Follow-up 排队追问**，追加至编辑器历史并清空输入框，调用 `bridge.followUp(...)` 推入内核队列，等待当前宏观任务彻底完成后自动顺延执行。
+3. **输入框上方待发区呈现 (Pending Dock)**：
+   - 回车或 `Ctrl+Q` 后输入框立即清空，在输入框上方挂载灰暗色（`theme.dim`）排队指示：
      ```text
      Steering: 暂停
-       ↳ Alt+Up to edit queued messages
+     Follow-up: 随后构建项目
+       ↳ Alt+Q to edit all queued messages
      ```
    - 在当前工具批次未结束前，插话**停留在待发区，不抢先挂载到主聊天历史**，给用户清晰的交付预期；
    - 当内核完成当前轮工具并在次轮通过 `message_start(role="user")` 正式交付时，自动从 Pending 区移除，并无感移入主聊天记录区。
-3. **快捷召回编辑 (`Alt+Up` / `Alt+Q`)**：
-   - 处于待发状态的转向消息支持一键弹回编辑框重新修改；按 `Esc` 中断时自动清空并同步释放。
+4. **全量召回编辑 (`Alt+Q` / `Alt+Up`) 与内核队列清空**：
+   - 处于待发状态的所有消息（无论是 Steering 还是 Follow-up）支持按 `Alt+Q` 或 `Alt+Up` 一键全量合并弹回输入框（多条以双换行 `\n\n` 拼接）；
+   - 前端立即清空本地待发列表，并同步发起 RPC `clear_queue`，确保内核底层队列同步清空，杜绝已撤回消息滞后误执行。
+5. **Escape 中断联动回填**：
+   - 在运行态按下 `Esc` 中断时，除了向内核发送 `abort` 停止流式输出外，自动触发全量召回，将未送出的待发排队消息无缝还原至输入框，便于用户即刻修改并重发。
+
+---
+
+## 五、内核与 RPC 队列接口规范
+
+- `MessageQueue.clear() -> list[QueuedMessage]`：清空并返回当前排队消息；
+- `Agent.clear_queue() -> list[QueuedMessage]`：代理清空微内核排队消息；
+- `CodingAgent.clear_queue() -> list[Any]`：业务外观层清空排队消息；
+- RPC 方法 `clear_queue`：
+  - 请求：`{"jsonrpc": "2.0", "id": 1, "method": "clear_queue", "params": {}}`
+  - 响应：`{"jsonrpc": "2.0", "id": 1, "result": {"cleared": true, "count": 2}}`
 

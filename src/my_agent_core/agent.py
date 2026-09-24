@@ -37,7 +37,7 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.loop import CancellationToken, run_agent_loop
 from my_agent_core.memory import MemoryStore, make_memory_tool
-from my_agent_core.message_queue import MessageQueue
+from my_agent_core.message_queue import MessageQueue, QueuedMessage
 from my_agent_core.plugins import PluginManager
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.session import Session
@@ -276,6 +276,10 @@ class Agent:
     def follow_up(self, message: str) -> None:
         """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
         self.message_queue.add_followup(message)
+
+    def clear_queue(self) -> list[QueuedMessage]:
+        """清空当前排队的干预消息（包含 Steering 与 Follow-up），并返回被清除的消息列表。"""
+        return self.message_queue.clear()
 
     def _get_steering_messages(self) -> Sequence[str]:
         """为底层循环提取当前排队的 steer 消息。"""

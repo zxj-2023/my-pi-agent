@@ -217,6 +217,10 @@ class CodingAgent:
         """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
         self.agent.follow_up(message)
 
+    def clear_queue(self) -> list[Any]:
+        """清空底层 Agent 当前排队的干预消息。"""
+        return self.agent.clear_queue()
+
     def abort(self) -> None:
         """中止当前运行中的任务（取消流式输出，丢弃未完成半截文本并清空干预队列）。"""
         try:

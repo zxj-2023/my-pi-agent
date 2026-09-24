@@ -684,3 +684,31 @@ async def test_rpc_server_concurrent_prompt_routes_to_steer(tmp_path: Path):
 
     await task1
     assert server.is_prompt_running is False
+
+
+@pytest.mark.anyio
+async def test_rpc_server_clear_queue(tmp_path: Path):
+    """测试 rpc_server clear_queue 方法能清空排队的干预消息。"""
+    server = RpcServer(llm=FakeLLM())
+    await server.handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"workspace": str(tmp_path)},
+        }
+    )
+
+    # 注入 steer 和 followup
+    await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "steer", "params": {"message": "steer1"}})
+    await server.handle_request({"jsonrpc": "2.0", "id": 3, "method": "followup", "params": {"message": "follow1"}})
+
+    assert server.agent is not None
+    assert len(server.agent.agent.message_queue) == 2
+
+    # 调用 clear_queue
+    resp = await server.handle_request({"jsonrpc": "2.0", "id": 4, "method": "clear_queue", "params": {}})
+    assert resp["result"]["cleared"] is True
+    assert resp["result"]["count"] == 2
+    assert len(server.agent.agent.message_queue) == 0
+

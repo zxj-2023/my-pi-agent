@@ -310,3 +310,27 @@ async def test_steer_queued_before_run_delivers_after_turn1_tools(tmp_path):
     r2_msgs = llm.received_messages[1]
     assert any(m.role == "tool" for m in r2_msgs)
     assert any(m.role == "user" and m.content == "暂停" for m in r2_msgs)
+
+
+@pytest.mark.anyio
+async def test_agent_clear_queue(tmp_path):
+    """测试 agent.clear_queue() 能清空排队的 steer 和 follow-up 消息。"""
+    store = SessionStore(tmp_path)
+    session = store.create()
+    agent = Agent(
+        llm=SequenceFakeLLM([]),
+        session=session,
+        tools=[],
+        skill_dirs=[],
+        subagent_dirs=[],
+        memory_dir=False,
+        plugin_dirs=[],
+    )
+    agent.steer("steering 1")
+    agent.follow_up("followup 1")
+    assert len(agent.message_queue) == 2
+
+    cleared = agent.clear_queue()  # pyright: ignore[reportAttributeAccessIssue]
+    assert len(cleared) == 2
+    assert len(agent.message_queue) == 0
+

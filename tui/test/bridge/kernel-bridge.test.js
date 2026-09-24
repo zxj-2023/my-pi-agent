@@ -42,11 +42,26 @@ test("KernelBridge proxies steer and followUp commands", async () => {
 
   await bridge.steer("stop and do this");
   assert.equal(mockCalls[0].method, "steer");
-  assert.deepEqual(mockCalls[0].params, { prompt: "stop and do this" });
+  assert.deepEqual(mockCalls[0].params, { message: "stop and do this" });
 
   await bridge.followUp("next task");
   assert.equal(mockCalls[1].method, "followup");
-  assert.deepEqual(mockCalls[1].params, { prompt: "next task" });
+  assert.deepEqual(mockCalls[1].params, { message: "next task" });
+});
+
+test("KernelBridge proxies clearQueue command", async () => {
+  const mockCalls = [];
+  const fakeClient = {
+    request: async (method, params) => {
+      mockCalls.push({ method, params });
+      return { cleared: true };
+    },
+  };
+  const bridge = new KernelBridge(fakeClient);
+
+  await bridge.clearQueue();
+  assert.equal(mockCalls[0].method, "clear_queue");
+  assert.deepEqual(mockCalls[0].params, {});
 });
 
 test("KernelBridge proxies model, session, and tree operations", async () => {
@@ -92,7 +107,10 @@ test("KernelBridge proxies model, session, and tree operations", async () => {
 
   await bridge.branchSession("node_xyz");
   assert.equal(mockCalls[7].method, "session_branch");
-  assert.deepEqual(mockCalls[7].params, { node_id: "node_xyz" });
+  assert.deepEqual(mockCalls[7].params, {
+    target_id: "node_xyz",
+    node_id: "node_xyz",
+  });
 });
 
 test("KernelBridge proxies thinking, auth, and settings operations", async () => {

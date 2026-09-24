@@ -36,7 +36,7 @@
 
 ### 1. 核心请求与命令方法 (Request / Response)
 
-服务端共注册分发了 29 个强类型 RPC 业务处理方法，按功能分为 6 大领域：
+服务端共注册分发了 30 个强类型 RPC 业务处理方法，按功能分为 6 大领域：
 
 #### (1) 通信生命周期与流程控制
 
@@ -47,6 +47,7 @@
 | `prompt` | `{"text": string, "streamingBehavior"?: "steer" \| "followUp"}` | `{"status": "completed"}` 或 `{"status": "ok", "action": "steered"}` | 发起用户提问，微内核互斥锁保护；若已有活跃任务在执行且指定 `steer`，自动合流即时转向 |
 | `steer` | `{"message"?: string, "prompt"?: string, "text"?: string}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令（支持灵活键名） |
 | `followup` | `{"message"?: string, "prompt"?: string, "text"?: string}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
+| `clear_queue` | `{}` | `{"cleared": true, "count": number}` | 清空当前会话中所有排队待发的干预消息（包含 Steering 与 Follow-up） |
 | `abort` | `{}` | `{"status": "ok"}` | 协作式中断当前正在运行的模型流式生成或工具执行进程 |
 
 #### (2) 会话管理与 DAG 分支漫游

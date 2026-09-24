@@ -325,6 +325,10 @@ export class PythonKernelClient extends EventEmitter {
     await this.sendRequest("abort");
   }
 
+  public async clearQueue(): Promise<void> {
+    await this.sendRequest("clear_queue");
+  }
+
   public async shutdown(): Promise<void> {
     try {
       if (this.child && this.child.stdin) {

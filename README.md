@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
   <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/"><img src="https://img.shields.io/badge/blog-series-success.svg?style=flat-square" alt="blog" /></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/tests-671%20python%20%7C%2065%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tests-713%20python%20%7C%2068%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
 </p>
 
 <p align="center">
@@ -174,8 +174,8 @@ npm install
 npm run build
 
 # 4. 运行全量离线自动化测试套件 (100% 绿灯全通)
-uv run python -m pytest   # 671 Python tests passed
-npm test                  # 65 TUI tests passed
+uv run python -m pytest   # 713 Python tests passed
+npm test                  # 68 TUI tests passed
 
 # 5. 启动开发态终端
 npm start
@@ -212,9 +212,10 @@ npm start
   - 树状 DAG 结构、逐条原子落盘（`fsync` + `os.replace`），崩溃永不损坏历史；
   - 支持 `/tree` 查看拓扑树、`/fork` 节点分叉、`/clone` 全量探索副本；
   - Cheap-First 四层压缩管线（L3 大结果落盘 ➔ L1 裁切中间轮 ➔ L2 旧结果占位 ➔ L4 LLM 智能摘要），配合 `retainedTail` 缓存与 `compaction_floor` 安全护栏。
-- **动态即时转向（Steering）与双层循环调度 (`message_queue.py`)**：
-  - 支持在智能体运行处理对话期间，用户直接键入文本按回车即时插话（Steering）；
-  - 严格对标 Pi 原厂 Pending 待发区呈现规范（输入框上方灰显指示 `Steering: ...`，支持 `Alt+Up`/`Alt+Q` 撤销编辑）；
+- **动态即时转向（Steering）与排队追问（Follow-up）双层调度 (`message_queue.py`)**：
+  - 支持在智能体运行处理对话期间，用户直接键入文本按回车即时插话（Steering），或按 **`Ctrl+Q`** 提交排队追问（Follow-up）；
+  - 严格对标 Pi 原厂 Pending 待发区呈现规范（输入框上方灰显指示 `Steering: ...` 与 `Follow-up: ...`，提示 `↳ Alt+Q to edit all queued messages`）；
+  - 支持按 `Alt+Q`/`Alt+Up` 或 `Esc` 中断一键将待发消息全量弹回输入框，并同步发起 RPC `clear_queue` 清空内核排队；
   - 严格遵循**首轮工具执行完毕后交付契约**，彻底杜绝初始任务与转向词并列输入导致的复合句歧义。
 - **分会话双轨制 Debug 诊断体系 (`tracer.py`)**：
   - 告别全局混写，在 `~/.my-pi-agent/logs/<slug>-<hash>/` 下按会话独立输出：

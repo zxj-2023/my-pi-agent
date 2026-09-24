@@ -480,3 +480,73 @@ test("InteractiveMode /new command resets footer metrics and updates sessionName
   assert.ok(!footerLines.includes("18.7%"));
 });
 
+test("InteractiveMode handles Ctrl+Q followup during streaming and idle", async () => {
+  const { bridge, calls } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  // 1. 空闲态下触发 handleFollowUp：等同于普通 Prompt 提交
+  mode.defaultEditor.setText("Run this now");
+  await mode.handleFollowUp();
+  assert.equal(mode.defaultEditor.getText(), "");
+  assert.equal(calls.at(-1)?.method, "prompt");
+  assert.equal(calls.at(-1)?.params?.text, "Run this now");
+  assert.equal(mode.pendingFollowupList.length, 0);
+
+  // 2. 运行态下触发 handleFollowUp：进入待发队列并调用 bridge.followUp
+  mode.isStreaming = true;
+  mode.defaultEditor.setText("Run this next");
+  await mode.handleFollowUp();
+  assert.equal(mode.defaultEditor.getText(), "");
+  assert.equal(calls.at(-1)?.method, "followup");
+  assert.equal(calls.at(-1)?.params?.message, "Run this next");
+  assert.deepEqual(mode.pendingFollowupList, ["Run this next"]);
+
+  const rendered = mode.ui.render(80).join("\n");
+  assert.ok(rendered.includes("Follow-up: Run this next"));
+  assert.ok(rendered.includes("Alt+Q to edit all queued messages"));
+});
+
+test("InteractiveMode restores all queued messages on restoreQueuedMessagesToEditor and calls clearQueue", async () => {
+  const { bridge, calls } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+
+  mode.pendingSteeringList.push("steer message 1");
+  mode.pendingFollowupList.push("follow-up message 2");
+  mode.updatePendingMessagesDisplay();
+
+  const renderedBefore = mode.ui.render(80).join("\n");
+  assert.ok(renderedBefore.includes("Steering: steer message 1"));
+  assert.ok(renderedBefore.includes("Follow-up: follow-up message 2"));
+
+  await mode.restoreQueuedMessagesToEditor();
+
+  assert.equal(mode.defaultEditor.getText(), "steer message 1\n\nfollow-up message 2");
+  assert.equal(mode.pendingSteeringList.length, 0);
+  assert.equal(mode.pendingFollowupList.length, 0);
+  assert.ok(calls.some((c) => c.method === "clear_queue"));
+
+  const renderedAfter = mode.ui.render(80).join("\n");
+  assert.ok(!renderedAfter.includes("Steering: steer message 1"));
+  assert.ok(!renderedAfter.includes("Follow-up: follow-up message 2"));
+});
+
+test("InteractiveMode restores queued messages on Escape when streaming", async () => {
+  const { bridge, calls } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  await mode.init();
+
+  mode.isStreaming = true;
+  mode.pendingSteeringList.push("interrupted steering");
+  mode.updatePendingMessagesDisplay();
+
+  // 模拟按下 escape 键中断
+  mode.ui.handleTerminalInput("\x1b"); // escape
+
+  assert.equal(mode.isStreaming, false);
+  assert.equal(mode.defaultEditor.getText(), "interrupted steering");
+  assert.equal(mode.pendingSteeringList.length, 0);
+  assert.ok(calls.some((c) => c.method === "abort"));
+  assert.ok(calls.some((c) => c.method === "clear_queue"));
+});
+
+

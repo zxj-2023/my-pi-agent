@@ -341,9 +341,50 @@ export class InteractiveMode {
       );
     }
     this.pendingMessagesContainer.addChild(
-      new Text(theme.dim("  ↳ Alt+Up to edit queued messages"), 0, 0),
+      new Text(theme.dim("  ↳ Alt+Q to edit all queued messages"), 0, 0),
     );
     this.ui.requestRender();
+  }
+
+  public async handleFollowUp(): Promise<void> {
+    const text = this.defaultEditor.getText().trim();
+    if (!text) return;
+
+    this.defaultEditor.addToHistory?.(text);
+    this.defaultEditor.setText("");
+
+    const isBusy = this.isStreaming || this.isWorking || this.isSubmitting;
+    if (isBusy) {
+      this.pendingFollowupList.push(text);
+      this.updatePendingMessagesDisplay();
+      try {
+        await this.bridge.followUp(text);
+      } catch (err: any) {
+        this.appendErrorMessage(`Follow-up 注入异常: ${err.message || String(err)}`);
+      }
+    } else {
+      await this.handleUserInput(text);
+    }
+  }
+
+  public async restoreQueuedMessagesToEditor(options: { abort?: boolean } = {}): Promise<void> {
+    const allPending = [...this.pendingSteeringList, ...this.pendingFollowupList];
+    if (allPending.length === 0) return;
+
+    this.pendingSteeringList = [];
+    this.pendingFollowupList = [];
+    this.updatePendingMessagesDisplay();
+
+    const currentText = this.defaultEditor.getText();
+    const restoredText = allPending.join("\n\n");
+    const newText = currentText ? `${currentText}\n\n${restoredText}` : restoredText;
+    this.defaultEditor.setText(newText);
+
+    try {
+      await this.bridge.clearQueue();
+    } catch {
+      // 忽略内核清空队列失败异常
+    }
   }
 
   public handleAgentEvent(event: any): void {
@@ -914,15 +955,16 @@ export class InteractiveMode {
           void this.handleExit();
           return { consume: true };
         }
+      } else if (matchesKey(data, "ctrl+q")) {
+        void this.handleFollowUp();
+        return { consume: true };
       } else if (matchesKey(data, "escape")) {
         if (this.isStreaming || this.isSubmitting || this.isWorking) {
           void this.bridge.abort();
           this.isStreaming = false;
           this.isWorking = false;
           this.isSubmitting = false;
-          this.pendingSteeringList = [];
-          this.pendingFollowupList = [];
-          this.updatePendingMessagesDisplay();
+          void this.restoreQueuedMessagesToEditor({ abort: true });
           this.clearStatusDisplay();
           this.footer.update({ isBusy: false });
           this.appendSystemNotice("执行已中断。");
@@ -931,13 +973,9 @@ export class InteractiveMode {
         }
       } else if (matchesKey(data, "alt+up") || matchesKey(data, "alt+q")) {
         if (this.pendingSteeringList.length > 0 || this.pendingFollowupList.length > 0) {
-          const last = this.pendingSteeringList.pop() || this.pendingFollowupList.pop();
-          if (last) {
-            this.defaultEditor.setText(last);
-            this.updatePendingMessagesDisplay();
-            this.ui.requestRender();
-            return { consume: true };
-          }
+          void this.restoreQueuedMessagesToEditor();
+          this.ui.requestRender();
+          return { consume: true };
         }
       } else if (matchesKey(data, "ctrl+o")) {
         if (this.startupResources) {
@@ -1978,6 +2016,8 @@ export class InteractiveMode {
             "",
             `  ${theme.bold("编辑与会话 (Editing):")}`,
             `    Enter         提交提问 (在输入框) 或确认当前所选条目 (在选择器)`,
+            `    Ctrl+Q        排队追问 (Follow-up) 当前任务完成后自动顺延执行`,
+            `    Alt+Q/Alt+Up  召回并编辑全部待发排队消息 (Steering & Follow-up)`,
             `    Ctrl+C        清空当前输入文字 (输入框有文字时) / 关闭弹窗 (选择器中)`,
             `    Ctrl+D        快速退出终端 (仅当输入框为空时生效)`,
             `    Ctrl+L        快速唤起模型选择器 (Model Catalog)`,

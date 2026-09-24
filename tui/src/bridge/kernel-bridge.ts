@@ -94,6 +94,13 @@ export class KernelBridge {
     return this.call<RpcResponseData>("followup", { message: text });
   }
 
+  public async clearQueue(): Promise<RpcResponseData> {
+    if (typeof (this.client as any).clearQueue === "function") {
+      return (this.client as any).clearQueue();
+    }
+    return this.call<RpcResponseData>("clear_queue", {});
+  }
+
   public async listModels(
     options: Record<string, unknown> = {},
   ): Promise<RpcResponseData> {

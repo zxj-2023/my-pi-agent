@@ -66,9 +66,10 @@ Options:
   - **Thinking Block**：模型流式思考过程折叠预览，按 `Ctrl+O` 一键展开查看完整思维链；
   - **Compaction Card**：上下文压缩摘要卡片（`[compaction] Compacted from X tokens (Ctrl+O to expand)`），避免多千字长文本冲刷视口；
   - **Tool Execution**：圆角细线卡片展示工具参数、执行进度、100ms 增量输出与耗时统计。
-- **动态即时插话与待发区呈现 (Steering & Pending Dock)**：
+- **动态即时插话与排队追问 (Steering & Ctrl+Q Follow-up)**：
   - 智能体运行期输入普通文本或 `/steer <msg>` 敲回车，自动作为 Steering 转向指令送入内核；
-  - 输入框上方实时灰显呈现 `Steering: 暂停` 待发状态，支持 `Alt+Up` / `Alt+Q` 召回编辑，当前轮工具执行完毕后精准交付模型；
+  - 智能体运行期按下 **`Ctrl+Q`**，自动将输入框内容作为 Follow-up 排队追问，待当前任务彻底完成后自动顺延执行；
+  - 输入框上方实时灰显呈现 `Steering: ...` 与 `Follow-up: ...` 待发状态，支持 `Alt+Q` / `Alt+Up` 或 `Esc` 中断一键全量召回编辑并清空内核排队；
 - **全屏与分会话调试诊断 (`/debug` 与双轨日志)**：
   - 输入 `/debug` 一键导出终端渲染现场快照与当前会话的专属 `.debug.log` 和 `.events.jsonl` 日志绝对路径。
 - **输入行即时宏扩展管道 (`MacroEngine`)**：
@@ -90,7 +91,7 @@ npm install
 # 2. 编译 TypeScript
 npm run build
 
-# 3. 运行 TUI 自动化测试套件 (65 tests, 100% 绿灯全通)
+# 3. 运行 TUI 自动化测试套件 (68 tests, 100% 绿灯全通)
 npm test
 
 # 4. 本地启动交互终端

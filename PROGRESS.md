@@ -831,3 +831,28 @@ my-pi-agent/
     - 前端 `/debug` 命令联动输出当前会话的双轨日志绝对路径。
 - **验证**：Python 核心测试扩充至 **671 个全部通过**，TUI 自动化测试扩充至 **65 个全部通过**，`npm run build` TypeScript 编译 100% 成功。
 
+---
+
+### 阶段 30：Follow-up (`Ctrl+Q`) 追问全平台快捷键、全量待发消息撤回与清空队列联动（2026-09）
+
+**目标**：100% 对齐 Pi 原厂 `Ctrl+Q` Follow-up 追问规范与全量队列撤回机制，支持在智能体运行期间排队追问并在宏观任务彻底完成后自动顺延，提供 `Alt+Q`/`Alt+Up`/`Escape` 全量撤回至输入框并联动清空内核队列。
+
+- **改了什么**：
+  - **Python 内核清空队列能力 (`message_queue.py`, `agent.py`, `rpc_server.py`)**：
+    - `MessageQueue.clear()` 支持清空并返回全部被清除的排队消息；
+    - 在 `Agent` 与 `CodingAgent` 上暴露 `clear_queue()` 方法；
+    - `rpc_server.py` 增加强类型 `clear_queue` RPC 处理方法，返回 `{"cleared": true, "count": N}`。
+  - **TUI 表现层 `Ctrl+Q` Follow-up 监听与分流 (`interactive-mode.ts`)**：
+    - 全平台统一拦截 `Ctrl+Q` 快捷键：
+      - **空闲态**：等同于普通回车 `Enter`，直接作为常规 Prompt 提交执行，不进队列；
+      - **运行态**：自动提取输入框文本并追加至历史记录，加入 `pendingFollowupList`，通过 `bridge.followUp(...)` 注入内核；
+    - 待发消息区清晰渲染 `Follow-up: <内容>`，并在底部指引提示 `↳ Alt+Q to edit all queued messages`。
+  - **全量消息召回与 Escape 中断联动 (`restoreQueuedMessagesToEditor`)**：
+    - 按下 `Alt+Q` / `Alt+Up` 时，将全部排队待发消息（Steering + Follow-up）用双换行 `\n\n` 拼接一并弹回输入框，清空待发区，并同步发起 RPC `clear_queue` 清空内核排队；
+    - 按下 `Escape` 中断当前生成时，除了向内核发送 `abort` 停止流式输出外，自动联动执行全量召回，将未送出的待发排队消息无缝还原至输入框，便于用户修改重发；
+    - 在 `/hotkeys` 命令帮助清单中同步补充 `Ctrl+Q` 与 `Alt+Q/Alt+Up` 的键位说明。
+  - **TUI 客户端与桥接层扩展 (`client.ts`, `kernel-bridge.ts`)**：
+    - 在 `PythonKernelClient` 与 `KernelBridge` 中实现 `clearQueue()` 封装并覆盖完整测试用例。
+- **验证**：全库测试规模提升至 **713 个 Python 核心测试全部通过**，**68 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
+
+

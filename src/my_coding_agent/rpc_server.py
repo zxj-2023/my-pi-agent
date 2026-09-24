@@ -563,6 +563,15 @@ class RpcServer:
             self.agent.abort()
         return self.send_response(req_id, result={"status": "ok"})
 
+    def _handle_clear_queue(self, req_id: Any) -> dict[str, Any]:
+        if not self.agent:
+            return self.send_response(
+                req_id,
+                error={"code": -32001, "message": "Agent not initialized"},
+            )
+        cleared = self.agent.clear_queue()
+        return self.send_response(req_id, result={"cleared": True, "count": len(cleared)})
+
     def _handle_session_name(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         if not self.agent:
             return self.send_response(
@@ -1484,6 +1493,8 @@ class RpcServer:
                 return self._handle_followup(req_id, params)
             elif method == "abort":
                 return self._handle_abort(req_id)
+            elif method == "clear_queue":
+                return self._handle_clear_queue(req_id)
             elif method == "session_name":
                 return self._handle_session_name(req_id, params)
             elif method == "session_list":
