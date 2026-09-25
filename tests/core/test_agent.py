@@ -175,27 +175,6 @@ async def test_event_sequence():
 
 
 @pytest.mark.anyio
-async def test_max_iterations():
-    """max_iterations=1 且模型一直发 tool_calls → stop_reason="max_iterations"、final_text=None（#12）。"""
-    tc = [
-        {
-            "id": "1",
-            "type": "function",
-            "function": {"name": "multiply", "arguments": '{"a": 2, "b": 3}'},
-        }
-    ]
-    llm = FakeLLM([_response(tool_calls=tc)])  # 只有一轮 tool_calls，没有最终回答
-    events = []
-    agent = _agent(llm, max_iterations=1)
-    agent.subscribe(lambda ev: events.append(ev) if isinstance(ev, AgentEnd) else None)
-    answer = await agent.run("compute")
-    assert answer is None
-    end = [e for e in events if isinstance(e, AgentEnd)][0]
-    assert end.stop_reason == "max_iterations"
-    assert end.final_text is None
-
-
-@pytest.mark.anyio
 async def test_agent_multiple_runs_and_reset():
     """连续两次 run 第二次含第一轮历史；reset 后只剩 system（#13）。"""
     llm = FakeLLM([_response(content="first"), _response(content="second")])

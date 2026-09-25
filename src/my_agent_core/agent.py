@@ -69,7 +69,6 @@ class Agent:
         tools: list[Tool],
         session: Session,
         system_prompt: str | None = None,
-        max_iterations: int | None = None,
         context_budget: int | None = None,
         keep_recent_tokens: int | None = None,
         skill_dirs: Sequence[str | Path] | None = None,
@@ -108,7 +107,6 @@ class Agent:
         """
         self.llm = llm
         self.model = model  # 缺省 inherit：None 时 llm.chat 用 LLM 自身配置
-        self.max_iterations = max_iterations
         self.session = session
         self._system_prompt = system_prompt  # 保存，reset 重拼用
         self._aborted = False  # 中止状态标记
@@ -364,7 +362,6 @@ class Agent:
             model=self.model,
             system=system_prompt,
             prompts=[Message(role="user", content=user_input)],
-            max_iterations=self.max_iterations,
             signal=self._current_signal,
             get_steering_messages=self._get_steering_messages,
             get_follow_up_messages=self._get_follow_up_messages,

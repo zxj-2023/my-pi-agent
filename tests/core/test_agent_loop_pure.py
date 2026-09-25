@@ -3,7 +3,7 @@
 Milestone 3 / Task 5 tests:
 - _provider_context: cleans empty failure/aborted assistant messages and repairs tool history.
 - CancellationToken: cooperative cancellation.
-- run_agent_loop: pure async generator event stream, tool execution, steering, follow-up, cancellation, max_turns.
+- run_agent_loop: pure async generator event stream, tool execution, steering, follow-up, cancellation.
 """
 
 from __future__ import annotations
@@ -373,40 +373,6 @@ async def test_run_agent_loop_cancellation_with_token():
 
 
 @pytest.mark.anyio
-async def test_run_agent_loop_max_turns_limit():
-    """验证超过 max_turns 限制时停止循环并派发 stop_reason='max_iterations'。"""
-    tc = [
-        {
-            "id": "call_loop",
-            "type": "function",
-            "function": {"name": "ping", "arguments": "{}"},
-        }
-    ]
-    llm = FakeLLM(
-        [
-            _response(tool_calls=tc),
-            _response(tool_calls=tc),
-            _response(tool_calls=tc),
-        ]
-    )
-    messages: list[Message] = []
-    events = []
-
-    async for ev in run_agent_loop(
-        llm=llm,
-        messages=messages,
-        prompts=[Message(role="user", content="ping forever")],
-        tools=_make_registry(ping),
-        max_turns=1,
-    ):
-        events.append(ev)
-
-    agent_end = [e for e in events if isinstance(e, AgentEnd)][0]
-    assert agent_end.stop_reason == "max_iterations"
-    assert agent_end.iterations == 2
-
-
-@pytest.mark.anyio
 async def test_run_agent_loop_provider_context_cleaning_in_loop():
     """验证送入 LLM 的上下文通过 _provider_context 剥离历史空失败记录。"""
     llm = FakeLLM([_response(content="re-run ok")])
@@ -463,39 +429,6 @@ async def test_run_agent_loop_before_model_call_blocking():
     agent_end = [e for e in events if isinstance(e, AgentEnd)][0]
     assert agent_end.stop_reason == "blocked"
     assert len(llm.calls) == 0
-
-
-@pytest.mark.anyio
-async def test_run_agent_loop_max_iterations_limit():
-    """验证 max_iterations 与 max_turns 等价截断，发射 stop_reason='max_iterations'。"""
-    tc = [
-        {
-            "id": "call_loop",
-            "type": "function",
-            "function": {"name": "ping", "arguments": "{}"},
-        }
-    ]
-    llm = FakeLLM(
-        [
-            _response(tool_calls=tc),
-            _response(tool_calls=tc),
-        ]
-    )
-    messages: list[Message] = []
-    events = []
-
-    async for ev in run_agent_loop(
-        llm=llm,
-        messages=messages,
-        prompts=[Message(role="user", content="ping forever")],
-        tools=_make_registry(ping),
-        max_iterations=1,
-    ):
-        events.append(ev)
-
-    agent_end = [e for e in events if isinstance(e, AgentEnd)][0]
-    assert agent_end.stop_reason == "max_iterations"
-    assert agent_end.iterations == 2
 
 
 @pytest.mark.anyio

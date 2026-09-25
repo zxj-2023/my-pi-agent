@@ -84,7 +84,7 @@ class SubagentTaskManager:
 
     def __init__(self, manager: SubagentManager, parent: Agent) -> None:
         self._manager = manager  # 查 agent 定义
-        self._parent = parent  # 供 llm/工具集/skill_manager/max_iterations
+        self._parent = parent  # 供 llm/工具集/skill_manager
         self._counter = 0
         self._active_agents: dict[
             str, Agent
@@ -152,9 +152,6 @@ class SubagentTaskManager:
             session=child_session,
             system_prompt=_system_for(sub, self._parent),
             model=sub.model,
-            max_iterations=sub.max_turns
-            if sub.max_turns is not None
-            else self._parent.max_iterations,
             skill_dirs=[],  # skill 清单已由 _system_for 拼入
             subagent_dirs=[],  # 防递归：禁用子代理再探测
             memory_dir=False,  # 隔离：子代理禁用长期记忆探测与维护

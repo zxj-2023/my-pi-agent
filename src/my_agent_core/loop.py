@@ -523,8 +523,6 @@ async def run_agent_loop(
     model: str | None = None,
     system: str = "",
     prompts: Sequence[Message | str] = (),
-    max_turns: int | None = None,
-    max_iterations: int | None = None,
     signal: CancellationToken | None = None,
     get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
     get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
@@ -543,8 +541,6 @@ async def run_agent_loop(
         if isinstance(tools, Sequence):
             for t in tools:
                 registry.register(t)
-
-    effective_max = max_turns if max_turns is not None else max_iterations
 
     # 初始化协作取消检查
     if signal is not None and signal.is_cancelled():
@@ -602,16 +598,6 @@ async def run_agent_loop(
                     yield MessageStart(p_msg)
                     yield MessageEnd(p_msg)
                 pending_messages = []
-
-            # 检查最大轮次熔断截断
-            if effective_max is not None and iteration > effective_max:
-                yield AgentEnd(
-                    messages=list(messages),
-                    final_text=final_text,
-                    iterations=iteration,
-                    stop_reason="max_iterations",
-                )
-                return
 
             yield TurnStart(iteration)
 
