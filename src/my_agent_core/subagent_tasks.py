@@ -86,9 +86,7 @@ class SubagentTaskManager:
         self._manager = manager  # 查 agent 定义
         self._parent = parent  # 供 llm/工具集/skill_manager
         self._counter = 0
-        self._active_agents: dict[
-            str, Agent
-        ] = {}  # 追踪运行中的子代理实例 (task_id -> Agent)
+        self._active_agents: dict[str, Agent] = {}  # 追踪运行中的子代理实例 (task_id -> Agent)
 
     def steer_task(self, task_id: str, message: str) -> bool:
         """向指定运行中的子代理发送 Steer 转向指令。"""
@@ -106,9 +104,7 @@ class SubagentTaskManager:
             return True
         return False
 
-    async def start_task(
-        self, prompt: str, subagent_type: str = "default"
-    ) -> SubagentTask:
+    async def start_task(self, prompt: str, subagent_type: str = "default") -> SubagentTask:
         """异步：建 SubagentTask(RUNNING) → spawn → run → 更新状态 → 返回。"""
         task = self._create_task(subagent_type)
         try:
@@ -119,9 +115,7 @@ class SubagentTaskManager:
 
     def _create_task(self, _subagent_type: str) -> SubagentTask:
         self._counter += 1
-        return SubagentTask(
-            id=f"task_{self._counter:08x}", status=SubagentTaskStatus.RUNNING
-        )
+        return SubagentTask(id=f"task_{self._counter:08x}", status=SubagentTaskStatus.RUNNING)
 
     async def _run(self, prompt: str, subagent_type: str, task_id: str) -> str:
         """查定义 → 建独立 session → 过滤工具 → spawn 子 Agent → run → 返回最终文本。"""
@@ -132,13 +126,9 @@ class SubagentTaskManager:
             sub = DEFAULT_SUBAGENT
         if sub is None:
             available = ", ".join(sorted(self._manager.subagents)) or "(none)"
-            raise ValueError(
-                f"Unknown subagent '{subagent_type}'. Available: {available}"
-            )
+            raise ValueError(f"Unknown subagent '{subagent_type}'. Available: {available}")
         child_session = Session(
-            path=self._parent.session.path.parent
-            / "subagents"
-            / f"agent-{task_id}.jsonl",
+            path=self._parent.session.path.parent / "subagents" / f"agent-{task_id}.jsonl",
             cwd=self._parent.session.cwd,
             metadata={
                 "agent_type": subagent_type,

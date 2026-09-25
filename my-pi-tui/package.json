@@ -1,6 +1,6 @@
 {
   "name": "my-pi-tui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "High-fidelity Pi-TUI terminal presentation layer for my-pi-agent",
   "type": "module",
   "bin": {

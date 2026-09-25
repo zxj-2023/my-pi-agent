@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def test_get_version_from_pyproject():
     version = get_version_from_pyproject(REPO_ROOT / "pyproject.toml")
-    assert version == "0.1.0"
+    assert version == "0.1.1"
 
 
 def test_generate_launcher_scripts(tmp_path: Path):
