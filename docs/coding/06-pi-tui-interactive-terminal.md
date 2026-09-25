@@ -1,6 +1,6 @@
-# Pi-TUI 交互式终端与表现层规范 (`tui`)
+# Pi-TUI 交互式终端与表现层规范 (`my-pi-tui`)
 
-- **定位**：100% 对标 Pi 原厂体验的独立终端表现层与交互状态机 (`tui/src/`)
+- **定位**：100% 对标 Pi 原厂体验的独立终端表现层与交互状态机 (`my-pi-tui/src/`)
 - **设计标杆**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-tui` (Mario Zechner)
 - **核心组件**：`CustomEditor` 顶部边框嵌入式转圈动效、四大交互选择器、`CompactionSummaryMessage` 折叠卡片、思考深度快捷键轮转
 
@@ -49,6 +49,7 @@
 
 - **挖槽算法**：当 `workingStatusIndicator` 激活时，计算当前指示器的实际视觉宽度（包含 80ms 轮转的 Braille 盲文帧 `⠋` ➔ `⠙` ➔ `⠹` ➔ `⠸` ➔ `⠼` ➔ `⠴` ➔ `⠦` ➔ `⠧` ➔ `⠇` ➔ `⠏`）；
 - **动态拼装**：输出 `borderColor("── ") + status + borderColor(" ────────...")`；
+- **重试状态倒计时嵌入**：在模型遭遇 429/5xx 瞬时抖动触发 `auto_retry_start` 时，动态嵌入 `── ⠸ 重试中 (1/3) 2.0s 后继续: 503... (Esc 取消) ──`，清晰传递重试进度与可打断性；
 - **自愈恢复**：轮次结束（`turn_end` 或 `agent_end`）时，调用 `clearStatusDisplay()`，顶部边框瞬时平滑恢复为完整的横线 `────────────────────────────`；
 - **安全防悬挂**：内部动画定时器严格调用 `timer.unref()`，绝不阻碍 Node 进程的正常退出与测试执行。
 
@@ -86,6 +87,12 @@
 4. **`LoginSelectorComponent` (/login)**：
    - 交互式配置各 Provider API Key；
    - 针对 Antigravity 呈现两段式向导，明确展示 `auth.json` 磁盘物理路径与一键绑定指引。
+5. **`ThemeSelectorComponent` (/theme)**：
+   - 动态切换深色 (`dark.json`) 与浅色 (`light.json`) 调色盘；
+6. **`TreeSelectorComponent` (/tree)**：
+   - 可视化浏览当前会话的完整 DAG 分支拓扑图与节点信息；
+7. **`LogoutSelectorComponent` (/logout)**：
+   - 安全注销特定 Provider 凭据。
 
 ---
 

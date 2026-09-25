@@ -46,7 +46,8 @@
 │    • 工业级七阶段工具流水线（截断防御/畸形防崩/Preflight/门禁/进度/改写/熔断）│
 │    • tool_history.py 对话转录本三阶段自愈 (免疫 LLM API 400 校验死锁)        │
 │    • 工具系统 (Tool / @tool / ToolRegistry 原生字典分发 / 免 4x JSON 编解码) │
-│    • 12 个只读生命周期事件 (events.py) + 五大专职拦截门禁 (hooks.py) 正交解耦│
+│    • 14 个只读生命周期事件 (events.py) + 五大专职拦截门禁 (hooks.py) 正交解耦│
+│    • retry.py 智能退避重试 (AutoRetryPolicy 429/5xx 自动重试与 Jitter)       │
 │    • 模块化会话存储子系统 (session/ 7 模块 + 9 种多态条目 + 只追加持久化)   │
 │    • 四层廉价优先上下文压缩管线 (L3➔L1➔L2➔L4 + retainedTail 缓存)           │
 │    • Skills 声明式管理 (SKILL.md 发现 / 启动轻量清单注入 / 显式调用)        │
@@ -80,8 +81,8 @@
 ### 2. 框架核心层 (`docs/core/`)
 
 - [01-tool-system.md](core/01-tool-system.md)：基于 Pydantic 的 `@tool` 动态建模、`Tool` 实体、结构化 `ToolCall` 原生消费、`ToolRegistry` 字典直接分发（免 4x JSON Ping-Pong）、读写分流并发批执行与 Never-Throw 保证。
-- [02-event-hooks.md](core/02-event-hooks.md)：12 个纯只读事实事件（`events.py`）与五大专职 Hook 决策拦截点（`hooks.py`）彻底正交解耦、`HookResult` 统一干预模型与 Pi 官方时序契约。
-- [03-agent-loop.md](core/03-agent-loop.md)：Tau 风格单层 `AgentHarness`、`loop.py` 纯函数微内核（约 110 行优雅状态机）、子生成器分治（`_assistant_turn` 与 `_execute_tools_turn`）、七阶段工具执行流水线、`tool_history.py` 转录本三阶段自愈与一等公民 `prompt_stream` 事件流。
+- [02-event-hooks.md](core/02-event-hooks.md)：14 个纯只读事实事件（`events.py`，含 `AutoRetryStart` 与 `AutoRetryEnd`）与五大专职 Hook 决策拦截点（`hooks.py`）彻底正交解耦、`HookResult` 统一干预模型与 Pi 官方时序契约。
+- [03-agent-loop.md](core/03-agent-loop.md)：Tau 风格单层 `AgentHarness`、`loop.py` 纯函数微内核（约 110 行优雅状态机）、大模型智能退避重试（`AutoRetryPolicy`）、子生成器分治（`_assistant_turn` 与 `_execute_tools_turn`）、七阶段工具执行流水线、`tool_history.py` 转录本三阶段自愈、无界自主长任务循环与一等公民 `prompt_stream` 事件流。
 - [04-session-tree.md](core/04-session-tree.md)：树状会话存储子系统（`session/` 7 模块分工）、9 种强类型判别多态 `SessionEntry`、纯内存防环树算法、`SessionState` 事件溯源折叠投影与只追加纯异步存储驱动（跨进程文件锁）。
 - [05-context-compaction.md](core/05-context-compaction.md)：四层廉价优先上下文压缩管线（L3➔L1➔L2➔L4）、Usage 动态校准、`retainedTail` 持久化缓存与 `compaction_floor` 护栏。
 - [06-skills.md](core/06-skills.md)：Skills 声明式管理机制、`SKILL.md` 元数据解析、渐进式披露 Token 优化与 `invoke_skill` 宿主显式触发。

@@ -11,10 +11,10 @@
 
 ```text
 根目录 (Tau 式单一 Python 项目与 npm monorepo)
-├── pyproject.toml              # Python uv 依赖声明 (单 .venv 运行 660+ 测试)
+├── pyproject.toml              # Python uv 依赖声明 (单 .venv 运行 725+ 测试)
 ├── package.json                # npm workspaces 配置，声明全局 CLI 命令 bin
 ├── src/                        # Python 后端内核 (my_agent_core, my_coding_agent, my_agent_llm)
-└── tui/                        # TypeScript 前端 (独立构建，100% 对标 Pi 原厂终端)
+└── my-pi-tui/                  # TypeScript 前端 (独立构建，100% 对标 Pi 原厂终端)
     └── bin/
         └── my-agent.js         # 全局可执行 Shebang 入口脚本
 ```
@@ -28,13 +28,13 @@
 ```json
 {
   "name": "my-pi-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "bin": {
-    "my-pi-agent": "tui/bin/my-agent.js",
-    "my-agent": "tui/bin/my-agent.js"
+    "my-pi-agent": "my-pi-tui/bin/my-agent.js",
+    "my-agent": "my-pi-tui/bin/my-agent.js"
   },
   "workspaces": [
-    "tui"
+    "my-pi-tui"
   ]
 }
 ```
@@ -53,7 +53,7 @@ npm link
 
 系统支持无论从 Node.js 环境（`npm link` / `npx`）还是 Python 环境（`uvx` / `uv tool` / `python -m`）启动，均能自动探寻另一端运行时并建立连接：
 
-1. **从 Node.js 端启动 (`tui/bin/my-agent.js`)**：
+1. **从 Node.js 端启动 (`my-pi-tui/bin/my-agent.js`)**：
    按以下优先级链式自动寻找合法的 Python 解释器环境：
    - 命令行显式传入的 `--python-executable`；
    - 项目自包含虚拟环境：探测 `<package-root>/.venv/Scripts/python.exe`（Windows）或 `<package-root>/.venv/bin/python`（POSIX）；

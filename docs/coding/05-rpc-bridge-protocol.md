@@ -79,7 +79,7 @@
 
 | 方法名 | 入参 (Params) | 返回结果 (Result) | 业务行为与约束 |
 | :--- | :--- | :--- | :--- |
-| `login` | `{"provider": string, "key": string}` | `{"status": "ok", "message": "..."}` | 安全保存提供商凭据至 `~/.my-pi-agent/auth.json` |
+| `login` | `{"provider": string, "key": string}` | `{"status": "ok", "message": "..."}` | 安全保存提供商凭据至 `~/.my-pi-agent/auth.json`，若当前模型正是该提供商则原地热更新活跃 LLM 客户端 |
 | `auth_logout` | `{"provider": string}` | `{"status": "ok", "provider": "..."}` | 从凭据中心注销并移除指定提供商的凭据信息 |
 | `trust_set` | `{"path"?: string, "trusted": boolean, "parent"?: boolean}` | `{"status": "ok", "path": string, "trusted": boolean, "decision": string}` | 记录或更新对特定工作区路径的脚本执行信任授权 |
 
@@ -89,7 +89,7 @@
 | :--- | :--- | :--- | :--- |
 | `shell_exec` | `{"command": string, "exclude_from_context"?: boolean, "timeout"?: number}` | `{"status": "ok", "output": string, "exit_code": number}` | 前端触发本地 Shell 命令执行（区分静默与上下文注入） |
 | `macro_expand` | `{"text": string, "skills_dir"?: string, "prompts_dir"?: string}` | `{"status": "ok", "text": string, "expanded": boolean, "expanded_text": string}` | 服务端执行 `MacroEngine` 对输入行宏（`/skill:`, `/<template>`）的即时展开 |
-| `resource_reload` | `{}` | `{"status": "ok", "message": "..."}` | 动态重新扫描并热重载本地 Skills、Prompts 与 Templates 资源 |
+| `resource_reload` | `{}` | `{"status": "ok", "message": "..."}` | 动态重新扫描并热重载本地 Skills、Prompts、凭据中心 `auth.json` 与当前活跃 LLM 客户端实例 |
 | `debug_dump` | `{"output_path"?: string}` | `{"status": "ok", "dump_file": string, "log_file"?: string, "events_file"?: string, "snapshot": {...}}` | 导出运行时内存快照并返回当前活跃会话的调试日志与事件流路径 |
 
 #### (6) 配置读取与设置
@@ -124,6 +124,8 @@
 | `message_end` | `usage`, `contextWindow` | 固化本条消息，更新底部 Footer 上下文占用比例 |
 | `turn_end` | `usage` | 结束当前单轮，触发 Footer 统计更新 |
 | `agent_end` | `stop_reason`, `usage` | 停止边框旋转，安全释放光标至编辑区，进入待命态 |
+| `auto_retry_start` | `attempt`, `maxAttempts`, `delayMs`, `errorMessage` | 遇到 429/5xx 瞬时抖动触发重试，输入框顶部边框呈现实时倒计时 |
+| `auto_retry_end` | `success`, `attempt`, `finalError` | 自动重试完成，成功切回 Working 态，耗尽则触发终态报错 |
 | `context_compacted` | `tokensBefore`, `tokensAfter` | 视口呈现可展开的 `[compaction]` 摘要卡片 |
 
 ---

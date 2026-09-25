@@ -62,14 +62,16 @@ class Event:
     timestamp: float = field(init=False)
 ```
 
-### 12 大生命周期事件清单
+### 14 大生命周期事件清单
 
 | 分类 | 事件名 | 核心属性 | 广播时机与作用 |
 | :--- | :--- | :--- | :--- |
 | **宏观生命周期** | `AgentStart` | `system_prompt`, `user_input` | Agent 全流程启动时广播 |
-| | `AgentEnd` | `messages`, `final_text`, `iterations`, `stop_reason` | Agent 结束（`"end_turn"` / `"max_iterations"` / `"cancelled"` / `"blocked"` / `"error"`） |
+| | `AgentEnd` | `messages`, `final_text`, `iterations`, `stop_reason` | Agent 结束（`"end_turn"` / `"cancelled"` / `"blocked"` / `"error"`） |
 | **微观轮次** | `TurnStart` | `iteration` | 单轮推理循环开始 |
 | | `TurnEnd` | `message`, `tool_results` | 单轮推理循环结束（**严格保证成对闭合**，即使中途报错或拦截） |
+| **模型重试** | `AutoRetryStart` | `attempt`, `max_attempts`, `delay_ms`, `error_message` | 遇到 429/5xx/网络断流瞬时抖动，启动带退避的自动重试时广播 |
+| | `AutoRetryEnd` | `success`, `attempt`, `final_error` | 自动重试终态通知（恢复成功或重试耗尽终止） |
 | **对话流消息** | `MessageStart` | `message` | 某条完整消息加入对话流通知 |
 | | `MessageUpdate` | `message`, `chunk` | 流式 Token 增量更新（打字机 UI 实时渲染专用） |
 | | `MessageEnd` | `message` | 某条消息内容完全落定时广播 |

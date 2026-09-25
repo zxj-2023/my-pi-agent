@@ -222,6 +222,13 @@ npm start
     - `<session-id>.debug.log`：人类可读的微秒级阶段耗时、工具执行状态与 Token 增量；
     - `<session-id>.events.jsonl`：对标 Pi `--mode json` 的标准不可变机器可读事件流；
   - 终端 `/debug` 命令一体化导出运行时快照并返回当前会话双轨日志绝对路径，支持会话轮转动态换绑。
+- **大模型智能退避重试体系与全链路异常防御 (`retry.py`, `loop.py`)**：
+  - 对标 Pi 原厂自动重试规范，在微内核层拦截 429、5xx 与网络断流抖动，采用带 Jitter 的指数退避智能重试并尊重 `Retry-After`，对 400/401/403/欠费超额等致命错误实施即时熔断；
+  - 向 TUI 实时广播 `AutoRetryStart` 与 `AutoRetryEnd` 事实事件，输入框顶部边框呈现实时倒计时动效并支持 `Esc` 毫秒级即时中断；
+  - 前端加固非字符串类型安全防御与 `try...finally` 终态清场，彻底消除未捕获异常导致的转圈指示器冻结。
+- **纯粹自主无界长任务循环与凭据原地热重载**：
+  - 彻底移除人为硬编码的最大循环步数限制（`max_iterations`），循环完全由模型自身停顿与人类主动取消驱动，支持长耗时复杂任务自主推进；
+  - `/reload` 重新载入 `AuthManager` 并原地重新绑定当前活跃 LLM 实例；`/login` 绑定凭据后当场原地刷新内存模型客户端，无需重启终端。
 
 ---
 
@@ -329,9 +336,9 @@ my-pi-agent/
 │       └── rpc_server.py           # stdio JSON-RPC 2.0 服务端门面
 │
 ├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
-│   ├── llm/                        # LLM 层单元测试 (76 tests)
-│   ├── core/                       # 框架内核单元测试 (337 tests)
-│   └── coding/                     # 业务与工具测试 (253 tests)
+│   ├── llm/                        # LLM 层单元测试 (91 tests)
+│   ├── core/                       # 框架内核单元测试 (368 tests)
+│   └── coding/                     # 业务与工具测试 (266 tests)
 │
 ├── my-pi-tui/                      # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
@@ -343,7 +350,7 @@ my-pi-agent/
 │   │   ├── client.ts               # PythonKernelClient (管理 uv run python 子进程)
 │   │   ├── components/             # Pi 原厂 UI 组件 (CustomEditor, status-indicator, footer...)
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
-│   └── test/                       # 前端 58 个自动化测试与端到端测试套件
+│   └── test/                       # 前端 71 个自动化测试与端到端测试套件
 │
 ├── my-pi-eval/                     # ⭐ 自动化评测系统与基准测试 (对标 dsh-eval / SWE-bench)
 │   ├── configs/                    # SWE-bench / Terminal-bench 评测声明

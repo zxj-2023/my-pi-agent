@@ -103,7 +103,7 @@ my-pi-agent
    npm publish
    ```
 
-   *发布钩子 `prepack` 会自动触发 `npm run build --prefix tui` 确保编译产物最新。*
+   *发布钩子 `prepack` 会自动触发 `npm run build --prefix my-pi-tui` 确保编译产物最新。*
 
 ---
 

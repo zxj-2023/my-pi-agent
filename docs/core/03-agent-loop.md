@@ -47,12 +47,12 @@
 │ (模型流式推理车间)           │ │ (工具批处理执行车间)                       │
 │ • 首 Chunk 发射 MessageStart │ │ • 阶段 A (Preflight):                      │
 │ • 逐字 yield MessageUpdate   │ │   按声明顺序率先广播 ToolExecutionStart    │
-│ • 接收完整 Response 实体     │ │   调用 before_tool_call (ToolCallHook)     │
-│ • 发射 MessageEnd 终态定型   │ │ • 阶段 B (Execution): 并发批执行工具 (dict)│
-│ • 取消/异常时优雅闭环        │ │ • 阶段 C (Completion):                     │
-│                              │ │   调用 after_tool_call (ToolResultHook)    │
-│                              │ │   广播 ToolExecutionEnd                    │
-│                              │ │   按序发射 role="tool" 的 MessageStart/End │
+│ • 智能退避重试 (AutoRetry)   │ │   调用 before_tool_call (ToolCallHook)     │
+│   429/5xx 广播 AutoRetryStart│ │ • 阶段 B (Execution): 并发批执行工具 (dict)│
+│   带 Jitter 退避与 Esc 取消  │ │ • 阶段 C (Completion):                     │
+│ • 接收完整 Response 实体     │ │   调用 after_tool_call (ToolResultHook)    │
+│ • 发射 MessageEnd 终态定型   │ │   广播 ToolExecutionEnd                    │
+│ • 取消/异常时优雅闭环        │ │   按序发射 role="tool" 的 MessageStart/End │
 │                              │ │ • 阶段 D (Self-Healing):                   │
 │                              │ │   中途取消自动补齐断头调用                 │
 └──────────────────────────────┘ └────────────────────────────────────────────┘
@@ -62,10 +62,16 @@
 
 ## 二、微内核子生成器分治机制 (`loop.py`)
 
-### 1. 专职模型推理车间：`_assistant_turn`
+### 1. 专职模型推理车间：`_assistant_turn` 与智能退避重试体系
 
 - **流式增量与状态定型**：
   首个 Chunk 到达时发射 `MessageStart(assistant)`；在流式生成中逐字发射 `MessageUpdate` 驱动终端打字机；流式结束时直接接收模型边界层交付的完整 `Response` 实体，发射 `MessageEnd` 定型。
+- **智能退避重试体系 (`AutoRetryPolicy`)**：
+  对标 Pi 原厂自动重试规范，在微内核层拦截大模型调用异常：
+  - **瞬时可恢复错误（自动重试）**：429（频率超限）、500/502/503/504（服务端偶发故障）、`httpx.ConnectError` / `ConnectTimeout` / `ReadTimeout` / `RemoteProtocolError`（网络传输断流与连接重置）；
+  - **致命不可恢复错误（立即熔断，绝不重试）**：400（参数畸形）、401（Key 无效或过期）、403（越权/模型不可用）、404、以及账号欠费配额超限（`insufficient_quota` / `out of budget`）；
+  - **退避算法**：基于 `base_delay_ms`（默认 2000ms）的指数退避（$2^{attempt-1}$），引入 Jitter 防雪崩抖动，并优先尊重服务端回传的 `Retry-After` / `retry-after-ms` 响应头；
+  - **可取消退避**：重试睡眠期间支持 `CancellationToken` 毫秒级中断（按 `Esc` 立即停止重试并安全退出）。
 - **取消与异常 Never-Throw**：
   若检测到 `CancellationToken.is_cancelled()`，优雅中断并标记 `stop_reason="cancelled"`；模型报错时封装为错误消息，保证上层轮次能安全闭环。
 

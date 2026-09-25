@@ -882,5 +882,29 @@ my-pi-agent/
     - 确保 `执行已中断。` 通知在清爽的界面中规范呈现。
 - **验证**：全库测试规模提升至 **717 个 Python 核心测试全部通过**，**69 个 TUI 自动化测试全部通过**，TypeScript 编译 0 报错。
 
+---
+
+### 阶段 32：大模型智能重试体系、TUI 异常加固、凭据热重载与无界循环演进（2026-09-25，v0.1.1 发布）
+
+**目标**：彻底解决大模型在握手阶段 401 报错被前端桥接层吞噬以及空数组 `[].trim()` 崩溃引发的转圈指示器永久冻结 Bug；依据 Pi 原厂规范实现 ReAct 微内核级智能退避重试体系；支持 `/reload` 与 `/login` 活跃凭据原地热更新；彻底移除 `max_iterations` 人为硬编码步数限制，正式发布 `v0.1.1`。
+
+- **改了什么**：
+  - **TUI 交互与异常防御全面加固 (`my-pi-tui/`)**：
+    - `event-translator.ts`：在 `message_end` 时若未收到流式 Chunk 但服务端返回了错误正文，补齐文本块并忠实透传 `metadata` 与 `stopReason`，不再吞噬握手期报错；`agent_end` 补充透传 `final_text`；
+    - `assistant-message.ts`：`setContent` 与 `appendTextDelta` 增加严格类型收敛，安全解析 `string`、`ContentBlock[]` 数组或对象，杜绝非字符串调用 `.trim()` 抛出致命异常；
+    - `interactive-mode.ts`：在 `agent_end` 中引入 `try...finally`，确保转圈动效与忙碌标志 `isBusy: false` 100% 能够清场复位。
+  - **大模型智能退避重试体系 (`my_agent_core/retry.py` & `loop.py`)**：
+    - 实现 `AutoRetryPolicy`，严格区分 429/5xx/网络断流（自动重试）与 400/401/403/配额耗尽（立即熔断）；
+    - 采用带 Jitter 抖动的指数退避算法，并优先尊重服务端回传的 `Retry-After` / `retry-after-ms` 响应头；
+    - 广播 `AutoRetryStart` 与 `AutoRetryEnd` 事实事件，TUI 边框呈现实时重试倒计时（`── ⠸ 重试中 (1/3) 2.0s 后继续 ──`）并支持 `Esc` 毫秒级即时中断。
+  - **凭据热重载与原地无感刷新 (`rpc_server.py`)**：
+    - `/reload` 自动重新载入 `AuthManager`，并原地重新绑定当前活跃的 LLM 实例，外部修改 `auth.json` 即可一键生效；
+    - `/login <provider> <key>` 绑定凭据后，若当前正在使用该 Provider，当场原地热更新内存中的模型客户端，无需重启或切模型。
+  - **彻底移除最大循环步数 (`max_iterations`) 限制**：
+    - 从 `run_agent_loop` 与 `Agent` 移除 `max_turns` / `max_iterations` 参数及轮次熔断截断分支，使 ReAct 循环完全由模型自身决策和用户取消信号主导；
+    - 清理关联事件与子代理的残留参数，遵循《测试冲突重写原则》彻底删除老旧测试用例。
+- **验证**：全库测试规模达到 **725 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 796 测试），正式发布 npm 与 GitHub Release `v0.1.1`。
+
+
 
 
