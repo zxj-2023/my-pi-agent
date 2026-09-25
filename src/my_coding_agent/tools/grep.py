@@ -29,6 +29,7 @@ def make_grep_tool(workspace: Path | str) -> Tool:
     @tool(
         name="grep",
         description="Search file contents for patterns (respects .gitignore). Supports regex, case sensitivity, context lines, glob filter, and line limits.",
+        prompt_snippet="Search file contents for patterns (respects .gitignore)",
         is_parallel_safe=True,
     )
     async def grep(

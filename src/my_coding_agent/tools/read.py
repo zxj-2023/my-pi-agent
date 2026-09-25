@@ -25,6 +25,8 @@ def make_read_tool(workspace: Path) -> Tool:
     @tool(
         name="read",
         description="Read file contents with line offset/limit pagination and automatic truncation.",
+        prompt_snippet="Read file contents",
+        prompt_guidelines=["Use read to examine files instead of cat or sed."],
         is_parallel_safe=True,
     )
     async def read(path: str, offset: int = 1, limit: int | None = None) -> str:
@@ -72,13 +74,11 @@ def make_read_tool(workspace: Path) -> Tool:
                 end_idx = start_idx + len(result_text.splitlines())
                 is_byte_truncated = True
 
-            truncated = (
-                is_line_truncated
-                or is_byte_truncated
-                or (end_idx < total_lines and limit is None)
-            )
+            truncated = is_line_truncated or is_byte_truncated or (end_idx < total_lines and limit is None)
             if truncated:
-                result_text += f"\n\n[Showing lines {offset}-{end_idx} of {total_lines}. Use offset={end_idx + 1} to continue.]"
+                result_text += (
+                    f"\n\n[Showing lines {offset}-{end_idx} of {total_lines}. Use offset={end_idx + 1} to continue.]"
+                )
 
             return result_text
         except Exception as e:

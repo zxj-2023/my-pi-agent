@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
+from collections.abc import Sequence
 
 from my_agent_core.session import Session
 from my_agent_core.subagents import DEFAULT_SUBAGENT, Subagent, SubagentManager
@@ -48,9 +49,18 @@ class SubagentTask:
         self.status = SubagentTaskStatus.ERROR
 
 
-def _system_for(sub: Subagent, parent: Agent) -> str:
-    """子代理 system = 正文 + （若有 skills）子集清单；不收父 system prompt（Claude 官方语义）。"""
+def _system_for(
+    sub: Subagent,
+    parent: Agent,
+    tools: Sequence[Tool] | None = None,
+) -> str:
+    """子代理 system = 正文 + <tools> (过滤后) + <rules> (过滤后) + （若有 skills）子集清单；不收父 system prompt（Claude 官方语义）。"""
     parts = [sub.content]
+    if tools:
+        from my_agent_core.tools import format_rules_section, format_tools_section
+
+        parts.append(format_tools_section(tools))
+        parts.append(format_rules_section(tools))
     if sub.skills:
         block = parent.skill_manager.format_prompt(sub.skills)
         if block:
@@ -136,11 +146,12 @@ class SubagentTaskManager:
             },
         )
         child_session.save()
+        child_tools = _filter_tools(self._parent, sub)
         child = Agent(
             llm=self._parent.llm,
-            tools=_filter_tools(self._parent, sub),
+            tools=child_tools,
             session=child_session,
-            system_prompt=_system_for(sub, self._parent),
+            system_prompt=_system_for(sub, self._parent, tools=child_tools),
             model=sub.model,
             skill_dirs=[],  # skill 清单已由 _system_for 拼入
             subagent_dirs=[],  # 防递归：禁用子代理再探测

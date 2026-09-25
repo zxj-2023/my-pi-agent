@@ -26,6 +26,8 @@ def make_write_tool(workspace: Path, mutation_queue: FileMutationQueue | None = 
     @tool(
         name="write",
         description="Write complete content to a file, automatically creating parent directories.",
+        prompt_snippet="Create or overwrite files",
+        prompt_guidelines=["Use write only for new files or complete rewrites."],
         is_parallel_safe=True,
     )
     async def write(path: str, content: str) -> str:

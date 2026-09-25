@@ -45,40 +45,34 @@ class CodingAgent:
 
 ---
 
-## 二、系统提示词与 `<project_context>` 自动发现机制
+## 二、系统提示词与 Pi 原厂对齐装配机制
 
-系统提示词由 `build_default_coding_prompt(workspace)` 负责组装（位于 `src/my_coding_agent/prompt.py`），深度注入工业级研发最佳实践与当前工程的实时现状：
+系统提示词由 `build_default_coding_prompt(workspace, tools=...)` 负责组装（位于 `src/my_coding_agent/prompt.py`），100% 对齐 Pi 原厂系统提示词体系，包含五大标准 XML/文本区块：
 
 ```text
-                  build_default_coding_prompt(workspace)
+                  build_default_coding_prompt(workspace, tools)
                                     │
-    ┌───────────────────────────────┼───────────────────────────────┐
-    ▼                               ▼                               ▼
-【资深研发行为准则】            【工作区上下文注入】            【声明式技能清单】
-- 先读后改/最小修改原则          <project_context>               <available_skills>
-- 保持编码风格与命名一致性       - Git 分支与状态信息            .agents/skills/ 目录下
-- 杜绝占位代码与未确认重构       - 规范文件 (AGENTS.md)          各领域的 SOP 与工程指导
-- 边界条件与测试驱动优先         - 架构说明 (README.md)
+    ┌───────────────┬───────────────┼───────────────┬───────────────┐
+    ▼               ▼               ▼               ▼               ▼
+【Preamble】    【<tools> 块】   【<rules> 块】    【<cwd> 块】    【<project_context>】
+Pi 官方标准     已激活工具的一   各工具专属规则   POSIX 标准斜杠   AGENTS.md / README
+引导语          句话极简索引     去重+条件互斥    绝对物理路径     工程规范与上下文
 ```
 
-### 1. `<project_context>` 自动化探测与注入
+### 1. 五大标准区块规范
 
-产品层在启动或更新提示词时，会自动对当前工作区执行启发式扫描：
-
-1. **项目规范文件发现**：
-   优先读取 `AGENTS.md`、`CLAUDE.md` 或 `.cursorrules`。若存在，将其完整规范块包裹至 `<project_instructions path="...">` 标签中；
-2. **项目架构说明发现**：
-   读取根目录 `README.md`，提炼项目设计理念与目录布局；
-3. **环境与 Git 状态感知**：
-   感知当前 Git 分支名称与未提交变更文件列表，赋予模型初始环境感知力；
-4. **截断与预算约束**：
-   上下文内容自动施加单文件 100KB 上限约束，防止巨型文件挤占模型推理窗口。
-
-### 2. 资深软件工程师核心提示词准则
-
-- **Narrow & Correct**：首选最小化、高精度的微创手术式修改，严禁不加沟通的大范围重构；
-- **Preserve Conventions**：严格延续工程现有的缩进、类型注解习惯与命名风格；
-- **Verify Always**：任何代码修改必须优先执行针对性自动化测试验证，确保零回归。
+1. **`Preamble` 引导语**：
+   采用 Pi 官方标准定义：`"You are an expert coding assistant operating inside my-pi-agent, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files."`
+2. **`<tools>` 动作空间清单**：
+   遍历当前已激活工具，提取各个工具声明的 `prompt_snippet`，格式化为 `- name: snippet` 清单并附带第三方扩展声明，为思维链（CoT）提供极低成本（约 50 Tokens）的宏观动作索引；
+3. **`<rules>` 工具决策准则与铁律**：
+   - 收集所有已激活工具自带的 `prompt_guidelines`（如 `read` 先读后改、`edit` 最小唯一原子匹配、`write` 禁止随意覆写等）并去重；
+   - 动态条件互斥：若环境仅有 `bash` 而缺少专用 `grep/find/ls` 时，自动注入引导模型使用 bash 查找文件的规则；
+   - 注入通用底线规则（`Be concise in your responses`、`Show file paths clearly when working with files`）；
+4. **`<cwd>` 物理工作区路径**：
+   使用标准 POSIX 正斜杠（`/`）格式化 `<cwd>\n/path/to/project\n</cwd>`，消除 Windows 反斜杠转义歧义，深度对齐现代模型对工作区边界的 SFT 训练特征；
+5. **`<project_context>` 项目指导文件**：
+   - 自动扫描全局 `~/.my-pi-agent/AGENTS.md` 与工作区 `AGENTS.override.md`、`AGENTS.md`、`README.md`，包裹于 `<project_instructions path="...">` 容器中。
 
 ---
 

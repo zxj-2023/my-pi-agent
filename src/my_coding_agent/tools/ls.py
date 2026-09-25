@@ -34,6 +34,7 @@ def make_ls_tool(workspace: Path | str) -> Tool:
     @tool(
         name="ls",
         description="List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
+        prompt_snippet="List directory contents",
         is_parallel_safe=True,
     )
     async def ls(path: str = ".", limit: int = DEFAULT_LS_LIMIT) -> str:

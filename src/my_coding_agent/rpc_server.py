@@ -1333,7 +1333,12 @@ class RpcServer:
                 self.agent.agent.llm = new_llm
 
         # 3. 重载项目指导文件与系统提示词
-        new_prompt = build_default_coding_prompt(workspace_path)
+        tools = (
+            self.agent.agent.registry.list()
+            if (self.agent and hasattr(self.agent.agent, "registry"))
+            else None
+        )
+        new_prompt = build_default_coding_prompt(workspace_path, tools=tools)
         if self.agent:
             self.agent.agent._system_prompt = new_prompt
 

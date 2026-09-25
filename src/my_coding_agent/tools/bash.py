@@ -120,6 +120,8 @@ def make_bash_tool(
     @tool(
         name="bash",
         description="Execute a bash command in the workspace (POSIX / Git Bash syntax; do not use cmd.exe syntax like 'dir' or 'cd /d'). Returns stdout and stderr.",
+        prompt_snippet="Execute bash commands (ls, grep, find, etc.)",
+        prompt_guidelines=["You can inspect PI_* environment variables for current model and session details."],
         is_parallel_safe=False,
     )
     async def bash(
@@ -150,10 +152,11 @@ def make_bash_tool(
                 return BashResult(ok=False, data=msg, error=msg)
 
         if run_in_background:
-            if background_runner is None:
+            runner = background_runner() if callable(background_runner) else background_runner
+            if runner is None:
                 msg = "Error: Background task execution not configured on this agent."
                 return BashResult(ok=False, data=msg, error=msg)
-            res = background_runner.run_process(command, cwd=workspace)
+            res = runner.run_process(command, cwd=workspace)
             task_id = await res if inspect.isawaitable(res) else res
             return BashResult(
                 ok=True,

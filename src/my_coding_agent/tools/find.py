@@ -29,6 +29,7 @@ def make_find_tool(workspace: Path | str) -> Tool:
     @tool(
         name="find",
         description="Search for files by glob pattern. Returns matching file paths relative to the search directory. Output is truncated to 1000 results or 50KB (whichever is hit first).",
+        prompt_snippet="Find files by glob pattern (respects .gitignore)",
         is_parallel_safe=True,
     )
     async def find(pattern: str = "*", path: str = ".", limit: int = DEFAULT_FIND_LIMIT) -> str:

@@ -61,8 +61,10 @@ def calculate(expr: str, precision: int = 2) -> float:
 - 自动生成符合 OpenAI / Anthropic 规范的 Function Calling JSON Schema 字典；
 - 运行时在调用真实函数前通过 `params_model.model_validate` 进行强类型校验与宽松类型转换（如 `"37"` 自动转换为 `37`）。
 
-### 3. `Tool` 实体对象
+### 3. `Tool` 实体对象与提示词自声明 (Tool-as-a-Contributor)
 
+- **`prompt_snippet` (一句话动作概要)**：声明简短动作说明（如 `"Read file contents"`），供系统提示词 `<tools>` 块使用。若缺省，框架自动从 `description` 中提取第一句作为紧凑概要，杜绝长文本注意力稀释与 Token 浪费；
+- **`prompt_guidelines` (工具级操作准则)**：声明该工具在调用时的排他性铁律与避坑指南（如 `edit` 声明最小唯一匹配、`write` 声明禁止随意覆写），由 `format_rules_section` 统一聚合进 `<rules>` 块；
 - **`raw_schema` 支持**：支持直接接收外部或远程传入的 JSON Schema 字典（如 MCP 远程工具），无需定义本地 Python 函数签名；
 - **`timeout` 超时防护**：配置工具执行超时上限（秒），底层通过 `asyncio.wait_for` 拦截慢操作，超时自动转化为 `ToolResult(ok=False, error="Tool execution timed out after X seconds")`；
 - **`is_parallel_safe` 标记**：声明式只读并发安全标记。当大模型单轮返回多个并发工具调用时，`ToolRegistry.execute_batch` 利用 `asyncio.gather` 并行执行，将多工具串行调用的 $O(N)$ 耗时降为 $O(1)$。

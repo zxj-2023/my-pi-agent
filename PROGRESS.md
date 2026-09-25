@@ -905,6 +905,34 @@ my-pi-agent/
     - 清理关联事件与子代理的残留参数，遵循《测试冲突重写原则》彻底删除老旧测试用例。
 - **验证**：全库测试规模达到 **725 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 796 测试），正式发布 npm 与 GitHub Release `v0.1.1`。
 
+---
+
+### 阶段 33：Pi 原厂工具提示词自声明体系演进（<tools>, <rules>, <cwd> 与动态条件互斥）（2026-09-25）
+
+**目标**：彻底解决工具规则集中硬编码导致的第三方工具规则缺失问题；依据 Pi 原厂 `system-prompt.js` 规范，实现“工具自声明（Tool-as-a-Contributor）”架构；生成结构化 `<tools>` 动作索引、`<rules>` 动态决策准则与 `<cwd>` POSIX 工作区标签；支持子代理工具提示词动态裁切。
+
+- **改了什么**：
+  - **Tool 类与 @tool 装饰器支持提示词自声明 (`my_agent_core/tools/core.py`)**：
+    - 新增 `prompt_snippet`（一句话概要）与 `prompt_guidelines`（规则清单）属性；
+    - 实现自动首句摘要回退机制（若未传 snippet，自动从 `description` 截取第一句，既轻量又免去强制编写负担）。
+  - **工具提示词格式化器实现 (`my_agent_core/tools/prompt.py`)**：
+    - `format_tools_section`：动态遍历活跃工具生成 `<tools>` 动作清单，末尾附加扩展说明；
+    - `format_rules_section`：收集各工具 guidelines 并全局去重，内建条件互斥（当且仅当无专用 `grep/find/ls` 时才注入 bash 查找说明），注入通用底线准则；
+    - `format_cwd_section`：生成对标 SFT 训练特征的标准 `<cwd>` POSIX 斜杠工作区标签。
+  - **7 大核心编码工具注入规则声明 (`src/my_coding_agent/tools/`)**：
+    - `read` 注入 `"Use read to examine files instead of cat or sed."`；
+    - `edit` 注入 4 条原子替换与最小唯一匹配准则；
+    - `write` 注入 `"Use write only for new files or complete rewrites."`；
+    - `bash` 注入环境变量自省说明；`grep/find/ls` 注入精简 snippet。
+  - **重构 build_default_coding_prompt 提示词装配 (`src/my_coding_agent/prompt.py`)**：
+    - Preamble 升级为 Pi 官方标准；
+    - 将 `<tools>`、`<rules>`、`<cwd>` 与 `<project_context>` 模块化组装，删除原冗余硬编码大段规则。
+  - **CodingAgent 与 Subagent 提示词全链路打通 (`agent.py`, `subagent_tasks.py`)**：
+    - `CodingAgent` 在构造 `Agent` 前预先组装好全量工具，使首条系统提示词完整融合 7 大工具及额外工具；
+    - `subagent_tasks.py` 在 `_system_for` 中动态根据子代理过滤后的 `child_tools` 生成专属 `<tools>` 与 `<rules>`（只读子代理自动剥离 `edit`/`write` 规则）。
+- **验证**：全库测试规模提升至 **739 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 810 测试，100% 绿灯全通）。
+
+
 
 
 

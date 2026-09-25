@@ -42,6 +42,13 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
     @tool(
         name="edit",
         description="Surgically edit file using multi-edit atomic blocks and unified diff generation.",
+        prompt_snippet="Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+        prompt_guidelines=[
+            "Use edit for precise changes (edits[].oldText must match exactly)",
+            "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+            "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+            "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
+        ],
         is_parallel_safe=True,
     )
     async def edit(

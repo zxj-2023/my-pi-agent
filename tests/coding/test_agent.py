@@ -103,7 +103,8 @@ async def test_coding_agent_prompt_and_mutation_queue(tmp_path: Path):
 
     # 1. 默认 prompt 自动扫描工作区
     agent_default = CodingAgent(workspace=tmp_path, llm=fake_llm, session=session)
-    assert "Workspace Directory:" in (agent_default.agent.system_prompt or "")
+    assert "<cwd>" in (agent_default.agent.system_prompt or "")
+    assert str(tmp_path.resolve()).replace("\\", "/") in (agent_default.agent.system_prompt or "")
     assert isinstance(agent_default.mutation_queue, FileMutationQueue)
     assert agent_default.workspace == tmp_path.resolve()
 

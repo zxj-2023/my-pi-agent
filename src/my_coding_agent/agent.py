@@ -53,7 +53,15 @@ class CodingAgent:
         if isinstance(session, (str, Path)):
             session = Session(path=Path(session), cwd=str(self.workspace))
 
-        # 1. 自动生成或应用系统提示词
+        # 1. 预先装配 7 大编码专属工具并与额外工具合并
+        coding_tools = build_coding_tools(
+            self.workspace,
+            mutation_queue=self.mutation_queue,
+            background_runner=lambda: getattr(self.agent, "background_runner", None),
+        )
+        all_tools = [*extra_tools, *coding_tools]
+
+        # 2. 自动生成或应用系统提示词（全量融合所有激活工具）
         global_agents = (
             (Path.home() / ".my-pi-agent" / "AGENTS.md")
             if (Path.home() / ".my-pi-agent" / "AGENTS.md").is_file()
@@ -64,10 +72,14 @@ class CodingAgent:
         effective_prompt = (
             system_prompt
             if system_prompt is not None
-            else build_default_coding_prompt(self.workspace, global_instructions_path=global_agents)
+            else build_default_coding_prompt(
+                self.workspace,
+                tools=all_tools,
+                global_instructions_path=global_agents,
+            )
         )
 
-        # 2. 构造框架通用 Agent（压缩预算默认 = 当前模型窗口，阀值 = 80%×窗口）
+        # 3. 构造框架通用 Agent（压缩预算默认 = 当前模型窗口，阀值 = 80%×窗口）
         kw.setdefault(
             "context_budget",
             resolve_model_context_window(getattr(getattr(llm, "config", None), "model", None) or ""),
@@ -75,30 +87,21 @@ class CodingAgent:
         self.agent = Agent(
             llm=llm,
             session=session,
-            tools=list(extra_tools),
+            tools=all_tools,
             system_prompt=effective_prompt,
             **kw,
         )
 
-        # 3. 若注入了权限门禁，注册到 ToolCallHook
+        # 4. 若注入了权限门禁，注册到 ToolCallHook
         if self._permission_gate is not None:
             self.agent.hooks.register(ToolCallHook, self._permission_gate)
 
-        # 4. 装配 FileReferenceParser 并注册到 UserInputHook
+        # 5. 装配 FileReferenceParser 并注册到 UserInputHook
         self.file_reference_parser = FileReferenceParser(self.workspace)
         self.agent.hooks.register(
             UserInputHook,
             lambda hook: self._expand_refs(self.file_reference_parser, hook),
         )
-
-        # 5. 装配 7 大编码专属工具
-        coding_tools = build_coding_tools(
-            self.workspace,
-            mutation_queue=self.mutation_queue,
-            background_runner=self.agent.background_runner,
-        )
-        for t in coding_tools:
-            self.agent.registry.register(t)
 
     @staticmethod
     def _expand_refs(parser: FileReferenceParser, hook: UserInputHook) -> HookResult | None:
