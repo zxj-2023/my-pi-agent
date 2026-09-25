@@ -40,6 +40,7 @@ from my_agent_core.memory import MemoryStore, make_memory_tool
 from my_agent_core.message_queue import MessageQueue, QueuedMessage
 from my_agent_core.plugins import PluginManager
 from my_agent_core.registry import ToolRegistry
+from my_agent_core.retry import AutoRetryPolicy  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
@@ -81,6 +82,7 @@ class Agent:
         steering_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         followup_mode: Literal["one-at-a-time", "all"] = "one-at-a-time",
         hooks: list[tuple[type, Callable[..., Any]]] | None = None,
+        retry_policy: AutoRetryPolicy | None = None,
     ):
         """各参数语义见框架设计文档 §4.3（hook 通过 register_hook 挂载）。
 
@@ -124,6 +126,7 @@ class Agent:
 
         self.memory_store = self._init_memory_store(memory_dir)  # memory 装配与快照冻结
         self.task_store = self._init_task_store(task_store)  # 任务看板仓库装配
+        self.retry_policy = retry_policy or AutoRetryPolicy()  # 大模型自动重试策略
         self.message_queue = MessageQueue(
             steering_mode=steering_mode, followup_mode=followup_mode
         )  # 动态干预消息队列 (Pi-style steer & followup)
@@ -368,6 +371,7 @@ class Agent:
             before_model_call=self.hooks.emit,
             before_tool_call=self.hooks.emit,
             after_tool_call=self.hooks.emit,
+            retry_policy=self.retry_policy,
         )
 
         async for event in loop_gen:

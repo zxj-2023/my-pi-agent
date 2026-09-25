@@ -45,6 +45,10 @@ from my_agent_core.plugins import (
     PluginManifest,
 )
 from my_agent_core.registry import ToolRegistry
+from my_agent_core.retry import (  # pyright: ignore[reportMissingImports]
+    AutoRetryPolicy,
+    is_retryable_error,
+)
 from my_agent_core.session import Session, SessionStore, SessionTree
 from my_agent_core.subagent_tasks import (  # pyright: ignore[reportMissingImports]
     SubagentTask,
@@ -67,6 +71,8 @@ from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMi
 
 __all__ = [
     "Agent",
+    "AutoRetryPolicy",
+    "is_retryable_error",
     "tool",
     "Tool",
     "ToolResult",

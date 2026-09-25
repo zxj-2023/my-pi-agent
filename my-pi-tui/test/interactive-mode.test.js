@@ -592,4 +592,71 @@ test("InteractiveMode removes incomplete streaming assistant message on Escape i
   assert.equal(mode.isStreaming, false);
 });
 
+test("InteractiveMode handles handshake model error without throwing TypeError and stops busy spinner", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  await mode.init();
+
+  mode.handleAgentEvent({ type: "agent_start" });
+  mode.handleAgentEvent({ type: "turn_start", iteration: 1 });
+  mode.handleAgentEvent({
+    type: "message_start",
+    message: { role: "assistant", content: [] },
+  });
+
+  // Handshake failure (401), content with stopReason: error
+  mode.handleAgentEvent({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: "Error code: 401 - Authentication Fails",
+      stopReason: "error",
+      metadata: { stop_reason: "error" },
+    },
+  });
+
+  mode.handleAgentEvent({
+    type: "turn_end",
+  });
+
+  mode.handleAgentEvent({
+    type: "agent_end",
+    stopReason: "error",
+    stop_reason: "error",
+  });
+
+  assert.equal(mode.isStreaming, false);
+  assert.equal(mode.isWorking, false);
+  const rendered = mode.ui.render(80).join("\n");
+  assert.ok(rendered.includes("401"), "Error message 401 must be rendered");
+});
+
+test("InteractiveMode handles auto_retry_start and auto_retry_end lifecycle", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  await mode.init();
+
+  mode.handleAgentEvent({
+    type: "auto_retry_start",
+    attempt: 1,
+    maxAttempts: 3,
+    delayMs: 2000,
+    errorMessage: "503 Service Unavailable",
+  });
+
+  const renderedRetry = mode.ui.render(80).join("\n");
+  assert.ok(renderedRetry.includes("重试中 (1/3)"), "Retry status indicator must be rendered");
+  assert.ok(renderedRetry.includes("503 Service Unavailable"));
+
+  mode.handleAgentEvent({
+    type: "auto_retry_end",
+    success: true,
+    attempt: 1,
+  });
+
+  const renderedSuccess = mode.ui.render(80).join("\n");
+  assert.ok(!renderedSuccess.includes("重试中 (1/3)"), "Retry status indicator cleared on recovery");
+});
+
+
 

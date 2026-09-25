@@ -31,23 +31,37 @@ export class AssistantMessageComponent extends Container {
     }
   }
 
-  public appendTextDelta(delta: string): void {
+  public appendTextDelta(delta: unknown): void {
     if (!this.isFinalized && this.thinkingText && this.isThinkingExpanded) {
       // 当正文开始输出时，将思考区块默认折叠以保持界面清爽整洁
       this.isThinkingExpanded = false;
       this.updateThinkingDisplay();
     }
-    this.contentText += delta;
+    const str = typeof delta === "string" ? delta : String(delta ?? "");
+    this.contentText += str;
     this.updateContentDisplay();
   }
 
-  public setContent(fullContent: string): void {
+  public setContent(fullContent: unknown): void {
     if (!this.isFinalized && this.thinkingText && this.isThinkingExpanded) {
       this.isThinkingExpanded = false;
       this.updateThinkingDisplay();
     }
-    if (this.contentText !== fullContent) {
-      this.contentText = fullContent;
+    let str = "";
+    if (typeof fullContent === "string") {
+      str = fullContent;
+    } else if (Array.isArray(fullContent)) {
+      str = fullContent
+        .map((b: any) =>
+          typeof b === "string" ? b : b?.text || b?.thinking || "",
+        )
+        .join("");
+    } else if (fullContent !== null && fullContent !== undefined) {
+      str = String(fullContent);
+    }
+
+    if (this.contentText !== str) {
+      this.contentText = str;
       this.updateContentDisplay();
     }
   }

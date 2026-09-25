@@ -481,10 +481,32 @@ export class InteractiveMode {
       }
 
       case "message_end": {
+        const isError =
+          event.message?.metadata?.stop_reason === "error" ||
+          event.message?.stopReason === "error" ||
+          event.message?.role === "error" ||
+          event.stop_reason === "error" ||
+          event.stopReason === "error";
+
+        const contentStr =
+          typeof event.message?.content === "string"
+            ? event.message.content
+            : Array.isArray(event.message?.content)
+              ? event.message.content
+                  .map((b: any) =>
+                    typeof b === "string"
+                      ? b
+                      : b?.text || b?.thinking || "",
+                  )
+                  .join("")
+              : String(event.message?.content ?? "");
+
         if (this.currentStreamingAssistant) {
           const isCancelled =
             event.message?.metadata?.stop_reason === "cancelled" ||
-            event.message?.metadata?.stop_reason === "aborted";
+            event.message?.metadata?.stop_reason === "aborted" ||
+            event.message?.stopReason === "cancelled" ||
+            event.message?.stopReason === "aborted";
           if (isCancelled) {
             this.chatContainer.removeChild(this.currentStreamingAssistant);
             this.currentStreamingAssistant = undefined;
@@ -492,45 +514,41 @@ export class InteractiveMode {
           }
           if (
             !this.currentStreamingAssistant.getContentText() &&
-            event.message?.content
+            contentStr
           ) {
-            if (
-              event.message.metadata?.stop_reason === "error" ||
-              event.message.role === "error"
-            ) {
+            if (isError) {
               this.chatContainer.removeChild(this.currentStreamingAssistant);
-              this.appendErrorMessage(event.message.content);
+              this.appendErrorMessage(contentStr);
               this.hasRenderedTurnError = true;
             } else {
-              this.currentStreamingAssistant.setContent(event.message.content);
+              this.currentStreamingAssistant.setContent(contentStr);
             }
-          } else if (
-            event.message?.metadata?.stop_reason === "error" &&
-            event.message?.content
-          ) {
-            this.appendErrorMessage(event.message.content);
+          } else if (isError && contentStr) {
+            this.appendErrorMessage(contentStr);
             this.hasRenderedTurnError = true;
           }
           this.currentStreamingAssistant.finalize();
           this.latestAssistantMessage = this.currentStreamingAssistant;
           this.currentStreamingAssistant = undefined;
         } else if (
-          event.message?.content &&
+          contentStr &&
           event.message?.role === "assistant"
         ) {
-          if (
-            event.message.metadata?.stop_reason === "cancelled" ||
-            event.message.metadata?.stop_reason === "aborted"
-          ) {
+          const isCancelled =
+            event.message?.metadata?.stop_reason === "cancelled" ||
+            event.message?.metadata?.stop_reason === "aborted" ||
+            event.message?.stopReason === "cancelled" ||
+            event.message?.stopReason === "aborted";
+          if (isCancelled) {
             // 中断废弃的半截文本直接忽略，不新建气泡挂载
             break;
           }
-          if (event.message.metadata?.stop_reason === "error") {
-            this.appendErrorMessage(event.message.content);
+          if (isError) {
+            this.appendErrorMessage(contentStr);
             this.hasRenderedTurnError = true;
           } else {
             const assistant = new AssistantMessageComponent();
-            assistant.setContent(event.message.content);
+            assistant.setContent(contentStr);
             assistant.finalize();
             this.chatContainer.addChild(assistant);
             this.chatContainer.addChild(new Spacer(1));
@@ -590,46 +608,52 @@ export class InteractiveMode {
       }
 
       case "agent_end": {
-        this.isStreaming = false;
-        this.isWorking = false;
-        this.isSubmitting = false;
-        this.pendingSteeringList = [];
-        this.pendingFollowupList = [];
-        this.updatePendingMessagesDisplay();
-        if (this.currentStreamingAssistant) {
-          if (
-            event.stop_reason === "cancelled" ||
-            event.stop_reason === "aborted" ||
-            (!this.currentStreamingAssistant.getContentText() &&
-              event.final_text &&
-              event.stop_reason === "error")
-          ) {
-            this.chatContainer.removeChild(this.currentStreamingAssistant);
-          } else {
-            this.currentStreamingAssistant.finalize();
+        try {
+          this.isStreaming = false;
+          this.isWorking = false;
+          this.isSubmitting = false;
+          this.pendingSteeringList = [];
+          this.pendingFollowupList = [];
+          this.updatePendingMessagesDisplay();
+          const stopReason = String(
+            event.stop_reason ?? event.stopReason ?? "",
+          );
+          const isError = stopReason === "error";
+          const isCancelled =
+            stopReason === "cancelled" || stopReason === "aborted";
+          const finalText = String(event.final_text ?? event.finalText ?? "");
+
+          if (this.currentStreamingAssistant) {
+            if (
+              isCancelled ||
+              (!this.currentStreamingAssistant.getContentText() &&
+                finalText &&
+                isError)
+            ) {
+              this.chatContainer.removeChild(this.currentStreamingAssistant);
+            } else {
+              this.currentStreamingAssistant.finalize();
+            }
+            this.currentStreamingAssistant = undefined;
           }
-          this.currentStreamingAssistant = undefined;
-        }
-        // 自动闭合所有未正常结束的工具调用
-        for (const tool of this.activeToolCalls.values()) {
-          if (!tool.finished) {
-            tool.updateResult("执行中断", true);
+          // 自动闭合所有未正常结束的工具调用
+          for (const tool of this.activeToolCalls.values()) {
+            if (!tool.finished) {
+              tool.updateResult("执行中断", true);
+            }
           }
-        }
-        this.activeToolCalls.clear();
-        this.toolStartTimes.clear();
-        this.clearStatusDisplay();
-        if (event.usage) {
-          this.updateFooterUsage(event.usage, event.contextWindow);
-        }
-        this.footer.update({ isBusy: false });
-        if (
-          event.stop_reason === "error" &&
-          event.final_text &&
-          !this.hasRenderedTurnError
-        ) {
-          this.appendErrorMessage(event.final_text);
-          this.hasRenderedTurnError = true;
+          this.activeToolCalls.clear();
+          this.toolStartTimes.clear();
+          if (event.usage) {
+            this.updateFooterUsage(event.usage, event.contextWindow);
+          }
+          if (isError && finalText && !this.hasRenderedTurnError) {
+            this.appendErrorMessage(finalText);
+            this.hasRenderedTurnError = true;
+          }
+        } finally {
+          this.clearStatusDisplay();
+          this.footer.update({ isBusy: false });
         }
         break;
       }
@@ -641,6 +665,29 @@ export class InteractiveMode {
         this.appendSystemNotice(
           `✓ 上下文已压缩: ${(event.tokensBefore ?? 0).toLocaleString()} -> ${(event.tokensAfter ?? 0).toLocaleString()} tokens`,
         );
+        break;
+      }
+
+      case "auto_retry_start": {
+        const sec = ((event.delayMs || 2000) / 1000).toFixed(1);
+        const err = event.errorMessage ? `: ${event.errorMessage}` : "";
+        const text = `重试中 (${event.attempt}/${event.maxAttempts}) ${sec}s 后继续${err} (Esc 取消)`;
+        this.updateStatusDisplay(text);
+        break;
+      }
+
+      case "auto_retry_end": {
+        if (event.success) {
+          this.updateStatusDisplay("Working");
+        } else {
+          this.clearStatusDisplay();
+          if (event.finalError) {
+            this.appendErrorMessage(
+              `已达最大重试次数 (${event.attempt})，请求失败: ${event.finalError}`,
+            );
+            this.hasRenderedTurnError = true;
+          }
+        }
         break;
       }
     }
@@ -2352,8 +2399,20 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
-  public appendErrorMessage(text: string): void {
-    const errorNotice = new Text(theme.fg("error", `⚠ ${text}`), 1, 0);
+  public appendErrorMessage(text: unknown): void {
+    const str =
+      typeof text === "string"
+        ? text
+        : Array.isArray(text)
+          ? text
+              .map((b: any) =>
+                typeof b === "string" ? b : b?.text || b?.thinking || "",
+              )
+              .join("")
+          : typeof text === "object" && text !== null
+            ? (text as any).message || JSON.stringify(text)
+            : String(text ?? "");
+    const errorNotice = new Text(theme.fg("error", `⚠ ${str}`), 1, 0);
     this.chatContainer.addChild(errorNotice);
     this.ui.requestRender();
   }

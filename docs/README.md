@@ -14,7 +14,7 @@
 │                          my-pi-agent 双核架构全景                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  【终端交互表现层】: tui/ (Node.js / TypeScript, 基于 @earendil-works/pi-tui)│
+│  【终端交互表现层】: my-pi-tui/ (Node.js / TypeScript, 基于 @earendil-works/pi-tui)│
 │    • TuiMainScreen 极速差量重绘器（保留终端原生历史与鼠标滚轮翻看）           │
 │    • CSI 2026 垂直同步刷新屏障（彻底消灭字符撕裂与屏幕闪烁）                  │
 │    • 24-bit TrueColor 调色盘 (dark.json) 与柔和卡片视觉系统                 │

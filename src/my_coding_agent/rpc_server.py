@@ -530,6 +530,22 @@ class RpcServer:
         os.environ[key_name] = key
         auth_mgr.set_api_key(provider=provider, key=key)
 
+        # 3. 若当前模型正在使用该提供商，立刻原地热更新当前活跃模型实例
+        if self.agent and getattr(self.agent.agent, "llm", None):
+            current_prov = getattr(getattr(self.agent.agent.llm, "config", None), "provider", None)
+            if current_prov == provider:
+                current_model = self._get_current_model_name()
+                new_llm, _, _, _ = switch_llm_model(
+                    current_llm=self.agent.agent.llm,
+                    raw_model=current_model,
+                    provider=current_prov,
+                    paths=paths,
+                    auth_mgr=auth_mgr,
+                    default_provider=self.settings.default_provider if self.settings else "openai",
+                )
+                if new_llm is not None:
+                    self.agent.agent.llm = new_llm
+
         return self.send_response(
             req_id,
             result={
@@ -1297,10 +1313,26 @@ class RpcServer:
         paths = self.paths or AgentPaths()
         workspace_path = Path(self.agent.workspace if self.agent else ".").resolve()
 
-        # 1. 重载 settings
+        # 1. 重载 settings 与 auth 凭据中心
         self.settings = load_settings(paths, cwd=workspace_path)
+        self.auth_mgr = AuthManager(auth_path=paths.auth_path)
 
-        # 2. 重载项目指导文件与系统提示词
+        # 2. 热重载当前活跃 LLM 实例（重新绑定最新凭据）
+        if self.agent and getattr(self.agent.agent, "llm", None):
+            current_model = self._get_current_model_name()
+            current_prov = getattr(getattr(self.agent.agent.llm, "config", None), "provider", None)
+            new_llm, _, _, _ = switch_llm_model(
+                current_llm=self.agent.agent.llm,
+                raw_model=current_model,
+                provider=current_prov,
+                paths=paths,
+                auth_mgr=self.auth_mgr,
+                default_provider=self.settings.default_provider if self.settings else "openai",
+            )
+            if new_llm is not None:
+                self.agent.agent.llm = new_llm
+
+        # 3. 重载项目指导文件与系统提示词
         new_prompt = build_default_coding_prompt(workspace_path)
         if self.agent:
             self.agent.agent._system_prompt = new_prompt

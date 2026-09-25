@@ -1,6 +1,6 @@
 # 前后端通信协议与内核桥接规范 (`my_coding_agent.rpc_server`)
 
-- **定位**：Python 运行时内核与独立前端表现层之间的通信桥梁 (`src/my_coding_agent/rpc_server.py`, `tui/src/bridge/`)
+- **定位**：Python 运行时内核与独立前端表现层之间的通信桥梁 (`src/my_coding_agent/rpc_server.py`, `my-pi-tui/src/bridge/`)
 - **协议标准**：标准 stdio JSON-RPC 2.0 规范（无网络端口开销、跨平台高可靠）
 - **核心能力**：双向流式通知、会话树 DAG 分支操作、全量 Token 与成本动态核算、Prompt Cache 命中率（`CH%`）
 

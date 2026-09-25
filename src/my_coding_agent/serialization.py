@@ -13,6 +13,8 @@ from typing import Any
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    AutoRetryEnd,
+    AutoRetryStart,
     ContextCompacted,
     Event,
     MessageEnd,
@@ -184,6 +186,21 @@ def serialize_event(event: Event, stats: dict[str, Any] | None = None) -> dict[s
             "type": "tools_changed",
             "action": event.action,
             "name": event.name,
+        }
+    elif isinstance(event, AutoRetryStart):
+        return {
+            "type": "auto_retry_start",
+            "attempt": event.attempt,
+            "maxAttempts": event.max_attempts,
+            "delayMs": event.delay_ms,
+            "errorMessage": event.error_message,
+        }
+    elif isinstance(event, AutoRetryEnd):
+        return {
+            "type": "auto_retry_end",
+            "success": event.success,
+            "attempt": event.attempt,
+            "finalError": event.final_error or "",
         }
 
     return {"type": type(event).__name__.lower()}

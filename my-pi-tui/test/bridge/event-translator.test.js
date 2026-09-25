@@ -231,3 +231,57 @@ test("EventTranslator returns null for invalid inputs", () => {
   assert.equal(translator.translate("not an object"), null);
   assert.equal(translator.translate({}), null);
 });
+
+test("EventTranslator preserves error text and metadata on message_end when no updates occurred", () => {
+  const translator = new EventTranslator();
+
+  translator.translate({
+    type: "message_start",
+    message: { role: "assistant", content: "" },
+  });
+
+  const endEv = translator.translate({
+    type: "message_end",
+    message: {
+      role: "assistant",
+      content: "Error code: 401 - Authentication Fails",
+      metadata: { stop_reason: "error" },
+    },
+  });
+
+  assert.equal(endEv.type, "message_end");
+  assert.equal(endEv.message.stopReason, "error");
+  assert.equal(endEv.message.metadata?.stop_reason, "error");
+  const firstBlock = Array.isArray(endEv.message.content) ? endEv.message.content[0] : null;
+  assert.ok(
+    (firstBlock && firstBlock.text === "Error code: 401 - Authentication Fails") ||
+    endEv.message.content === "Error code: 401 - Authentication Fails",
+    "Error text must be preserved"
+  );
+});
+
+test("EventTranslator translates auto_retry_start and auto_retry_end events", () => {
+  const translator = new EventTranslator();
+
+  const startEv = translator.translate({
+    type: "auto_retry_start",
+    attempt: 1,
+    max_attempts: 3,
+    delay_ms: 2000,
+    error_message: "503 Service Unavailable",
+  });
+  assert.equal(startEv.type, "auto_retry_start");
+  assert.equal(startEv.attempt, 1);
+  assert.equal(startEv.maxAttempts, 3);
+  assert.equal(startEv.delayMs, 2000);
+  assert.equal(startEv.errorMessage, "503 Service Unavailable");
+
+  const endEv = translator.translate({
+    type: "auto_retry_end",
+    success: true,
+    attempt: 1,
+  });
+  assert.equal(endEv.type, "auto_retry_end");
+  assert.equal(endEv.success, true);
+  assert.equal(endEv.attempt, 1);
+});

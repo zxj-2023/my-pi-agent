@@ -1,5 +1,5 @@
 {
-  "name": "my-agent-tui",
+  "name": "my-pi-tui",
   "version": "0.1.0",
   "description": "High-fidelity Pi-TUI terminal presentation layer for my-pi-agent",
   "type": "module",

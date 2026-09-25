@@ -4,22 +4,22 @@
   "description": "Minimalist Pi-style coding-agent framework and CLI with Pi-TUI",
   "type": "module",
   "bin": {
-    "my-pi-agent": "tui/bin/my-agent.js",
-    "my-agent": "tui/bin/my-agent.js"
+    "my-pi-agent": "my-pi-tui/bin/my-agent.js",
+    "my-agent": "my-pi-tui/bin/my-agent.js"
   },
   "workspaces": [
-    "tui"
+    "my-pi-tui"
   ],
   "scripts": {
-    "start": "node tui/bin/my-agent.js",
-    "build": "npm run build --prefix tui",
-    "test": "npm test --prefix tui",
-    "prepack": "npm run build --prefix tui"
+    "start": "node my-pi-tui/bin/my-agent.js",
+    "build": "npm run build --prefix my-pi-tui",
+    "test": "npm test --prefix my-pi-tui",
+    "prepack": "npm run build --prefix my-pi-tui"
   },
   "files": [
-    "tui/dist",
-    "tui/bin",
-    "tui/package.json",
+    "my-pi-tui/dist",
+    "my-pi-tui/bin",
+    "my-pi-tui/package.json",
     "src/**/*.py",
     "pyproject.toml",
     "README.md"

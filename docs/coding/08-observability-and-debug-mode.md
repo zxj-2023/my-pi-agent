@@ -1,7 +1,7 @@
 # 可观察性与调试诊断体系规范 (`my_coding_agent.tracer`)
 
 - **定位**：面向生产环境与复杂自主 Agent 开发的全链路事件驱动可观察性与调试诊断系统。
-- **源码对应**：`src/my_coding_agent/tracer.py`、`src/my_agent_core/events.py`、`tui/src/interactive/interactive-mode.ts`。
+- **源码对应**：`src/my_coding_agent/tracer.py`、`src/my_agent_core/events.py`、`my-pi-tui/src/interactive/interactive-mode.ts`。
 
 ---
 

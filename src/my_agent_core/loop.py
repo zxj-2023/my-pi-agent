@@ -16,6 +16,8 @@ from typing import Any
 from my_agent_core.events import (
     AgentEnd,
     AgentStart,
+    AutoRetryEnd,
+    AutoRetryStart,
     ContextCompacted,
     Event,
     MessageEnd,
@@ -34,6 +36,10 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
     ToolResultHook,
 )
 from my_agent_core.registry import ToolRegistry
+from my_agent_core.retry import (  # pyright: ignore[reportMissingImports]
+    AutoRetryPolicy,
+    extract_retry_after,
+)
 from my_agent_core.tool_history import (
     _INTERRUPTED_TOOL_RESULT,
     repair_tool_history,
@@ -122,39 +128,128 @@ async def _assistant_turn(
     model: str | None = None,
     signal: CancellationToken | None = None,
     context_manager: Any | None = None,
+    retry_policy: AutoRetryPolicy | None = None,
 ) -> AsyncIterator[Event]:
-    """专职大模型推理车间：纯粹转译模型层产出的高阶 StreamEvent（对标 Tau _assistant_events）。"""
-    if hasattr(llm, "astream_events"):
-        event_stream = llm.astream_events(messages=view, tools=tool_schemas, model=model, signal=signal)
-    else:
-        acc = StreamAccumulator()
-        event_stream = acc.stream(
-            llm.achat_stream(messages=view, tools=tool_schemas, model=model),
-            signal=signal,
-        )
+    """专职大模型推理车间：纯粹转译模型层产出的高阶 StreamEvent（对标 Tau 并支持智能重试退避）。"""
+    policy = retry_policy or AutoRetryPolicy(max_retries=0)
+    attempt = 0
 
-    async for ev in event_stream:
-        if isinstance(ev, StreamStartEvent):
-            yield MessageStart(ev.partial)
-        elif isinstance(ev, TextDeltaEvent):
-            yield MessageUpdate(message=ev.partial, chunk=StreamChunk(content=ev.delta))
-        elif isinstance(ev, ThinkingDeltaEvent):
-            yield MessageUpdate(
-                message=ev.partial,
-                chunk=StreamChunk(content="", metadata={"reasoning_content": ev.delta}),
+    while True:
+        attempt += 1
+        is_retry = attempt > 1
+
+        if hasattr(llm, "astream_events"):
+            event_stream = llm.astream_events(messages=view, tools=tool_schemas, model=model, signal=signal)
+        else:
+            acc = StreamAccumulator()
+            event_stream = acc.stream(
+                llm.achat_stream(messages=view, tools=tool_schemas, model=model),
+                signal=signal,
             )
-        elif isinstance(ev, ToolCallDoneEvent):
-            yield MessageUpdate(
-                message=ev.partial,
-                chunk=StreamChunk(content="", tool_calls=[ev.tool_call]),
-            )
-        elif isinstance(ev, StreamDoneEvent):
-            if ev.usage and context_manager is not None and hasattr(context_manager, "record_usage"):
-                with contextlib.suppress(Exception):
-                    context_manager.record_usage(ev.usage)
-            yield MessageEnd(ev.message)
-        elif isinstance(ev, StreamErrorEvent):
-            yield MessageEnd(ev.error)
+
+        events_yielded: list[Event] = []
+        error_event: StreamErrorEvent | None = None
+
+        async for ev in event_stream:
+            if isinstance(ev, StreamErrorEvent):
+                error_event = ev
+                break
+            elif isinstance(ev, StreamStartEvent):
+                events_yielded.append(MessageStart(ev.partial))
+            elif isinstance(ev, TextDeltaEvent):
+                while events_yielded:
+                    yield events_yielded.pop(0)
+                yield MessageUpdate(message=ev.partial, chunk=StreamChunk(content=ev.delta))
+            elif isinstance(ev, ThinkingDeltaEvent):
+                while events_yielded:
+                    yield events_yielded.pop(0)
+                yield MessageUpdate(
+                    message=ev.partial,
+                    chunk=StreamChunk(content="", metadata={"reasoning_content": ev.delta}),
+                )
+            elif isinstance(ev, ToolCallDoneEvent):
+                while events_yielded:
+                    yield events_yielded.pop(0)
+                yield MessageUpdate(
+                    message=ev.partial,
+                    chunk=StreamChunk(content="", tool_calls=[ev.tool_call]),
+                )
+            elif isinstance(ev, StreamDoneEvent):
+                while events_yielded:
+                    yield events_yielded.pop(0)
+                if ev.usage and context_manager is not None and hasattr(context_manager, "record_usage"):
+                    with contextlib.suppress(Exception):
+                        context_manager.record_usage(ev.usage)
+                yield MessageEnd(ev.message)
+
+        if error_event is not None:
+            # 1. 用户主动取消信号触发，直接终止，绝不重试
+            if signal is not None and signal.is_cancelled():
+                while events_yielded:
+                    yield events_yielded.pop(0)
+                yield MessageEnd(error_event.error)
+                return
+
+            exc = error_event.exc
+            err_msg = str(exc) if exc is not None else str(error_event.error.content)
+
+            # 2. 判定是否满足重试条件 (未超过最大重试次数且属于可重试瞬时异常)
+            if exc is not None and policy.is_retryable(exc) and attempt <= policy.max_retries:
+                retry_after = extract_retry_after(exc)
+                try:
+                    delay_ms = int(policy.compute_delay_ms(attempt=attempt, retry_after=retry_after))
+                except Exception:
+                    delay_ms = 1000
+
+                yield AutoRetryStart(
+                    attempt=attempt,
+                    max_attempts=policy.max_retries,
+                    delay_ms=delay_ms,
+                    error_message=err_msg,
+                )
+
+                # 可中断的延迟等待 (50ms 颗粒度轮询取消信号)
+                sleep_sec = delay_ms / 1000.0
+                cancelled_during_wait = False
+                if signal is not None:
+                    step = 0.05
+                    slept = 0.0
+                    while slept < sleep_sec:
+                        if signal.is_cancelled():
+                            cancelled_during_wait = True
+                            break
+                        wait_slice = min(step, sleep_sec - slept)
+                        await asyncio.sleep(wait_slice)
+                        slept += wait_slice
+                else:
+                    await asyncio.sleep(sleep_sec)
+
+                if cancelled_during_wait:
+                    yield AutoRetryEnd(success=False, attempt=attempt, final_error="Cancelled by user")
+                    yield MessageEnd(
+                        Message(
+                            role="assistant",
+                            content="",
+                            metadata={"stop_reason": "cancelled"},
+                        )
+                    )
+                    return
+
+                # 继续下一轮重试循环
+                continue
+            else:
+                # 致命不可重试错误或重试次数耗尽
+                if is_retry:
+                    yield AutoRetryEnd(success=False, attempt=attempt - 1, final_error=err_msg)
+                while events_yielded:
+                    yield events_yielded.pop(0)
+                yield MessageEnd(error_event.error)
+                return
+        else:
+            # 成功完成推理！如果此前经历过重试，发射 AutoRetryEnd(success=True)
+            if is_retry:
+                yield AutoRetryEnd(success=True, attempt=attempt - 1)
+            return
 
 
 def _as_messages(items: Sequence[Message | str]) -> list[Message]:
@@ -438,6 +533,7 @@ async def run_agent_loop(
     ) = None,
     before_tool_call: (Callable[[ToolCallHook], Awaitable[HookResult | None] | HookResult | None] | None) = None,
     after_tool_call: (Callable[[ToolResultHook], Awaitable[HookResult | None] | HookResult | None] | None) = None,
+    retry_policy: AutoRetryPolicy | None = None,
 ) -> AsyncIterator[Event]:
     """对标 Tau 的极简纯函数异步微内核，主状态机约 110 行。"""
     if isinstance(tools, ToolRegistry):
@@ -563,6 +659,7 @@ async def run_agent_loop(
                 model=model,
                 signal=signal,
                 context_manager=context_manager,
+                retry_policy=retry_policy,
             ):
                 yield ev
                 if isinstance(ev, MessageEnd):

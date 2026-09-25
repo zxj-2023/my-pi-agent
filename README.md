@@ -66,7 +66,7 @@
 >
 > 💡 **学习与精读建议**：
 > - **强烈推荐重点精读【框架核心层 (`src/my_agent_core/`)】**：这是整个项目的精髓与灵魂。为了彻底吃透每个架构不变式，框架核心层的大部分代码我都**亲自逐行 Review、推敲重构并编写了 100% 覆盖的离线测试**，代码无任何多余抽象，是学习 ReAct 状态机循环、七阶段工具流水线与会话持久化的最佳切入点；
-> - **产品业务层 (`src/my_coding_agent/`) 与 TUI 表现层 (`tui/`)**：是我通过 AI Coding 协同结对落地实现的，并经过了端到端严格验收。它展示了如何将一个无头 Agent 大脑装配为兼具安全门禁、并发锁与原厂像素级交互质感的工业级终端产品，适合作为工程落地与全栈集成的参考示例。
+> - **产品业务层 (`src/my_coding_agent/`) 与 TUI 表现层 (`my-pi-tui/`)**：是我通过 AI Coding 协同结对落地实现的，并经过了端到端严格验收。它展示了如何将一个无头 Agent 大脑装配为兼具安全门禁、并发锁与原厂像素级交互质感的工业级终端产品，适合作为工程落地与全栈集成的参考示例。
 
 ### 📚 通过本项目你能掌握：
 
@@ -185,7 +185,7 @@ npm start
 
 ## ✨ 核心特性全景 (What my-pi-agent can do)
 
-- **100% 像素级 Pi 原厂终端体验 (`tui/`)**：
+- **100% 像素级 Pi 原厂终端体验 (`my-pi-tui/`)**：
   - **`CustomEditor` 顶部嵌入动效**：在模型思考或工具执行期间，输入框顶部边框实时挖槽嵌入 Braille 10 帧高频旋转指示器（`── ⠸ Working ──`），完成时平滑自愈；
   - **思考预算深度自适应轮转**：支持 `Shift+Tab` / `Ctrl+T` 快捷键原地切换推理深度（`off` ➔ `low` ➔ `medium` ➔ `high` ➔ `max`），并联动输入框边框颜色动态变换；
   - **三大交互模态选择器**：`ModelSelector`（支持 `Ctrl+S` 持久化默认模型）、`SessionSelector`（多级 DAG 分支线 + `Ctrl+D` 历史会话删除与活跃会话安全拦截）、`ThinkingSelector`；
@@ -333,7 +333,7 @@ my-pi-agent/
 │   ├── core/                       # 框架内核单元测试 (337 tests)
 │   └── coding/                     # 业务与工具测试 (253 tests)
 │
-├── tui/                            # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
+├── my-pi-tui/                      # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
 │   ├── tsconfig.json
 │   ├── bin/
@@ -344,6 +344,11 @@ my-pi-agent/
 │   │   ├── components/             # Pi 原厂 UI 组件 (CustomEditor, status-indicator, footer...)
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
 │   └── test/                       # 前端 58 个自动化测试与端到端测试套件
+│
+├── my-pi-eval/                     # ⭐ 自动化评测系统与基准测试 (对标 dsh-eval / SWE-bench)
+│   ├── configs/                    # SWE-bench / Terminal-bench 评测声明
+│   ├── datasets/                   # 本地快速回归基准集
+│   └── src/                        # 评测适配器与指标收集器
 │
 ├── docs/                           # 架构与技术设计文档中心 (涵盖 core/ 与 coding/ 7 大规范)
 ├── package.json                    # 根目录 npm 官方发布包与全局链接配置

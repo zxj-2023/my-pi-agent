@@ -60,9 +60,7 @@ class AgentEnd(Event):
     messages: list[Message]
     final_text: str | None
     iterations: int
-    stop_reason: (
-        str  # "end_turn" | "max_iterations" | "cancelled" | "blocked" | "error"
-    )
+    stop_reason: str  # "end_turn" | "max_iterations" | "cancelled" | "blocked" | "error"
 
 
 # ── Turn 微观轮次生命周期事件
@@ -151,3 +149,23 @@ class ToolsChanged(Event):
 
     action: str
     name: str
+
+
+# ── 模型自动重试事实事件（对齐 Pi auto_retry_start / auto_retry_end 规范）
+@dataclass(frozen=True)
+class AutoRetryStart(Event):
+    """大模型请求遭遇瞬时抖动（429/5xx/网络断流），启动自动重试通知。"""
+
+    attempt: int
+    max_attempts: int
+    delay_ms: int
+    error_message: str
+
+
+@dataclass(frozen=True)
+class AutoRetryEnd(Event):
+    """大模型自动重试终态通知（成功恢复或重试耗尽）。"""
+
+    success: bool
+    attempt: int
+    final_error: str | None = None

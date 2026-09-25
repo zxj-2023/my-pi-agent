@@ -51,3 +51,22 @@ def test_serialize_event_tool_execution() -> None:
     end_data = serialize_event(end_ev)
     assert end_data["type"] == "tool_execution_end"
     assert end_data["result"] == "file.txt"
+
+
+def test_serialize_auto_retry_events() -> None:
+    from my_agent_core.events import AutoRetryEnd, AutoRetryStart
+
+    start_ev = AutoRetryStart(attempt=1, max_attempts=3, delay_ms=2000, error_message="Rate limit 429")
+    start_payload = serialize_event(start_ev)
+    assert start_payload["type"] == "auto_retry_start"
+    assert start_payload["attempt"] == 1
+    assert start_payload["maxAttempts"] == 3
+    assert start_payload["delayMs"] == 2000
+    assert start_payload["errorMessage"] == "Rate limit 429"
+
+    end_ev = AutoRetryEnd(success=True, attempt=1)
+    end_payload = serialize_event(end_ev)
+    assert end_payload["type"] == "auto_retry_end"
+    assert end_payload["success"] is True
+    assert end_payload["attempt"] == 1
+    assert end_payload["finalError"] == ""

@@ -209,6 +209,67 @@ async def test_resource_reload_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.anyio
+async def test_resource_reload_refreshes_llm_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from my_agent_llm import LLM, Config
+
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    paths = AgentPaths(home=custom_home)
+    paths.ensure_directories()
+    auth_mgr = AuthManager(auth_path=paths.auth_path)
+    auth_mgr.set_api_key(provider="deepseek", key="initial-key-1234")
+
+    llm = LLM(Config(provider="deepseek", model="deepseek-chat", api_key="initial-key-1234"))
+    server = RpcServer(llm=llm, paths=paths)
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    assert server.agent is not None
+    assert server.agent.agent.llm.config.api_key == "initial-key-1234"
+
+    # 用户在外部更换了新 key
+    auth_mgr.set_api_key(provider="deepseek", key="new-refreshed-key-5678")
+
+    # 执行 resource_reload
+    await server.handle_request({"jsonrpc": "2.0", "id": 2, "method": "resource_reload", "params": {}})
+
+    # 验证 LLM 实例已被热更新为最新 key
+    assert server.agent.agent.llm.config.api_key == "new-refreshed-key-5678"
+
+
+@pytest.mark.anyio
+async def test_login_hot_refreshes_active_llm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from my_agent_llm import LLM, Config
+
+    custom_home = tmp_path / "home"
+    monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+
+    paths = AgentPaths(home=custom_home)
+    paths.ensure_directories()
+
+    llm = LLM(Config(provider="deepseek", model="deepseek-chat", api_key="old-key"))
+    server = RpcServer(llm=llm, paths=paths)
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspace": str(workspace)}}
+    )
+    assert server.agent is not None
+    assert server.agent.agent.llm.config.api_key == "old-key"
+
+    # 执行 login
+    await server.handle_request(
+        {"jsonrpc": "2.0", "id": 2, "method": "login", "params": {"provider": "deepseek", "key": "brand-new-key"}}
+    )
+
+    # 验证活跃模型实例已被原地热更新
+    assert server.agent.agent.llm.config.api_key == "brand-new-key"
+
+
+@pytest.mark.anyio
 async def test_settings_get_and_set_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     custom_home = tmp_path / "home"
     monkeypatch.setenv("MY_AGENT_HOME", str(custom_home))

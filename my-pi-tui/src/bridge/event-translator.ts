@@ -22,6 +22,7 @@ export interface AssistantMessageState {
   content: ContentBlock[];
   stopReason?: string;
   errorMessage?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AgentStartSessionEvent {
@@ -86,12 +87,30 @@ export interface AgentEndSessionEvent extends UsageStatsPassThrough {
   type: "agent_end";
   iterations: number;
   stopReason: string;
+  stop_reason?: string;
+  finalText?: string;
+  final_text?: string;
 }
 
 export interface ContextCompactedSessionEvent {
   type: "context_compacted";
   tokensBefore?: number;
   tokensAfter?: number;
+}
+
+export interface AutoRetryStartSessionEvent {
+  type: "auto_retry_start";
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  errorMessage: string;
+}
+
+export interface AutoRetryEndSessionEvent {
+  type: "auto_retry_end";
+  success: boolean;
+  attempt: number;
+  finalError?: string;
 }
 
 export type StandardSessionEvent =
@@ -106,6 +125,8 @@ export type StandardSessionEvent =
   | ToolExecutionEndSessionEvent
   | AgentEndSessionEvent
   | ContextCompactedSessionEvent
+  | AutoRetryStartSessionEvent
+  | AutoRetryEndSessionEvent
   | Record<string, unknown>;
 
 /** 原样提取逐轮统计（usage / contextWindow）；缺失时为 undefined，便于调用方判断。 */
@@ -236,11 +257,49 @@ export class EventTranslator {
       }
 
       case "message_end": {
+        const rawMsg = event.message as Record<string, unknown> | undefined;
+        const rawMeta = (rawMsg?.metadata ?? event.metadata) as
+          | Record<string, unknown>
+          | undefined;
         const stopReason = String(
-          event.stop_reason ?? event.stopReason ?? "stop",
+          event.stop_reason ??
+            event.stopReason ??
+            rawMeta?.stop_reason ??
+            rawMsg?.stopReason ??
+            "stop",
         );
         if (this.currentAssistantMessage) {
           this.currentAssistantMessage.stopReason = stopReason;
+          if (rawMeta) {
+            this.currentAssistantMessage.metadata = { ...rawMeta };
+          }
+
+          // 如果在流式期间未积累任何文本块（如 HTTP 握手阶段直接抛出 401/403/500），
+          // 但 message_end 的 rawMsg 携带有 content 错误字符串，则补齐一个 text 块！
+          const hasText = this.currentAssistantMessage.content.some(
+            (b) => b.type === "text" && Boolean(b.text),
+          );
+          if (!hasText && rawMsg?.content) {
+            const fallbackText =
+              typeof rawMsg.content === "string"
+                ? rawMsg.content
+                : Array.isArray(rawMsg.content)
+                  ? rawMsg.content
+                      .map((b: any) =>
+                        typeof b === "string"
+                          ? b
+                          : b?.text || b?.thinking || "",
+                      )
+                      .join("")
+                  : String(rawMsg.content);
+            if (fallbackText) {
+              this.currentAssistantMessage.content.push({
+                type: "text",
+                text: fallbackText,
+              });
+            }
+          }
+
           const completedMessage = this.cloneMessage(
             this.currentAssistantMessage,
           );
@@ -251,10 +310,20 @@ export class EventTranslator {
             ...extractUsageStats(event),
           };
         }
-        const rawMsg = event.message as AssistantMessageState | undefined;
+        const rawAssistant = rawMsg as AssistantMessageState | undefined;
+        const fallbackMsg: AssistantMessageState = rawAssistant
+          ? {
+              role: "assistant",
+              content: Array.isArray(rawAssistant.content)
+                ? rawAssistant.content
+                : [],
+              stopReason,
+              metadata: rawMeta ? { ...rawMeta } : undefined,
+            }
+          : { role: "assistant", content: [], stopReason, metadata: rawMeta };
         return {
           type: "message_end",
-          message: rawMsg ?? { role: "assistant", content: [], stopReason },
+          message: fallbackMsg,
           ...extractUsageStats(event),
         };
       }
@@ -304,12 +373,17 @@ export class EventTranslator {
 
       case "agent_end": {
         this.currentAssistantMessage = null;
+        const stopReason = String(
+          event.stop_reason ?? event.stopReason ?? "completed",
+        );
+        const finalText = String(event.final_text ?? event.finalText ?? "");
         return {
           type: "agent_end",
           iterations: Number(event.iterations ?? 1),
-          stopReason: String(
-            event.stop_reason ?? event.stopReason ?? "completed",
-          ),
+          stopReason,
+          stop_reason: stopReason,
+          finalText,
+          final_text: finalText,
           ...extractUsageStats(event),
         };
       }
@@ -331,6 +405,28 @@ export class EventTranslator {
           type: "context_compacted",
           tokensBefore,
           tokensAfter,
+        };
+      }
+
+      case "auto_retry_start": {
+        return {
+          type: "auto_retry_start",
+          attempt: Number(event.attempt ?? 1),
+          maxAttempts: Number(event.maxAttempts ?? event.max_attempts ?? 3),
+          delayMs: Number(event.delayMs ?? event.delay_ms ?? 2000),
+          errorMessage: String(event.errorMessage ?? event.error_message ?? ""),
+        };
+      }
+
+      case "auto_retry_end": {
+        return {
+          type: "auto_retry_end",
+          success: Boolean(event.success ?? false),
+          attempt: Number(event.attempt ?? 1),
+          finalError:
+            event.finalError || event.final_error
+              ? String(event.finalError || event.final_error)
+              : undefined,
         };
       }
 
@@ -379,6 +475,7 @@ export class EventTranslator {
       }),
       stopReason: msg.stopReason,
       errorMessage: msg.errorMessage,
+      metadata: msg.metadata ? { ...msg.metadata } : undefined,
     };
   }
 }

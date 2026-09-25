@@ -134,7 +134,7 @@
    - UTF-8 优先解码，一旦遇 `UnicodeDecodeError` 立即回退至 `locale.getpreferredencoding()`（如 GBK/CP936），彻底杜绝乱码；
 3. **失败退出码显式标红**：
    - 当 `exit_code != 0` 时，显式返回 `BashResult(ok=False, data=msg, error=msg)`，确保 `is_error=True`，让 TUI 渲染红色 `✗` 与 `(失败)`；
-4. **前端中断安全清理 (`tui/src/interactive/interactive-mode.ts`)**：
+4. **前端中断安全清理 (`my-pi-tui/src/interactive/interactive-mode.ts`)**：
    - 用户按 Esc/Ctrl+C，或收到 `stop_reason === "cancelled" / "aborted"` 时，立即从 `chatContainer` 中安全移除正在流式的 `currentStreamingAssistant`，杜绝孤儿单字污染视口。
 
 #### 4. 验证效果
@@ -200,11 +200,58 @@
 
 ---
 
+### 案例 4：模型握手 401 失败导致 TUI 转圈冻结与错误信息被吞噬（会话 `01a0d612`）
+
+#### 1. 现场还原
+用户输入 `"你了解一下这个项目"`，终端状态栏出现：
+```text
+D:/code/python/my-pi-agent • 01a0d612-78b2-78a8-8c68-bebc4fd1aebb
+0.7%/1.0M (auto) ⠸ [DEBUG]                                          (deepseek) deepseek-flash
+好像是模型调用的问题，我有没有做retry，前端没有显示啊
+```
+- **核心症状**：
+  1. 界面没有任何文本输出或错误提示；
+  2. 底部状态栏的转圈动效 `⠸` 永久旋转，给用户造成“模型还在卡着执行”的错觉；
+  3. 用户困惑是否有重试机制在生效。
+
+#### 2. 日志分析与根因定位
+1. **落盘会话证据 (`01a0d612.jsonl`)**：
+   - 提取最后一条消息内容：
+     `Error code: 401 - {'error': {'message': 'Authentication Fails, Your api key: ****fc00 is invalid...', 'type': 'authentication_error'}}`；
+   - 证明底层真实根因是 DeepSeek API 返回了 401 鉴权失败。
+2. **中间桥接层错误信息吞噬 (`event-translator.ts`)**：
+   - 模型在握手阶段失败，没有收到流式 token（`this.currentAssistantMessage.content` 保持为空数组 `[]`）；
+   - 在 `message_end` 转换时，代码只克隆了内部状态 `completedMessage`，无视了 Python 传来的 `event.message.content` 和 `metadata.stop_reason`；
+   - 输出给前端的事件变成了 `{ content: [], stopReason: "stop" }`，详尽的 401 报错被完全抹除。
+3. **未捕获 TypeError 打断终态复位 (`interactive-mode.ts`)**：
+   - `setContent` 接收到了空数组 `[]`，内部执行 `this.contentText.trim()` 时抛出 `TypeError: this.contentText.trim is not a function`；
+   - 该未捕获异常打断了事件循环，后续 `agent_end` 中的 `clearStatusDisplay()` 和 `footer.update({ isBusy: false })` 从未被执行；
+   - 导致状态栏 `isBusy: true` 永久卡死在旋转态。
+4. **重试机制对齐与辨析**：
+   - 原系统在 `my_agent_core` 与 LLM 层均无重试机制；
+   - 401 属于致命凭证错误，**绝对不应重试**，应立即熔断；
+   - 429（限流）和 5xx（服务端偶发故障）属于瞬时错误，应当对标 Pi 进行指数退避重试。
+
+#### 3. 解决方案与实施
+1. **TUI 全链路防御加固**：
+   - `AssistantMessageComponent` 对输入内容做安全类型收敛，杜绝非字符串调用 `.trim()` 抛错；
+   - `EventTranslator` 在无流式 chunk 时忠实透传 `message_end` 的错误正文与 `metadata`；
+   - `interactive-mode.ts` 在 `agent_end` 中使用 `try/finally` 强制兜底 `clearStatusDisplay()` 与 `footer.isBusy = false`。
+2. **Agent Loop 级智能重试引擎 (`my_agent_core/retry.py` & `loop.py`)**：
+   - 实现 `AutoRetryPolicy`，严格区分 429/5xx/网络断流（自动重试）与 400/401/403/配额耗尽（立即熔断）；
+   - 结合 Jitter 指数退避，向外广播 `AutoRetryStart` 与 `AutoRetryEnd` 事实事件；
+   - 重试等待支持 `CancellationToken` 毫秒级中断（按 Esc 立即停止重试）。
+3. **TUI 实时重试倒计时展示**：
+   - TUI 状态指示器展示 `重试中 (1/3) 2.0s 后继续... (Esc 取消)`，恢复成功后自动切回正常状态。
+
+---
+
 ## 三、排查速查表与常见症状索引
 
 | 现象 / 症状 | 对应排查切入点 | 检查指标与日志特征 | 常见根因与解决手段 |
 | :--- | :--- | :--- | :--- |
-| **界面卡住 / Spinner 转不停** | `debug.log` 检查最近一条 `[TOOL_CALL_START]` | 观察最后一条工具日志与当前时间的 $\Delta t$ | 工具未接入 `signal` 导致无法响应取消；或子进程在等交互式 stdin（需确保 `stdin=DEVNULL`）。 |
+| **界面卡住 / Spinner 转不停** | `debug.log` 检查最近一条 `[TOOL_CALL_START]` | 观察最后一条工具日志与当前时间的 $\Delta t$ | 工具未接入 `signal` 无法响应取消；或前端 `handleAgentEvent` 抛出未捕获 TypeError 打断了 `agent_end` 状态复位（已通过 `try/finally` 兜底）。 |
+| **模型报错了但界面空白无显示** | `events.jsonl` 与 `jsonl` 对比 `message_end` | 后端存有 401/500 报错，但前端没有任何红色 `⚠` | `EventTranslator` 在无流式 delta 时吞噬了 `event.message.content` 或 `metadata`（已修复透传机制）。 |
 | **工具失败了但界面显示绿勾 `✓`** | `events.jsonl` 查看 `tool_execution_end` | 查看事件 JSON 中的 `"isError"` 是否为 `false` | 工具函数返回了普通字符串而未返回 `ToolResult(ok=False)`；或 Bash 管道末尾命令吞噬了退出码（需 `pipefail`）。 |
 | **中文报错显示为乱码（`ڲ...`）** | `jsonl` 检查 `tool` 消息 content | 出现典型的 GBK 乱码字符（`\ue8ec` 等） | Windows 子进程以 ANSI/CP936 输出，Python 代码硬解 UTF-8。需做防御性回退双解。 |
 | **大模型 API 报 400（Invalid Tool Call）**| `jsonl` 检查 `assistant` 与 `tool` 序列 | 运行不变式检测脚本，检查是否存在未闭合的 tool_call_id | `tool_history.py` 转录本修复未覆盖；中途崩溃未写入配对的 `Tool call interrupted by user`。 |
