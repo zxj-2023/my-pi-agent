@@ -199,6 +199,7 @@ def test_resolve_shell_detection():
 async def test_bash_signal_cancellation_kills_process_immediately(tmp_path: Path):
     """测试在执行长时间命令时，signal.cancel() 能够毫秒级杀死子进程并返回中断结果。"""
     from my_agent_core.loop import CancellationToken
+
     tool = make_bash_tool(tmp_path)
     signal = CancellationToken()
 
@@ -230,4 +231,3 @@ async def test_bash_pipefail_propagates_error(tmp_path: Path):
     res = await tool.execute(command='python -c "import sys; sys.exit(42)" | cat')
     assert res.ok is False
     assert "42" in str(res)
-

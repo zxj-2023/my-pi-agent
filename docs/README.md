@@ -102,6 +102,7 @@
 - [06-pi-tui-interactive-terminal.md](coding/06-pi-tui-interactive-terminal.md)：Pi-TUI 交互式终端与表现层规范（基于 `@earendil-works/pi-tui` 的 `AgentApp` / `InteractiveMode` 架构、`CustomEditor` 顶部边框嵌入式 `── ⠸ Working ──` 动效与快捷键思考预算自适应轮转、三大交互式选择器 Model/Session/Thinking、可折叠压缩卡片、全套斜杠命令与输入宏）。
 - [07-distribution-and-packaging.md](coding/07-distribution-and-packaging.md)：工程发布、全平台分发与全局 CLI 规范（npm workspaces 与 `npm link` 全局命令 `my-pi-agent` / `my-agent`、uv 单一虚拟环境、跨平台独立分发路线）。
 - [08-observability-and-debug-mode.md](coding/08-observability-and-debug-mode.md)：可观察性与调试诊断体系规范（双模事件驱动调试、`DebugEventTracer` 毫秒级时序落盘 `~/.my-pi-agent/logs/debug.log`、终端瀑布流、交互式 `/debug` 瞬时快照与死循环看门狗）。
+- [09-session-log-debugging-cases.md](coding/09-session-log-debugging-cases.md)：会话日志故障排查实战手册与典型案例库（结合真实三轨日志 `.jsonl` / `.debug.log` / `.events.jsonl`，深度复盘 Steering 交付时序、Windows 编码乱码与 Git Bash 路由、非零退出码状态判定、Esc 中断孤儿残片清理与 CancellationToken 瞬时子进程杀死机制）。
 
 ### 4. 自动化评测层 (`docs/eval/`)
 
