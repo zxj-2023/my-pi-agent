@@ -957,6 +957,14 @@ my-pi-agent/
       2. 在 `ContextManager._build_cached_view` 中为 `start` 切点注入 `_snap_cut_to_group`，从机制上杜绝切点落在 `tool` 或 `assistant(tool_calls)` 内部；
       3. 在 `run_agent_loop` 准备完 `view` 之后增加 `view = _provider_context(view)` 双保险，确保送入任何大模型 Provider 的消息列表 100% 经过合法拓扑闭合检验。
 - **验证**：编写 `tests/core/test_compaction_orphan_tool_prevention.py` 回归测试，全库测试规模提升至 **742 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 813 测试，100% 绿灯全通）。在右侧真实 TUI 中重放测试，400 报错彻底消失，压缩后多轮调用完美通过。
+  - **完成第二阶段 6 大深度特性与极限边界测试 (TC-11 ~ TC-16)**：
+    - **TC-11（巨量输出与 L3 磁盘溢出截断）**：注入 2500 行大量输出，系统触发 50KB 字节级与尾部保留截断，落盘完整日志并注入恢复路径，TUI 视口流畅无死锁；
+    - **TC-12（会话树分支拓扑与可视化）**：验证 `/tree` 弹出交互式 DAG 树选择器，`/fork` 从历史消息创建平行会话分支并克隆会话文件；
+    - **TC-13（会话隔离与全新生命周期）**：验证 `/new` 优雅结束旧会话、清空 Token/内存状态并开辟空白会话；验证 `/session` 打印结构化元数据，`/resume` 弹出带范围过滤的历史会话选择器；
+    - **TC-14（动态技能机制）**：验证 `/skill:test-helper` 宏展开与系统提示词注入，Agent 完整执行技能 SOP 指令；
+    - **TC-15（宏观排队追问）**：验证 `/followup` 在上一轮任务执行期间排队，待 `AGENT_END` 后自动无缝接力执行，与 `/steer` 的轮次边界插话严格解耦；
+    - **TC-16（高频并发连击与防抖压力）**：1 秒内快速连击 3 条指令，RPC 服务端与前端 `isSubmitting` 锁严格按 FIFO 顺序排队执行，零死锁、零倒序。
+
 
 
 

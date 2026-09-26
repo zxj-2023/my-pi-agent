@@ -25,8 +25,8 @@ $cmdContent = @"
 @echo off
 setlocal
 where my-pi-agent.cmd >nul 2>nul
-if exist "%~dp0..\tui\bin\my-agent.js" (
-    node "%~dp0..\tui\bin\my-agent.js" %*
+if exist "%~dp0..\my-pi-tui\bin\my-agent.js" (
+    node "%~dp0..\my-pi-tui\bin\my-agent.js" %*
 ) else (
     npx my-pi-agent %*
 )

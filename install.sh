@@ -28,8 +28,8 @@ if command -v my-pi-agent >/dev/null 2>&1 && [ "$(command -v my-pi-agent)" != "$
     exec "$(command -v my-pi-agent)" "$@"
 fi
 
-if [ -f "${DIR}/tui/bin/my-agent.js" ]; then
-    exec node "${DIR}/tui/bin/my-agent.js" "$@"
+if [ -f "${DIR}/my-pi-tui/bin/my-agent.js" ]; then
+    exec node "${DIR}/my-pi-tui/bin/my-agent.js" "$@"
 fi
 
 exec npx my-pi-agent "$@"
