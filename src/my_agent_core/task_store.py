@@ -100,6 +100,7 @@ class TaskStore:
         description: str = "",
         active_form: str | None = None,
         metadata: dict | None = None,
+        blocked_by: list[str] | None = None,
     ) -> TaskItem:
         """创建新任务，自动分配递增 ID。"""
         sub = subject.strip()
@@ -107,12 +108,22 @@ class TaskStore:
             raise ValueError("Task subject cannot be empty")
         task_id = f"task_{self._next_id}"
         self._next_id += 1
+
+        valid_blocked_by: list[str] = []
+        if blocked_by:
+            for dep in blocked_by:
+                if dep not in self.tasks:
+                    raise KeyError(f"Dependency task '{dep}' not found")
+                if dep not in valid_blocked_by:
+                    valid_blocked_by.append(dep)
+
         task = TaskItem(
             id=task_id,
             subject=sub,
             description=description,
             status="pending",
             active_form=active_form,
+            blocked_by=valid_blocked_by,
             metadata=metadata or {},
         )
         self.tasks[task_id] = task

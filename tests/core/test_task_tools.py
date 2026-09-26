@@ -28,10 +28,11 @@ def test_todo_tool_crud_lifecycle(tmp_path: Path):
         assert res1.data["task"]["id"] == "task_1"
         assert "task_1: Implement Auth" in res1.data["board"]
 
-        # 2. create second
-        res2 = await todo_tool.execute({"action": "create", "subject": "Implement Tests"})
+        # 2. create second with atomic blocked_by
+        res2 = await todo_tool.execute({"action": "create", "subject": "Implement Tests", "blocked_by": ["task_1"]})
         assert res2.ok
         assert res2.data["task"]["id"] == "task_2"
+        assert res2.data["task"]["blocked_by"] == ["task_1"]
 
         # 3. update (addBlockedBy)
         res_up = await todo_tool.execute({"action": "update", "task_id": "task_2", "add_blocked_by": ["task_1"]})

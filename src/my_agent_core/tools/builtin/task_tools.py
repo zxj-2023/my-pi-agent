@@ -48,6 +48,7 @@ def make_todo_tool(store: TaskStore) -> Tool:
         description: str | None = None,
         active_form: str | None = None,
         owner: str | None = None,
+        blocked_by: list[str] | None = None,
         add_blocked_by: list[str] | None = None,
         remove_blocked_by: list[str] | None = None,
         todos: list[dict[str, Any]] | None = None,
@@ -60,10 +61,12 @@ def make_todo_tool(store: TaskStore) -> Tool:
                         ok=False,
                         error="Parameter 'subject' is required for action 'create'",
                     )
+                deps = blocked_by or add_blocked_by
                 task = await store.create(
                     subject=subject,
                     description=description or "",
                     active_form=active_form,
+                    blocked_by=deps,
                 )
                 return ToolResult(
                     ok=True,
@@ -73,6 +76,7 @@ def make_todo_tool(store: TaskStore) -> Tool:
                             "id": task.id,
                             "subject": task.subject,
                             "status": task.status,
+                            "blocked_by": task.blocked_by,
                         },
                         "board": store.render_board(),
                         "message": f"Created {task.id}",
