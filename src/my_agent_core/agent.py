@@ -45,7 +45,7 @@ from my_agent_core.session import Session
 from my_agent_core.skills import Skill, SkillManager
 from my_agent_core.subagents import SubagentManager
 from my_agent_core.task_store import TaskStore  # pyright: ignore[reportMissingImports]
-from my_agent_core.tool_history import repair_tool_history
+from my_agent_core.tool_history import clean_provider_context
 from my_agent_core.tools import Tool
 from my_agent_core.tools.builtin.task import (
     make_task_tool,  # pyright: ignore[reportMissingImports]
@@ -323,8 +323,8 @@ class Agent:
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
         restored = system + self.session.get_full_history_messages()
-        # 对齐 Tau: 执行对话历史自愈，保证送入模型的会话转录本没有悬空断头 ToolCall
-        self.messages = list(repair_tool_history(restored).messages)
+        # 对齐 Tau: 执行对话历史自愈与清洗，剔除无效断头，保证送入模型的转录本闭合
+        self.messages = clean_provider_context(restored)
 
         # 准备 system_prompt
         system_prompt = self.system_prompt or ""

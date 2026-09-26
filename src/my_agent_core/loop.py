@@ -42,7 +42,7 @@ from my_agent_core.retry import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.tool_history import (
     _INTERRUPTED_TOOL_RESULT,
-    repair_tool_history,
+    clean_provider_context,
 )
 from my_agent_core.tools import ToolResult
 from my_agent_llm import Message, StreamChunk, ToolCall
@@ -102,22 +102,8 @@ class CancellationToken:
         return self._cancelled
 
 
-def _provider_context(messages: Sequence[Message]) -> list[Message]:
-    """清洗会话历史以严格满足主流大模型 Provider 的上下文契约。
-
-    1. 剥离无正文且以异常中断结尾的终端 assistant 失败轮次（避免 OpenAI/Anthropic 400）；
-    2. 串联 repair_tool_history 拓扑修复，自动补齐断头调用并安全丢弃孤儿结果。
-    """
-    replayable = tuple(
-        m
-        for m in messages
-        if not (
-            m.role == "assistant"
-            and bool(m.metadata and m.metadata.get("stop_reason") in {"error", "aborted", "cancelled"})
-            and not m.content
-        )
-    )
-    return list(repair_tool_history(replayable).messages)
+# 别名保留以支持老调用方与外部测试
+_provider_context = clean_provider_context
 
 
 async def _assistant_turn(
@@ -604,6 +590,7 @@ async def run_agent_loop(
             # 前置清洗与上下文准备
             clean_messages = _provider_context(messages)
             view = await context_manager.prepare(clean_messages) if context_manager else clean_messages
+            view = _provider_context(view)
 
             # 派发上下文压缩事件（若触发了 L4/L2 压缩）
             if context_manager is not None and getattr(context_manager, "pending_compaction", None) is not None:

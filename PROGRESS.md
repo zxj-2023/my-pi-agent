@@ -932,6 +932,33 @@ my-pi-agent/
     - `subagent_tasks.py` 在 `_system_for` 中动态根据子代理过滤后的 `child_tools` 生成专属 `<tools>` 与 `<rules>`（只读子代理自动剥离 `edit`/`write` 规则）。
 - **验证**：全库测试规模提升至 **739 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 810 测试，100% 绿灯全通）。
 
+---
+
+### 阶段 34：Herdr 跨窗口端到端（E2E）全量真机测试与压缩切点 API 400 免疫自愈（2026-09-26）
+
+**目标**：通过 Herdr Multiplexer 建立左右双 Pane 真实端到端集成测试流水线；左侧作为主控与质量工程师，右侧作为真实生产态 `my-pi-agent` TUI；在真实终端与实际 API 调用环境下执行包含 10 大场景的全面体检，并就地捕获并修复历史深水区 Bug。
+
+- **改了什么**：
+  - **完成 10 大全量端到端测试用例 (TC-01 ~ TC-10)**：
+    - **TC-01（基础对话与思考流）**：验证自然语言问答流式输出，`Ctrl+O` 展开/折叠思考过程气泡；
+    - **TC-02（只读工具检索）**：验证 `grep` 定位 `AutoRetryPolicy` 源码并调用 `read` 读取展示，完成多步 ReAct 闭环；
+    - **TC-03（写操作沙箱闭环）**：验证 `write` 创建计算器与 pytest 测试、`bash` 跑测、`edit` 精准修改、多工具并行执行，以及面对路径 import 异常时的自主自愈与彻底 tearDown 清理；
+    - **TC-04（工具异常与错误自愈）**：验证读取不存在文件与非零退出码命令时，`status=ERROR` 如实回传且 Never-Throw 保证成立，模型自主进行架构分析；
+    - **TC-05（运行时动态 Steering 插话）**：验证在 Agent 耗时生成途中从外部注入指令，消息在轮次边界精准出队，Agent 毫秒级掉头改写小绝句；
+    - **TC-06（实时 Esc 中断与清场复位）**：验证在命令执行途中注入 `Esc`，实现毫秒级取消、清理半截气泡并复位输入框；
+    - **TC-07（斜杠命令系统）**：验证 `/help` 自动弹出补全菜单、`/compact` 触发强制摘要并折叠、`/clear` 清屏重置；
+    - **TC-08（多轮会话树与代词记忆）**：验证多轮对话代词指代（代号记忆）、读取穿插与跨轮状态保持；
+    - **TC-09（双轨日志与事件流核对）**：白盒核验 `.debug.log`、`.events.jsonl` 与会话树 JSONL 记录的严格一致性；
+    - **TC-10（极限压力与字符转义）**：验证含有嵌套引号、反引号、JSON 符号与 Emoji 的极端输入在 JSON-RPC 与终端解析中零崩溃。
+  - **定位并根治压缩切点漂移引发的 API 400 严重 Bug (`agent.py`, `context.py`, `loop.py`, `tool_history.py`)**：
+    - **根因分析**：当会话中存在被中断取消的无效轮次时，`_provider_context` 会将其剥离，导致微内核看到的干净消息条数小于 `self.messages`；而在手动 `/compact` 时以未清洗的消息数记录了 `covered_count`，使下轮切片 `start` 越过新用户指令，只取到了随后的工具执行结果，生成了首项为 `role="tool"` 的孤儿消息视图，触发 DeepSeek/OpenAI `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` 400 报错。
+    - **三层递进防御重塑**：
+      1. 在 `Agent.prompt_stream` 与 `Agent.compact` 中统一引入 `clean_provider_context`，保证无论会话历史如何重放或中断，进入压缩管线的消息基底与微内核完全对齐；
+      2. 在 `ContextManager._build_cached_view` 中为 `start` 切点注入 `_snap_cut_to_group`，从机制上杜绝切点落在 `tool` 或 `assistant(tool_calls)` 内部；
+      3. 在 `run_agent_loop` 准备完 `view` 之后增加 `view = _provider_context(view)` 双保险，确保送入任何大模型 Provider 的消息列表 100% 经过合法拓扑闭合检验。
+- **验证**：编写 `tests/core/test_compaction_orphan_tool_prevention.py` 回归测试，全库测试规模提升至 **742 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 813 测试，100% 绿灯全通）。在右侧真实 TUI 中重放测试，400 报错彻底消失，压缩后多轮调用完美通过。
+
+
 
 
 

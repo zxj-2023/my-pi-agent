@@ -397,6 +397,8 @@ class ContextManager:
         assert self._retained_tail is not None
         system_msg = [messages[0]] if messages and messages[0].role == "system" else []
         start = self._covered_count + len(self._retained_tail)
+        if start < len(messages):
+            start = _snap_cut_to_group(messages, start)
         newly = messages[start:] if len(messages) > start else []
         view = system_msg + [Message(role="user", content=SUMMARY_MESSAGE_PREFIX + self._summary)]
         view += [Message(**d) for d in self._retained_tail]

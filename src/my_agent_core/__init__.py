@@ -61,6 +61,7 @@ from my_agent_core.task_store import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.tool_history import (  # pyright: ignore[reportMissingImports]
     ToolHistoryRepair,
+    clean_provider_context,
     repair_tool_history,
 )
 from my_agent_core.tools import Tool, ToolResult, tool
@@ -125,5 +126,6 @@ __all__ = [
     "ToolsChanged",
     "CancellationToken",
     "_provider_context",
+    "clean_provider_context",
     "run_agent_loop",
 ]

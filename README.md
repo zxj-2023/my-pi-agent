@@ -337,7 +337,7 @@ my-pi-agent/
 │
 ├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
 │   ├── llm/                        # LLM 层单元测试 (91 tests)
-│   ├── core/                       # 框架内核单元测试 (380 tests)
+│   ├── core/                       # 框架内核单元测试 (383 tests)
 │   └── coding/                     # 业务与工具测试 (268 tests)
 │
 ├── my-pi-tui/                      # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)

@@ -18,6 +18,12 @@ from my_agent_llm.models import Message
 
 _INTERRUPTED_TOOL_RESULT = "Tool call interrupted by user"
 
+__all__ = [
+    "ToolHistoryRepair",
+    "clean_provider_context",
+    "repair_tool_history",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ToolHistoryRepair:
@@ -187,3 +193,22 @@ def repair_tool_history(messages: Sequence[Message]) -> ToolHistoryRepair:
         dropped_duplicate_results=dropped_duplicate_results,
         reordered_results=reordered_results,
     )
+
+
+def clean_provider_context(messages: Sequence[Message]) -> list[Message]:
+    """清洗会话历史以严格满足主流大模型 Provider 的上下文契约。
+
+    1. 剥离无正文且以异常中断结尾的终端 assistant 失败轮次（避免 OpenAI/Anthropic 400）；
+    2. 串联 repair_tool_history 拓扑修复，自动补齐断头调用并安全丢弃孤儿结果。
+    """
+    replayable = tuple(
+        m
+        for m in messages
+        if not (
+            m.role == "assistant"
+            and bool(m.metadata and m.metadata.get("stop_reason") in {"error", "aborted", "cancelled"})
+            and not m.content
+        )
+    )
+    return list(repair_tool_history(replayable).messages)
+
