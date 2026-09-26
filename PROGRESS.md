@@ -965,6 +965,38 @@ my-pi-agent/
     - **TC-15（宏观排队追问）**：验证 `/followup` 在上一轮任务执行期间排队，待 `AGENT_END` 后自动无缝接力执行，与 `/steer` 的轮次边界插话严格解耦；
     - **TC-16（高频并发连击与防抖压力）**：1 秒内快速连击 3 条指令，RPC 服务端与前端 `isSubmitting` 锁严格按 FIFO 顺序排队执行，零死锁、零倒序。
 
+---
+
+### 阶段 35：全系统 50 轮全景端到端真机集成测试收官与终极报告交付（2026-09-27）
+
+**目标**：继续以 Herdr 跨窗口双 Agent 协作方式，完成剩余 34 轮深度测试，累计达到 50 轮全景集成体检；覆盖高级输入预处理、持久化记忆、思维预算、任务看板、断电恢复、子代理防递归、权限审查门禁、细粒度文件并发锁与多 Provider 适配；遵循 TDD 消除深水区 Bug，产出《50轮全景集成体检终极报告》。
+
+- **改了什么**：
+  - **完成第三阶段高级子系统测试 (TC-17 ~ TC-22)**：
+    - **TC-17（@ 文件直通快照）**：`UserInputHook` 拦截并在后台提取源码快照注入 `<referenced_files>`，大模型 0 次工具调用首轮准确解析；不存在文件优雅透传；
+    - **TC-18（持久化记忆系统）**：`memory(action="add")` 以 `utf-8-sig` 和 `\n§\n` 原子落盘，跨 `/new` 全新会话在系统提示词自动注入 `<MEMORY_CONTEXT>`；`remove` 唯原子串移除并复位；
+    - **TC-19（思考预算热切换）**：`/thinking` 弹出 ANSI 菜单，`Shift+Tab` 免弹窗热循环（off/low/medium/high），状态栏联动显示；
+    - **TC-20（任务看板 DAG 依赖与成环拦截）**：深度优先遍历拦截循环依赖返回 `Cycle detected`；
+    - **TC-21（文件损坏容错与掉电恢复）**：会话 JSONL 追加截断破损行，`Session.load()` 宽容丢弃残片并无损恢复前面 60 条合法历史；
+    - **TC-22（空闲与执行中连续 Esc 压力）**：空闲连击零异常，执行中连击毫秒级触发 `cancelled`，无悬挂僵尸子进程。
+  - **完成第四阶段架构极限与全景集成测试 (TC-23 ~ TC-50)**：
+    - **TC-23 ~ TC-26（子代理委托与防递归）**：父代理派发 `task`，子代理在 `<session_dir>/subagents/` 独立落盘执行；子代理工具集严格剔除 `task` 工具且 `subagent_dirs=[]`，杜绝循环递归；子代理独立会话隔离；
+    - **TC-27 ~ TC-30（PermissionGate 审查门禁）**：`review` 模式拦截 `write`/`edit` 高危写操作并提供 Diff 预览；只读工具安全免批放行；审批被拒后模型自主自愈并换路；`yolo` 模式全静默放行；
+    - **TC-31 ~ TC-33（FileMutationQueue 并发文件锁）**：单文件写操作严格串行互斥；多文件修改非阻塞并发并行；异常中断锁安全释放防死锁；
+    - **TC-34 ~ TC-37（MCP 扩展协议）**：启动期自动扫描 `.mcp.json`；stdio JSON-RPC 通信调用；智能体退出时外部 MCP 子进程树彻底回收清理；子服务崩溃隔离容错；
+    - **TC-38 ~ TC-41（多 Provider 适配与参数同步）**：Anthropic Wire 格式转换与工具块组装；DeepSeek/OpenAI 思考增量流式解析；Antigravity 专有 SSE 事件反序列化；切模型后上下文窗口 `set_budget` 与 Schema 自动同步；
+    - **TC-42 ~ TC-45（四层上下文压缩极端边界）**：L1 消息裁切保留组边界；L2 旧工具结果微压缩保留 metadata；L3 巨型单次结果落盘生成摘要；L4 逼近阈值时携带旧摘要递进式迭代再摘要；
+    - **TC-46 ~ TC-50（会话回溯护栏、多工具调度与全景体检终极验收）**：禁止 rewind 越过 `compaction_floor`；`TaskGuardHook` 任务看板未完成提醒；单轮只读工具并行、写工具串行混合调度；异常中断下会话落盘一致性；全库 745 个 Python 测试与 71 个 TUI 测试大回归全绿。
+  - **定位并根治子代理 Frontmatter YAML 列表解析 Bug (`src/my_agent_core/subagents.py`)**：
+    - **根因分析**：`parse_frontmatter` 将 YAML 列表强转为 `str`（`"['read', 'grep']"`），`_split_csv` 逗号切割后导致工具名变成了带括号和单引号的畸形文本（`"['read'"`），使白名单匹配失效，子代理可用工具被清空。
+    - **就地修复**：重写 `_split_csv`，原生兼容 Python list/tuple/set、带引号括号的字符串 repr 及标准 CSV 字符串，精准剥离符号还原合法名称，并补充测试用例。
+  - **增强 TaskStore 原子依赖挂载能力 (`task_store.py` & `task_tools.py`)**：
+    - `TaskStore.create` 与 `todo` 工具原生支持 `blocked_by` 字段，实现创建任务即原子挂载前置依赖，并补齐测试用例。
+  - **编写全景报告 (`docs/coding/10-50-round-e2e-inspection-report.md`)**：
+    - 详尽复盘 50 轮测试矩阵、缺陷根因分析、三层防御实现与核心架构不变式审核结论。
+- **验证**：全库测试规模提升至 **745 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 816 测试，100% 绿灯全通）。
+
+
 
 
 

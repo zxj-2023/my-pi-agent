@@ -38,9 +38,7 @@ class TaskStore:
         self.workspace = Path(workspace).resolve()
         self.store_dir = self.workspace / ".my_agent_core"
         self.file_path = self.store_dir / "tasks.json"
-        self.enforce_single_in_progress = (
-            False if allow_parallel else enforce_single_in_progress
-        )
+        self.enforce_single_in_progress = False if allow_parallel else enforce_single_in_progress
         self.tasks: dict[str, TaskItem] = {}
         self._next_id = 1
         self._load_from_disk()
@@ -65,9 +63,7 @@ class TaskStore:
             "tasks": [asdict(t) for t in self.tasks.values()],
         }
         content = json.dumps(payload, ensure_ascii=False, indent=2)
-        fd, tmp_path = tempfile.mkstemp(
-            dir=self.store_dir, prefix="tasks_", suffix=".tmp"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=self.store_dir, prefix="tasks_", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -198,9 +194,7 @@ class TaskStore:
 
     def list(self, include_deleted: bool = False) -> list[TaskItem]:
         """列出所有活跃任务。"""
-        return [
-            t for t in self.tasks.values() if include_deleted or t.status != "deleted"
-        ]
+        return [t for t in self.tasks.values() if include_deleted or t.status != "deleted"]
 
     async def batch_write(self, todos: list[dict[str, Any]]) -> list[TaskItem]:
         """批量/便签覆盖写入。"""

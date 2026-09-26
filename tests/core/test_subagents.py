@@ -86,6 +86,18 @@ def test_frontmatter_camelcase_map(tmp_path: Path):
     assert lists.disallowed_tools == ("bash",)
     assert lists.skills == ("a", "b")
 
+    # 测试 YAML 列表格式支持 (e.g. tools:\n  - read\n  - grep)
+    _write_agent(
+        tmp_path,
+        "yaml_lists",
+        description="d",
+        content="body",
+        extra="tools:\n  - read\n  - grep\n  - find\n",
+    )
+    yaml_sub = SubagentManager([tmp_path]).get("yaml_lists")
+    assert yaml_sub is not None
+    assert yaml_sub.tools == ("read", "grep", "find")
+
 
 def test_load_bad_yaml_and_bom(tmp_path: Path):
     """坏 YAML → 静默跳过；BOM → 正常加载（#5）。"""

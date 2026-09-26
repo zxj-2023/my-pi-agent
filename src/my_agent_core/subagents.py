@@ -45,11 +45,19 @@ DEFAULT_SUBAGENT = Subagent(
 
 
 def _split_csv(value: object) -> tuple[str, ...] | None:
-    """frontmatter 逗号分隔字符串 → tuple；非字符串/空 → None（保留缺省）。"""
-    if not isinstance(value, str):
+    """frontmatter 字段解析：支持 YAML 列表、Python repr 字符串（如 "['read', 'grep']"）或 CSV 逗号分隔字符串。"""
+    if not value:
         return None
-    parts = tuple(p.strip() for p in value.split(",") if p.strip())
-    return parts if parts else None
+    if isinstance(value, (list, tuple, set)):
+        items = tuple(str(x).strip().strip("'\"") for x in value if str(x).strip())
+        return items if items else None
+    if isinstance(value, str):
+        val = value.strip()
+        if val.startswith("[") and val.endswith("]"):
+            val = val[1:-1]
+        parts = tuple(p.strip().strip("'\"") for p in val.split(",") if p.strip().strip("'\""))
+        return parts if parts else None
+    return None
 
 
 def _parse_max_turns(value: object) -> int | None:

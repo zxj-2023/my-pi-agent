@@ -170,10 +170,7 @@ def make_todo_tool(store: TaskStore) -> Tool:
                     ok=True,
                     data={
                         "action": "write",
-                        "tasks": [
-                            {"id": t.id, "subject": t.subject, "status": t.status}
-                            for t in items
-                        ],
+                        "tasks": [{"id": t.id, "subject": t.subject, "status": t.status} for t in items],
                         "board": store.render_board(),
                     },
                 )
