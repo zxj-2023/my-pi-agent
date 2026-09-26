@@ -111,10 +111,7 @@ def repair_tool_history(messages: Sequence[Message]) -> ToolHistoryRepair:
         for cand_pos, cand_msg in candidates:
             if cand_pos in used_result_positions:
                 continue
-            if (
-                cand_pos > occurrence[0]
-                and cand_msg.content != _INTERRUPTED_TOOL_RESULT
-            ):
+            if cand_pos > occurrence[0] and cand_msg.content != _INTERRUPTED_TOOL_RESULT:
                 matched_pos, matched_msg = cand_pos, cand_msg
                 break
 
@@ -181,9 +178,7 @@ def repair_tool_history(messages: Sequence[Message]) -> ToolHistoryRepair:
                     reordered_results += 1
                 repaired.append(tool_res)
 
-    changed = len(repaired) != len(messages) or any(
-        r != o for r, o in zip(repaired, messages, strict=False)
-    )
+    changed = len(repaired) != len(messages) or any(r != o for r, o in zip(repaired, messages, strict=False))
 
     return ToolHistoryRepair(
         messages=tuple(repaired),
@@ -211,4 +206,3 @@ def clean_provider_context(messages: Sequence[Message]) -> list[Message]:
         )
     )
     return list(repair_tool_history(replayable).messages)
-

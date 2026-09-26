@@ -8,7 +8,11 @@ def test_clean_provider_context_strips_cancelled_empty_assistant_and_orphan_tool
         Message(role="user", content="hello"),
         Message(role="assistant", content="hi"),
         Message(role="user", content="run sleep"),
-        Message(role="assistant", content="", metadata={"stop_reason": "cancelled", "tool_calls": [{"id": "call_1", "name": "bash", "args": {}}]}),
+        Message(
+            role="assistant",
+            content="",
+            metadata={"stop_reason": "cancelled", "tool_calls": [{"id": "call_1", "name": "bash", "args": {}}]},
+        ),
         Message(role="tool", content="interrupted", metadata={"tool_call_id": "call_1"}),
     ]
     cleaned = clean_provider_context(msgs)
