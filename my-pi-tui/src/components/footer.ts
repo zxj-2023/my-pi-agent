@@ -175,7 +175,13 @@ export class FooterComponent extends Container {
       this.data.autoCompactEnabled === false ? "" : " (auto)";
     const contextTok = this.data.contextTokens ?? this.data.totalTokens ?? 0;
     const percent = contextWin > 0 ? (contextTok / contextWin) * 100 : 0;
-    const percentStr = `${percent.toFixed(1)}%/${this.formatTokens(contextWin)}${autoIndicator}`;
+    let percentFormatted: string;
+    if (percent > 0 && percent < 0.05) {
+      percentFormatted = "<0.1";
+    } else {
+      percentFormatted = percent.toFixed(1);
+    }
+    const percentStr = `${percentFormatted}%/${this.formatTokens(contextWin)}${autoIndicator}`;
     const contextColor =
       percent > 90 ? "error" : percent > 70 ? "warning" : "dim";
     statsParts.push(theme.fg(contextColor, percentStr));

@@ -404,6 +404,18 @@ async def test_usage_ratio_anchoring():
     assert ctx._ratio is not None and 0 < ctx._ratio < 2
 
 
+@pytest.mark.anyio
+async def test_usage_ratio_anchoring_includes_prompt_cache():
+    """usage 锚定：当包含 Prompt Cache 时，ratio 计算必须包含 cache_read_tokens，避免被缓存命中大幅低估。"""
+    ctx = _small_ctx(FakeLLM(), budget=100_000)
+    msgs = [_msg("user", "x" * 100) for _ in range(10)]  # ~1000 chars
+    await ctx.prepare(msgs)
+    # 模拟 DeepSeek 返回 5 个未缓存 token + 250 个缓存 token
+    ctx.record_usage({"prompt_tokens": 5, "cache_read_tokens": 250})
+    # ratio 应该在 255 / 1000 ~ 0.25 左右，绝不能是 5 / 1000 = 0.005!
+    assert ctx._ratio is not None and ctx._ratio > 0.1
+
+
 # ── Agent 集成 ──
 
 

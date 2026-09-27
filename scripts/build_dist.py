@@ -70,8 +70,12 @@ def assemble_portable_package(repo_root: Path, dist_dir: Path, version: str) -> 
             pass
     staging_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. 拷贝 Python 源码
-    shutil.copytree(repo_root / "src", staging_dir / "src")
+    # 1. 拷贝 Python 源码（排除字节码与本地缓存）
+    shutil.copytree(
+        repo_root / "src",
+        staging_dir / "src",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".ruff_cache", ".pytest_cache"),
+    )
 
     # 2. 拷贝编译后的 TUI 产物
     (staging_dir / "my-pi-tui").mkdir(parents=True, exist_ok=True)

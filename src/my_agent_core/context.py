@@ -313,10 +313,11 @@ class ContextManager:
         cache_write = _as_token_count(
             usage.get("cache_write_tokens") or usage.get("cache_write") or usage.get("cacheWrite")
         )
-        if prompt_tokens or cache_read or cache_write:
-            self._last_prompt_tokens = prompt_tokens + cache_read + cache_write
-        if prompt_tokens and self._last_view_chars > 0:
-            self._ratio = prompt_tokens / self._last_view_chars
+        total_prompt_tokens = prompt_tokens + cache_read + cache_write
+        if total_prompt_tokens > 0:
+            self._last_prompt_tokens = total_prompt_tokens
+        if total_prompt_tokens > 0 and self._last_view_chars > 0:
+            self._ratio = total_prompt_tokens / self._last_view_chars
 
     @property
     def context_tokens(self) -> int:
