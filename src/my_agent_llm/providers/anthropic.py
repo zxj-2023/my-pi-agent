@@ -10,6 +10,17 @@ from ..config import Config
 from ..models import Message, Response, StreamChunk, ToolCall
 from ._base import Provider
 
+#: Anthropic Messages API 不接受的采样参数。
+#: 新版 SDK 的 messages.create / messages.stream 签名中已移除 temperature / top_p / top_k，
+#: 而 Config.temperature 默认非空，会被 client._resolve_kwargs 无条件注入，
+#: 因此必须在 provider 边界过滤，否则所有请求都会因 unexpected keyword argument 失败。
+_UNSUPPORTED_SAMPLING_KWARGS = frozenset({"temperature", "top_p", "top_k"})
+
+
+def _strip_unsupported(kwargs: dict) -> dict:
+    """剔除 Anthropic SDK 不接受的采样参数。"""
+    return {k: v for k, v in kwargs.items() if k not in _UNSUPPORTED_SAMPLING_KWARGS}
+
 
 class AnthropicProvider(Provider):
     """Anthropic (Claude) provider 实现。"""
@@ -191,7 +202,7 @@ class AnthropicProvider(Provider):
             system=system,
             max_tokens=kwargs.pop("max_tokens", 4096),
             **({"tools": ant_tools} if ant_tools else {}),
-            **kwargs,
+            **_strip_unsupported(kwargs),
         )
         return Response(
             content=self._extract_content(response.content),
@@ -212,7 +223,7 @@ class AnthropicProvider(Provider):
             system=system,
             max_tokens=kwargs.pop("max_tokens", 4096),
             **({"tools": ant_tools} if ant_tools else {}),
-            **kwargs,
+            **_strip_unsupported(kwargs),
         ) as stream:
             for text in stream.text_stream:
                 yield StreamChunk(content=text, finish_reason=None)
@@ -249,7 +260,7 @@ class AnthropicProvider(Provider):
             system=system,
             max_tokens=kwargs.pop("max_tokens", 4096),
             **({"tools": ant_tools} if ant_tools else {}),
-            **kwargs,
+            **_strip_unsupported(kwargs),
         )
         return Response(
             content=self._extract_content(response.content),
@@ -272,7 +283,7 @@ class AnthropicProvider(Provider):
             system=system,
             max_tokens=kwargs.pop("max_tokens", 4096),
             **({"tools": ant_tools} if ant_tools else {}),
-            **kwargs,
+            **_strip_unsupported(kwargs),
         ) as stream:
             async for text in stream.text_stream:
                 yield StreamChunk(content=text, finish_reason=None)

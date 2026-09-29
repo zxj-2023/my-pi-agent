@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "my-pi-agent": "my-pi-tui/bin/my-agent.js",
-    "my-agent": "my-pi-tui/bin/my-agent.js"
+    "my-agent": "my-pi-tui/bin/my-agent.js",
+    "my-pi-agent-acp": "bin/my-agent-acp.js"
   },
   "workspaces": [
     "my-pi-tui"
@@ -20,6 +21,7 @@
     "my-pi-tui/dist",
     "my-pi-tui/bin",
     "my-pi-tui/package.json",
+    "bin",
     "src/**/*.py",
     "pyproject.toml",
     "README.md"

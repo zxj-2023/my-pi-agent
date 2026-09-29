@@ -15,7 +15,7 @@ from my_agent_core.session import Session  # pyright: ignore[reportMissingImport
 from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
 
 from my_coding_agent.file_reference import FileReferenceParser
-from my_coding_agent.mcp import MCPClientManager
+from my_coding_agent.mcp import MCPClientManager, MCPServerConfig
 from my_coding_agent.model_catalog import resolve_model_context_window
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.prompt import build_default_coding_prompt
@@ -40,12 +40,14 @@ class CodingAgent:
         extra_tools: list[Tool] | tuple[Tool, ...] = (),
         permission_gate: PermissionGate | None = None,
         auto_load_mcp: bool = True,
+        extra_mcp_servers: list[MCPServerConfig] | None = None,
         **kw,
     ):
         self.workspace = Path(workspace).resolve()
         self.mutation_queue = FileMutationQueue()
         self._permission_gate = permission_gate
         self.auto_load_mcp = auto_load_mcp
+        self._extra_mcp_servers: list[MCPServerConfig] = list(extra_mcp_servers or [])
         self._mcp_manager: MCPClientManager | None = None
         self._mcp_loaded: bool = False
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -136,25 +138,39 @@ class CodingAgent:
         return self._mcp_manager
 
     async def ensure_mcp_loaded(self) -> None:
-        """按需自动扫描并加载工作区 .mcp.json 配置的 MCP 服务与工具。"""
+        """按需加载 MCP 服务与工具。
+
+        来源有二，合并加载：
+        1. 构造时通过 ``extra_mcp_servers`` 注入的配置（如 ACP 客户端在
+           ``session/new`` 下发的 ``mcpServers``）；
+        2. 工作区 ``.mcp.json`` 中声明的配置。
+        """
         if not self.auto_load_mcp or self._mcp_loaded:
             return
         self._mcp_loaded = True
 
+        configs = list(self._extra_mcp_servers)
+
         mcp_file = self.workspace / ".mcp.json"
-        if not mcp_file.is_file():
+        if mcp_file.is_file():
+            try:
+                configs.extend(MCPClientManager.load_config_file(mcp_file))
+            except Exception as exc:
+                logger.warning("解析工作区 .mcp.json 失败: %s", exc)
+
+        if not configs:
             return
 
         try:
             if self._mcp_manager is None:
-                self._mcp_manager = MCPClientManager.from_config_file(mcp_file)
-            await self._mcp_manager.connect_all()
+                self._mcp_manager = MCPClientManager()
+            await self._mcp_manager.connect_all(configs)
             tools = self._mcp_manager.get_all_tools()
             for t in tools:
                 setattr(t, "is_mcp", True)
                 self.agent.registry.register(t)
         except Exception as exc:
-            logger.warning("加载工作区 .mcp.json 失败: %s", exc)
+            logger.warning("加载 MCP 服务失败: %s", exc)
 
     async def close_mcp(self) -> None:
         """异步关闭并回收已挂载的 MCP 连接与子进程资源。"""

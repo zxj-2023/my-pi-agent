@@ -374,7 +374,8 @@ my-pi-agent/
 - [**用户主目录与凭据隔离**](docs/coding/04-user-home-and-settings.md)：`~/.my-pi-agent/` 目录拓扑、`auth.json` 强类型模型与零污染持久化；
 - [**前后端 RPC 通信协议**](docs/coding/05-rpc-bridge-protocol.md)：29 个 stdio JSON-RPC 2.0 方法规范与 Prompt Cache 命中率核算；
 - [**Pi-TUI 终端交互表现层**](docs/coding/06-pi-tui-interactive-terminal.md)：`CustomEditor` 边框动效、思考等级自适应与三大交互选择器；
-- [**工程分发与全局 CLI 架构**](docs/coding/07-distribution-and-packaging.md)：npm 全球发布、双引擎自愈启动与跨平台打包。
+- [**工程分发与全局 CLI 架构**](docs/coding/07-distribution-and-packaging.md)：npm 全球发布、双引擎自愈启动与跨平台打包；
+- [**ACP 编辑器集成规范**](docs/coding/10-acp-integration.md)：`my_acp_agent` 适配层、内核事件 → `session/update` 翻译、`PermissionGate` ↔ `session/request_permission` 反向审批桥接、ACP `mcpServers` 消费与 Zed 接入配置。
 
 ---
 
