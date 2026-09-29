@@ -28,14 +28,66 @@ if TYPE_CHECKING:
 
 @dataclass
 class MCPServerConfig:
+    """单个 MCP Server 的连接配置。
+
+    ``transport`` 决定使用哪条链路：
+    - ``stdio``（默认）：拉起 ``command`` 子进程；
+    - ``http``：Streamable HTTP，连接 ``url``；
+    - ``sse``：旧版 SSE，连接 ``url``。
+    """
+
     name: str
-    command: str
-    args: list[str]
+    command: str = ""
+    args: list[str] | None = None
     env: dict[str, str] | None = None
+    transport: str = "stdio"
+    url: str = ""
+    headers: dict[str, str] | None = None
+
+
+def parse_server_entry(name: str, entry: dict[str, Any]) -> MCPServerConfig | None:
+    """把一条 MCP server 配置解析为 ``MCPServerConfig``。
+
+    兼容两种写法：
+    - ``{"command": "npx", "args": [...], "env": {...}}`` → stdio
+    - ``{"type": "http"|"sse", "url": "...", "headers": {...}}`` → 远端传输
+    - ``{"url": "..."}`` 无 type 时按 http 处理
+
+    无法识别的条目返回 ``None``（由调用方跳过）。
+    """
+    if not isinstance(entry, dict):
+        return None
+
+    explicit_type = str(entry.get("type") or "").strip().lower()
+    url = str(entry.get("url") or "").strip()
+    command = str(entry.get("command") or "").strip()
+
+    # 显式声明远端传输，或只给了 url
+    if explicit_type in ("http", "streamable-http", "streamablehttp", "sse") or (url and not command):
+        if not url:
+            return None
+        transport = "sse" if explicit_type == "sse" else "http"
+        headers = entry.get("headers")
+        return MCPServerConfig(
+            name=name,
+            transport=transport,
+            url=url,
+            headers=dict(headers) if isinstance(headers, dict) else None,
+        )
+
+    # 默认 stdio
+    if not command:
+        return None
+    return MCPServerConfig(
+        name=name,
+        command=command,
+        args=list(entry.get("args") or []),
+        env=entry.get("env"),
+    )
 
 
 class MCPConnection:
-    """单个 MCP Server 的原生异步连接管理器。"""
+    """单个 MCP Server 的原生异步连接管理器（支持 stdio / http / sse 三种传输）。"""
 
     def __init__(self, config: MCPServerConfig):
         self.config = config
@@ -43,21 +95,52 @@ class MCPConnection:
         self._exit_stack = contextlib.AsyncExitStack()
 
     async def start(self) -> None:
-        """在当前事件循环中异步建立 Stdio 子进程长连接并完成初始化握手。"""
+        """在当前事件循环中异步建立长连接并完成初始化握手。"""
+        if self.config.transport == "stdio":
+            streams = await self._open_stdio()
+        elif self.config.transport == "http":
+            streams = await self._open_http()
+        elif self.config.transport == "sse":
+            streams = await self._open_sse()
+        else:
+            raise ValueError(f"Unsupported MCP transport: {self.config.transport}")
+
+        read_stream, write_stream = streams
+        session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+        self._session = session
+        await session.initialize()
+
+    async def _open_stdio(self):
+        """stdio 传输：拉起子进程。"""
         server_env = os.environ.copy()
         if self.config.env:
             server_env.update(self.config.env)
 
         params = StdioServerParameters(
             command=self.config.command,
-            args=self.config.args,
+            args=self.config.args or [],
             env=server_env,
         )
+        return await self._exit_stack.enter_async_context(stdio_client(params))
 
-        read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(params))
-        session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
-        self._session = session
-        await session.initialize()
+    async def _open_http(self):
+        """Streamable HTTP 传输：直连远端 URL，headers 透传（如 Authorization）。"""
+        from mcp.client.streamable_http import streamable_http_client
+        from mcp.shared._httpx_utils import create_mcp_http_client
+
+        http_client = create_mcp_http_client(headers=self.config.headers or None)
+        await self._exit_stack.enter_async_context(http_client)
+        return await self._exit_stack.enter_async_context(
+            streamable_http_client(self.config.url, http_client=http_client)
+        )
+
+    async def _open_sse(self):
+        """SSE 传输（旧版）：直连远端 URL。"""
+        from mcp.client.sse import sse_client
+
+        return await self._exit_stack.enter_async_context(
+            sse_client(self.config.url, headers=self.config.headers or None)
+        )
 
     async def list_tools(self) -> list[mcp_types.Tool]:
         """异步拉取远程工具列表。"""
@@ -124,6 +207,11 @@ class MCPClientManager:
         mgr._configs = mgr.load_config(path)
         return mgr
 
+    @staticmethod
+    def load_config_file(path: Path | str) -> list[MCPServerConfig]:
+        """纯函数式读取 ``.mcp.json``，不构造管理器实例。"""
+        return MCPClientManager().load_config(path)
+
     def load_config(self, path: Path | str) -> list[MCPServerConfig]:
         """读取 .mcp.json。"""
         p = Path(path)
@@ -137,18 +225,9 @@ class MCPClientManager:
         servers = data.get("mcpServers", {})
         configs = []
         for name, srv in servers.items():
-            cmd = srv.get("command", "")
-            if not cmd:
-                # 当前仅支持 stdio 命令行进程类型，跳过非 command 类型（如 http/sse）
-                continue
-            configs.append(
-                MCPServerConfig(
-                    name=name,
-                    command=cmd,
-                    args=srv.get("args", []),
-                    env=srv.get("env"),
-                )
-            )
+            cfg = parse_server_entry(name, srv)
+            if cfg is not None:
+                configs.append(cfg)
         self._configs = configs
         return configs
 

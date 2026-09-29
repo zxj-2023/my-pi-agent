@@ -17,10 +17,12 @@ dependencies = [
     "pyyaml>=6.0",
     "mcp>=2.0.0,<2.1",
     "filelock>=3.32.6",
+    "agent-client-protocol>=0.12.1",
 ]
 
 [project.scripts]
 my-pi-agent = "my_coding_agent.cli:main"
+my-pi-agent-acp = "my_acp_agent.server:main"
 
 [dependency-groups]
 dev = [
@@ -34,6 +36,7 @@ packages = [
     "src/my_agent_llm",
     "src/my_agent_core",
     "src/my_coding_agent",
+    "src/my_acp_agent",
 ]
 
 [tool.pytest.ini_options]

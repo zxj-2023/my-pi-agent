@@ -584,23 +584,26 @@ def resolve_initial_llm(
         cred = auth_mgr.get_credential("deepseek")
         if isinstance(cred, ApiKeyCredential):
             api_key = cred.resolve_key()
+            base_url = cred.base_url
         if not api_key:
             api_key = os.environ.get("DEEPSEEK_API_KEY")
-        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     elif provider == "openai":
         cred = auth_mgr.get_credential("openai")
         if isinstance(cred, ApiKeyCredential):
             api_key = cred.resolve_key()
+            base_url = cred.base_url
         if not api_key:
             api_key = os.environ.get("OPENAI_API_KEY")
-        base_url = os.environ.get("OPENAI_BASE_URL")
+        base_url = base_url or os.environ.get("OPENAI_BASE_URL")
     elif provider == "anthropic":
         cred = auth_mgr.get_credential("anthropic")
         if isinstance(cred, ApiKeyCredential):
             api_key = cred.resolve_key()
+            base_url = cred.base_url
         if not api_key:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
-        base_url = os.environ.get("ANTHROPIC_BASE_URL")
+        base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
     elif provider == "antigravity":
         from my_agent_llm.auth.antigravity import AntigravityAuthResolver
 
