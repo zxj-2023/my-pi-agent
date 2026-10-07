@@ -68,7 +68,7 @@ BIG_IMAGES = {
 }
 
 
-def pull_single_image(image: str, max_retries: int = 2, timeout: int = 180) -> bool:
+def pull_single_image(image: str, max_retries: int = 2, timeout: int = 360) -> bool:
     env = os.environ.copy()
     env["HTTP_PROXY"] = "http://127.0.0.1:7897"
     env["HTTPS_PROXY"] = "http://127.0.0.1:7897"
@@ -180,7 +180,7 @@ def main() -> None:
     for i, item in enumerate(ordered_missing, start=1):
         task_name = item["task_name"]
         image = item["image"]
-        task_timeout = BIG_IMAGES.get(task_name, 180)
+        task_timeout = BIG_IMAGES.get(task_name, 360)
         category = "巨无霸" if task_name in BIG_IMAGES else "常规"
 
         print(f"\n[{i}/{len(ordered_missing)}] [{category}] 任务: {task_name} | 镜像: {image}", flush=True)
