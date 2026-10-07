@@ -18,11 +18,10 @@ from my_coding_agent.file_reference import FileReferenceParser
 from my_coding_agent.mcp import MCPClientManager
 from my_coding_agent.model_catalog import resolve_model_context_window
 from my_coding_agent.mutation_queue import FileMutationQueue
+from my_coding_agent.paths import AgentPaths
+from my_coding_agent.permissions import PermissionGate
 from my_coding_agent.prompt import build_default_coding_prompt
 from my_coding_agent.tools import build_coding_tools
-
-if TYPE_CHECKING:
-    from my_coding_agent.permissions import PermissionGate
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +83,15 @@ class CodingAgent:
             "context_budget",
             resolve_model_context_window(getattr(getattr(llm, "config", None), "model", None) or ""),
         )
+        if "memory_dir" not in kw:
+            proj_mem = self.workspace / ".my-pi-agent" / "memory"
+            if proj_mem.is_dir():
+                kw["memory_dir"] = proj_mem
+            else:
+                paths = AgentPaths()
+                paths.memory_dir.mkdir(parents=True, exist_ok=True)
+                kw["memory_dir"] = paths.memory_dir
+
         self.agent = Agent(
             llm=llm,
             session=session,

@@ -57,6 +57,10 @@ class AgentPaths:
     def logs_dir(self) -> Path:
         return self.home / "logs"
 
+    @property
+    def memory_dir(self) -> Path:
+        return self.home / "memory"
+
     # ── 项目局部路径 ──
     def project_agent_dir(self, cwd: Path) -> Path:
         return cwd / ".my-pi-agent"
@@ -110,6 +114,7 @@ class AgentPaths:
             self.themes_dir,
             self.extensions_dir,
             self.logs_dir,
+            self.memory_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 
