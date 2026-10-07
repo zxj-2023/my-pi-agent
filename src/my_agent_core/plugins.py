@@ -193,20 +193,12 @@ class PluginManager:
 
     def get_skill_dirs(self) -> list[Path]:
         """收集所有启用插件的 skills 目录。"""
-        return [
-            p.skills_dir for p in self.plugins.values() if p.enabled and p.skills_dir
-        ]
+        return [p.skills_dir for p in self.plugins.values() if p.enabled and p.skills_dir]
 
     def get_subagent_dirs(self) -> list[Path]:
         """收集所有启用插件的 agents 目录。"""
-        return [
-            p.agents_dir for p in self.plugins.values() if p.enabled and p.agents_dir
-        ]
+        return [p.agents_dir for p in self.plugins.values() if p.enabled and p.agents_dir]
 
     def get_mcp_config_paths(self) -> list[Path]:
         """收集所有启用插件的 .mcp.json 配置文件路径。"""
-        return [
-            p.mcp_config_path
-            for p in self.plugins.values()
-            if p.enabled and p.mcp_config_path
-        ]
+        return [p.mcp_config_path for p in self.plugins.values() if p.enabled and p.mcp_config_path]

@@ -97,10 +97,7 @@ class SessionStore:
         if not matches:
             raise ValueError(f"Session not found: {id_or_prefix}")
         if len(matches) > 1:
-            raise ValueError(
-                f"Ambiguous session prefix {id_or_prefix!r}: "
-                f"candidates {[m.stem for m in matches]}"
-            )
+            raise ValueError(f"Ambiguous session prefix {id_or_prefix!r}: candidates {[m.stem for m in matches]}")
         return matches[0]
 
     def open(self, id_or_prefix: str) -> Session:

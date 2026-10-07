@@ -53,9 +53,7 @@ class InMemorySessionStorage:
     """
 
     def __init__(self, initial_entries: Sequence[SessionEntry] | None = None) -> None:
-        self._entries: list[SessionEntry] = (
-            list(initial_entries) if initial_entries else []
-        )
+        self._entries: list[SessionEntry] = list(initial_entries) if initial_entries else []
         self._lock = asyncio.Lock()
 
     async def append(self, entry: SessionEntry) -> None:
@@ -119,9 +117,7 @@ class JsonlSessionStorage:
                     acquired = True
                 except (BlockingIOError, OSError, PermissionError):
                     if time.monotonic() - start_time > timeout:
-                        raise SessionJsonlError(
-                            f"Timeout ({timeout}s) waiting for lock on {self.lock_path}"
-                        ) from None
+                        raise SessionJsonlError(f"Timeout ({timeout}s) waiting for lock on {self.lock_path}") from None
                     await asyncio.sleep(0.01)
             try:
                 yield
@@ -148,9 +144,7 @@ class JsonlSessionStorage:
                     f.flush()
                     os.fsync(f.fileno())
             except OSError as exc:
-                raise SessionJsonlError(
-                    f"Failed to append to {self.path}: {exc}"
-                ) from exc
+                raise SessionJsonlError(f"Failed to append to {self.path}: {exc}") from exc
 
     async def append_batch(self, entries: Sequence[SessionEntry]) -> None:
         """原子追加一批条目到存储末尾。"""
@@ -167,9 +161,7 @@ class JsonlSessionStorage:
                     f.flush()
                     os.fsync(f.fileno())
             except OSError as exc:
-                raise SessionJsonlError(
-                    f"Failed to append batch to {self.path}: {exc}"
-                ) from exc
+                raise SessionJsonlError(f"Failed to append batch to {self.path}: {exc}") from exc
 
     async def read_all(self) -> list[SessionEntry]:
         """读取存储中所有按追加时序排列的历史条目。"""

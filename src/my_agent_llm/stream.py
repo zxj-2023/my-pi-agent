@@ -37,10 +37,7 @@ class StreamAccumulator:
     def _snapshot(self) -> Message:
         meta = dict(self.metadata) if self.metadata else {}
         if self.tool_calls:
-            meta["tool_calls"] = [
-                tc.model_dump() if hasattr(tc, "model_dump") else tc
-                for tc in self.tool_calls
-            ]
+            meta["tool_calls"] = [tc.model_dump() if hasattr(tc, "model_dump") else tc for tc in self.tool_calls]
         return Message(
             role=self.role,
             content=self.content,
@@ -66,9 +63,7 @@ class StreamAccumulator:
         if reasoning_delta:
             prev_reasoning = str(self.metadata.get("reasoning_content", ""))
             self.metadata["reasoning_content"] = prev_reasoning + reasoning_delta
-            events.append(
-                ThinkingDeltaEvent(delta=reasoning_delta, partial=self._snapshot())
-            )
+            events.append(ThinkingDeltaEvent(delta=reasoning_delta, partial=self._snapshot()))
 
         # 2. 正文文本增量 (Text Delta)
         content = getattr(chunk, "content", "") or ""
@@ -114,24 +109,15 @@ class StreamAccumulator:
         if not self.started:
             self.started = True
 
-        if self.final_response is not None and hasattr(
-            self.final_response, "to_message"
-        ):
-            msg = self.final_response.to_message(
-                role=self.role, stop_reason=stop_reason
-            )
+        if self.final_response is not None and hasattr(self.final_response, "to_message"):
+            msg = self.final_response.to_message(role=self.role, stop_reason=stop_reason)
             usage = self.last_usage or getattr(self.final_response, "usage", None)
         else:
             meta = dict(self.metadata) if self.metadata else {}
             if self.tool_calls:
-                meta["tool_calls"] = [
-                    tc.model_dump() if hasattr(tc, "model_dump") else tc
-                    for tc in self.tool_calls
-                ]
+                meta["tool_calls"] = [tc.model_dump() if hasattr(tc, "model_dump") else tc for tc in self.tool_calls]
             effective_stop = stop_reason or (
-                TurnOutcome.TOOL_CALLS.value
-                if self.tool_calls
-                else TurnOutcome.COMPLETED.value
+                TurnOutcome.TOOL_CALLS.value if self.tool_calls else TurnOutcome.COMPLETED.value
             )
             meta["stop_reason"] = effective_stop
             msg = Message(
@@ -153,18 +139,11 @@ class StreamAccumulator:
         content = self.content
         if exc is not None:
             err_str = str(exc)
-            content = (
-                f"{content} (Error during model stream: {err_str})"
-                if content
-                else err_str
-            )
+            content = f"{content} (Error during model stream: {err_str})" if content else err_str
 
         meta = dict(self.metadata) if self.metadata else {}
         if self.tool_calls:
-            meta["tool_calls"] = [
-                tc.model_dump() if hasattr(tc, "model_dump") else tc
-                for tc in self.tool_calls
-            ]
+            meta["tool_calls"] = [tc.model_dump() if hasattr(tc, "model_dump") else tc for tc in self.tool_calls]
         meta["stop_reason"] = stop_reason
 
         error_msg = Message(

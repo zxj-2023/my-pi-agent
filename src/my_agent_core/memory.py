@@ -64,9 +64,7 @@ class MemoryStore:
         self.mem_dir.mkdir(parents=True, exist_ok=True)
         path = self.mem_dir / self.files[target]
         text = ENTRY_DELIMITER.join(self._entries[target])
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            prefix=f".{self.files[target]}.", dir=str(self.mem_dir)
-        )
+        tmp_fd, tmp_path = tempfile.mkstemp(prefix=f".{self.files[target]}.", dir=str(self.mem_dir))
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8-sig") as f:
                 f.write(text)
@@ -234,8 +232,6 @@ def make_memory_tool(store: MemoryStore) -> Tool:
                 raise ValueError("`old_text` is required when action is 'remove'.")
             return store.remove(target, old_text)
         else:
-            raise ValueError(
-                f"Unknown action '{action}'. Must be 'add', 'replace', or 'remove'."
-            )
+            raise ValueError(f"Unknown action '{action}'. Must be 'add', 'replace', or 'remove'.")
 
     return memory

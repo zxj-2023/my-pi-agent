@@ -118,9 +118,7 @@ class ToolRegistry:
         target = self._tools.get(target_name or "")
         if target is None:
             available = ", ".join(sorted(self._tools))
-            return ToolResult(
-                ok=False, error=f"Unknown tool '{target_name}'. Available: {available}"
-            )
+            return ToolResult(ok=False, error=f"Unknown tool '{target_name}'. Available: {available}")
         return await target.execute(
             final_args,
             signal=signal,
@@ -133,8 +131,7 @@ class ToolRegistry:
         tool_calls: Sequence[Any],
         signal: Any | None = None,
         on_updates: Sequence[Callable[[Any], None] | None] | None = None,
-        on_update_factory: Callable[[int, Any], Callable[[Any], None] | None]
-        | None = None,
+        on_update_factory: Callable[[int, Any], Callable[[Any], None] | None] | None = None,
     ) -> list[ToolResult]:
         """批量执行工具调用（全员只读并发；只要包含一个写入则整批保序串行，防止因果时序倒置）。"""
         if not tool_calls:
@@ -164,8 +161,7 @@ class ToolRegistry:
 
         # 检查这批工具中是否包含任何不安全的写工具（或未知工具）
         has_sequential = any(
-            (t := self._tools.get(_get_name(tc))) is None or not t.is_parallel_safe
-            for tc in tool_calls
+            (t := self._tools.get(_get_name(tc))) is None or not t.is_parallel_safe for tc in tool_calls
         )
 
         if has_sequential:
@@ -178,20 +174,14 @@ class ToolRegistry:
                     if cancelled:
                         results.append(ToolResult(ok=False, error="Tool call interrupted by user"))
                         continue
-                results.append(
-                    await self.execute_tool(
-                        tc, signal=signal, on_update=_get_update_cb(i, tc)
-                    )
-                )
+                results.append(await self.execute_tool(tc, signal=signal, on_update=_get_update_cb(i, tc)))
             return results
 
         # 全部都是只读安全工具时，安全并发执行
         return list(
             await asyncio.gather(
                 *(
-                    self.execute_tool(
-                        tc, signal=signal, on_update=_get_update_cb(i, tc)
-                    )
+                    self.execute_tool(tc, signal=signal, on_update=_get_update_cb(i, tc))
                     for i, tc in enumerate(tool_calls)
                 )
             )

@@ -60,22 +60,14 @@ class BackgroundRunner:
     def _sync_cleanup(self) -> None:
         """进程退出时强制清理所有存活的子进程树，杜绝孤儿进程。"""
         for job in self.jobs.values():
-            if (
-                job.status == "running"
-                and job.process
-                and job.process.returncode is None
-            ):
+            if job.status == "running" and job.process and job.process.returncode is None:
                 _kill_process_tree(job.process)
 
-    async def run_process(
-        self, command: str, cwd: Path | str, description: str = ""
-    ) -> str:
+    async def run_process(self, command: str, cwd: Path | str, description: str = "") -> str:
         """异步启动操作系统后台子进程，立即返回 job_id。"""
         self._counter += 1
         job_id = f"bg_{self._counter:06x}"
-        job = BackgroundJob(
-            id=job_id, description=description or command, status="running"
-        )
+        job = BackgroundJob(id=job_id, description=description or command, status="running")
         self.jobs[job_id] = job
 
         async def _worker() -> None:
@@ -88,9 +80,7 @@ class BackgroundRunner:
                 )
                 job.process = proc
                 stdout, stderr = await proc.communicate()
-                output = (
-                    stdout.decode(errors="replace") + stderr.decode(errors="replace")
-                ).strip()
+                output = (stdout.decode(errors="replace") + stderr.decode(errors="replace")).strip()
                 job.exit_code = proc.returncode
                 job.result = output[:20000] if output else "(no output)"
                 job.status = "completed" if proc.returncode == 0 else "failed"

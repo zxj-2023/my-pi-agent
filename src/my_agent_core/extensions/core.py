@@ -35,9 +35,7 @@ class ExtensionAPI:
     # ── 事件订阅 / Hook 拦截注册（支持 @api.on 作装饰器）────────
 
     @overload
-    def on(
-        self, target: type, handler: None = None
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+    def on(self, target: type, handler: None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 
     @overload
     def on(self, target: type, handler: Callable[..., Any]) -> None: ...
@@ -96,9 +94,7 @@ class ExtensionAPI:
 
     # ── 命令（注册 + 存表，调度在 ExtensionManager）────────────────────
 
-    def register_command(
-        self, name: str, handler: CommandHandler, description: str = ""
-    ) -> None:
+    def register_command(self, name: str, handler: CommandHandler, description: str = "") -> None:
         """注册命令（name 不含 /）。"""
         self._commands[name] = handler
         self._descriptions[name] = description
@@ -122,9 +118,7 @@ class ExtensionManager:
 
     DEFAULT_DIR_NAME = "extensions"  # <cwd>/.agents/extensions
 
-    def __init__(
-        self, agent: Agent, extension_dirs: Sequence[str | Path] | None = None
-    ):
+    def __init__(self, agent: Agent, extension_dirs: Sequence[str | Path] | None = None):
         """解析目录（三态同 skill_dirs）：None → 探测 <cwd>/.agents/extensions；
         [] → 禁用；非空 → 只扫这些目录。load() 显式加载（有副作用）。"""
         self.agent = agent
@@ -168,9 +162,7 @@ class ExtensionManager:
                     extension_func = obj
                     break
         if extension_func is None:
-            raise ValueError(
-                f"Extension {path} must define an 'extension' function that takes ExtensionAPI"
-            )
+            raise ValueError(f"Extension {path} must define an 'extension' function that takes ExtensionAPI")
         if inspect.iscoroutinefunction(extension_func):
             await extension_func(self.api)
         else:

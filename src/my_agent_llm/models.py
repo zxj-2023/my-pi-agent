@@ -42,9 +42,7 @@ _ABORT_REASONS = {"aborted", "cancelled", "canceled", "interrupt", "interrupted"
 _ERROR_REASONS = {"error", "failed", "failure", "provider_error"}
 
 
-def normalize_finish_reason(
-    reason: str | None, has_tool_calls: bool = False
-) -> TurnOutcome:
+def normalize_finish_reason(reason: str | None, has_tool_calls: bool = False) -> TurnOutcome:
     """归一化各厂商私有 finish_reason 为中立枚举。"""
     if reason is None:
         return TurnOutcome.TOOL_CALLS if has_tool_calls else TurnOutcome.COMPLETED
@@ -164,10 +162,7 @@ class Response(BaseModel):
         """将模型层完整响应直接转换为标准 Message 实体，彻底消除调度层手动累加拼装。"""
         meta: dict[str, Any] = {}
         if self.tool_calls:
-            meta["tool_calls"] = [
-                tc.model_dump() if hasattr(tc, "model_dump") else tc
-                for tc in self.tool_calls
-            ]
+            meta["tool_calls"] = [tc.model_dump() if hasattr(tc, "model_dump") else tc for tc in self.tool_calls]
         if self.usage:
             meta["usage"] = self.usage
         if self.reasoning_content:
