@@ -25,3 +25,9 @@ AGENTS.md
 docs/superpowers/
 docs/archive/
 
+# 评测临时运行日志与 PID 状态文件
+*.log
+*.pid
+*.flag
+
+
