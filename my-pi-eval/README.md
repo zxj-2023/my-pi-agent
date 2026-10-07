@@ -27,16 +27,13 @@
    python -m my_pi_eval.cli --check
    ```
 
-2. **独立评测环境变量配置**：
-   `my-pi-eval` 采用专属隔离设计，**不读取全局 `~/.my-pi-agent/auth.json`**，仅识别 `my-pi-eval/.env` 或终端环境变量。
-   直接在 `my-pi-eval/.env` 中配置评测专用的 API Key：
-   ```env
-   # my-pi-eval/.env
-   DEEPSEEK_API_KEY=sk-xxxx
-   # 可选自定义接口地址（默认官方 https://api.deepseek.com）
-   DEEPSEEK_BASE_URL=https://api.deepseek.com
-   ```
-   *注：`my-pi-eval/.env` 已被全局 `.gitignore` 保护，不会被误提交。*
+2. **全局统一凭证中心（零工作区污染）**：
+   `my-pi-eval` 严格遵循项目的零工作区污染铁律，**不依赖本地任何 `.env` 文件**。
+   所有模型凭据统一从全局凭证中心 `~/.my-pi-agent/auth.json` 或系统显式环境变量中获取：
+   - 方式 A（首选）：在终端运行 `my-pi-agent` TUI，输入 `/login deepseek <your-api-key>` 一次性绑定至全局凭证中心。
+   - 方式 B（环境变量）：在当前终端临时注入：
+     - PowerShell: `$env:DEEPSEEK_API_KEY="sk-xxxx"`
+     - Bash: `export DEEPSEEK_API_KEY="sk-xxxx"`
 
 ---
 
