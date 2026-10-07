@@ -62,7 +62,7 @@ def discover_task_images() -> list[dict[str, str]]:
     return tasks
 
 
-def pull_single_image(image: str, max_retries: int = 3) -> bool:
+def pull_single_image(image: str, max_retries: int = 5) -> bool:
     env = os.environ.copy()
     env["HTTP_PROXY"] = "http://127.0.0.1:7897"
     env["HTTPS_PROXY"] = "http://127.0.0.1:7897"
@@ -87,7 +87,7 @@ def pull_single_image(image: str, max_retries: int = 3) -> bool:
                     line_clean = line.strip()
                     if line_clean:
                         print(f"     [docker] {line_clean}", flush=True)
-            proc.wait(timeout=600)
+            proc.wait(timeout=180)  # 3 minutes timeout per attempt
             elapsed = int(time.time() - start)
             if proc.returncode == 0:
                 print(f"  -> ✅ 成功完成: {image} (耗时 {elapsed}s)", flush=True)
@@ -97,7 +97,7 @@ def pull_single_image(image: str, max_retries: int = 3) -> bool:
         except subprocess.TimeoutExpired:
             if proc is not None:
                 proc.kill()
-            print("  -> ⚠️ 拉取超时 (10分钟)！", flush=True)
+            print("  -> ⚠️ 拉取超时 (3分钟)！", flush=True)
         except Exception as e:
             print(f"  -> ⚠️ 拉取异常: {e}", flush=True)
 

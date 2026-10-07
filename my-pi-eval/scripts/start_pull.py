@@ -25,7 +25,13 @@ def main() -> None:
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text().strip())
-            check = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True)
+            check = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                encoding="gbk",
+                errors="replace",
+            )
             if str(pid) in check.stdout:
                 print(f"[INFO] 镜像拉取器已经在运行中 (PID: {pid})。")
                 print(f"查看日志: Get-Content -Wait -Tail 30 {LOG_FILE}")

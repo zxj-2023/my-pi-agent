@@ -27,7 +27,13 @@ def main() -> None:
         try:
             pid = int(PID_FILE.read_text().strip())
             pid_str = str(pid)
-            check = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True)
+            check = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                encoding="gbk",
+                errors="replace",
+            )
             if str(pid) in check.stdout:
                 is_running = True
         except Exception:
