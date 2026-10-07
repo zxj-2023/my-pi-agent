@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
+import pytest
 from my_agent_llm import Message, Response, StreamChunk
 
 from my_agent_core.tools import tool
@@ -142,3 +143,20 @@ def multiply(a: int, b: int) -> int:
 def get_time() -> str:
     """Get the current time."""
     return "12:00"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cwd_agents_for_core_tests(monkeypatch, request):
+    """防止仓库根目录的 .agents 污染通用 core 单元测试"""
+    if "test_subagents" not in request.node.nodeid:
+        from my_agent_core.subagents import SubagentManager
+
+        orig_init = SubagentManager.__init__
+
+        def safe_init(self, dirs=None, extra_dirs=None):
+            if dirs is None:
+                dirs = []
+            return orig_init(self, dirs=dirs, extra_dirs=extra_dirs)
+
+        monkeypatch.setattr(SubagentManager, "__init__", safe_init)
+

@@ -1,48 +1,80 @@
-# my-pi-eval: Agent 自动化评测系统
+# my-pi-eval: Harbor & Terminal-Bench 2.0 评测套件
 
-`my-pi-eval` 是专为 `my-pi-agent` 构建的自动化评测与基准测试套件，对标工业界标准（DeepSeek Harness `dsh-eval`、Pi `pi-terminal-bench`、SWE-bench Official Harness）。
+`my-pi-eval` 是专为 `my-pi-agent` 打造的官方基准评测适配与调度子系统，基于标准 **Harbor Framework** 协议实现，主要用于在 **Terminal-Bench 2.0**（以及后续的 SWE-bench）真实沙箱中全自动评测 Agent 的终端解题能力。
 
 ---
 
-## 目录结构设计
+## 核心设计与架构
 
-```text
-my-pi-eval/
-├── README.md                  # 本评测套件说明文档
-├── configs/                   # 评测配置与基准任务声明
-│   ├── swe_bench_verified.yaml# SWE-bench Verified 评测配置
-│   ├── swe_bench_multi.yaml   # SWE-bench Multilingual 跨语言配置
-│   ├── terminal_bench.yaml    # Terminal-Bench 2.1 终端运维配置
-│   └── mini_regression.yaml   # 20 题轻量快速回归集配置
-├── datasets/                  # 本地测试用例与轻量级 benchmark 数据
-│   └── fixtures/              # 本地单元/单单测验证环境
-├── src/                       # 评测系统核心 Python 实现
-│   ├── __init__.py
-│   ├── adapter.py             # CodingAgent 无头驱动适配器 (Zero Harness Tax)
-│   ├── telemetry.py           # 10 项标准化指标实时事件流收集器
-│   ├── runner.py              # 并发任务调度与沙箱环境编排器 (Worktree/Docker)
-│   ├── grader.py              # 判定器 (SWE-bench Patch 测试 / Terminal-bench check.sh)
-│   └── reporter.py            # 结果看板与 A/B 差异分析 (Markdown & JSON)
-├── reports/                   # 评测运行历史与产物 (JSON 原始轨迹 + Markdown 报告)
-└── run.py                     # CLI 快速启动入口
+1. **官方标准 BaseAgent 适配**：实现 `MyPiAgent`（继承自 `harbor.agents.base.BaseAgent`），可直接被 Harbor 官方 CLI (`harbor run`) 加载与调用。
+2. **宿主编排型（Scheme 1: Host-Orchestrated）**：Agent 核心与大模型请求运行在宿主机 Python 3.11 环境中，通过 `HarborToolRegistry` 将 7 大核心工具直连 Docker 容器沙箱，**实现对评测环境的零污染与秒级启动**。
+3. **高保真工具桥接**：
+   - `bash`: 容器内隔离执行、超时熔断（默认 120s）与 50KB 输出安全截断。
+   - `read`: 容器内文件按 offset/limit 行号精准分片。
+   - `write`: 自动规范化换行符（CRLF ➔ LF），防止 Windows 宿主导致 Linux 容器脚本损坏。
+   - `edit`: 宿主机内存执行严格的单义性校验与外科手术式代码替换，原子写回沙箱。
+   - `ls` / `grep` / `find`: 容器内实时文件系统检索。
+4. **指标与轨迹自动聚合**：自动追踪 Prompt Tokens、Completion Tokens、Cache Read Tokens、耗时及状态，输出标准 `metrics.json`。
+
+---
+
+## 运行前准备（Prerequisites）
+
+1. **Docker Desktop**：
+   评测任务依赖 Docker 启动容器沙箱。请确保 Windows Docker Desktop 处于运行状态。
+   可使用自带 Doctor 进行预检：
+   ```bash
+   python -m my_pi_eval.cli --check
+   ```
+
+2. **环境变量配置**：
+   配置大模型 API Key（与 `my-pi-agent` 一致）：
+   ```bash
+   export DEEPSEEK_API_KEY="your-api-key"
+   # 或 OPENAI_API_KEY / ANTHROPIC_API_KEY
+   ```
+
+---
+
+## 评测执行指南
+
+### 1. 单任务冒烟测试（以 `build-cython-ext` 为例）
+
+```bash
+# 方式 A：使用 my-pi-eval CLI
+python -m my_pi_eval.cli -p D:/code/python/agent-eval/terminal-bench-2/build-cython-ext -m deepseek/deepseek-chat
+
+# 方式 B：使用 Harbor 官方原生 CLI
+harbor run \
+  -p D:/code/python/agent-eval/terminal-bench-2/build-cython-ext \
+  --agent-import-path my_pi_eval.agent:MyPiAgent \
+  -m deepseek/deepseek-chat
 ```
 
+### 2. 多任务批量评测与并发控制
+
+```bash
+# 并发跑 4 个沙箱容器
+harbor run \
+  -p D:/code/python/agent-eval/terminal-bench-2 \
+  --agent-import-path my_pi_eval.agent:MyPiAgent \
+  -m deepseek/deepseek-chat \
+  -n 4
+```
+
+### 3. 查看评测报告与轨迹
+
+评测完成后，Harbor 与 `my-pi-eval` 会在运行目录输出详细记录：
+- `verifier/reward.txt`：测试判定结果（`1` 为通过，`0` 为未通过）。
+- `agent/metrics.json`：该题消耗的 Token 数量、耗时与报错。
+- `agent/session.jsonl`：Agent 与沙箱互动的完整 ReAct 对话树与工具轨迹。
+
 ---
 
-## 支持的核心评测集
+## 单元测试与验证
 
-1. **SWE-bench Verified**：
-   - 真实开源 Python 库（Django, SymPy, Pytest 等）500 题与 Mini-SWE 抽样。
-   - 检验跨文件检索、代码修改与隐藏单元测试修复能力。
-2. **SWE-bench Multilingual**：
-   - 跨语言（TypeScript, Go, Java, Rust, C++）工程代码库修复评测。
-3. **Terminal-Bench 2.0 / 2.1**：
-   - 纯 Docker Linux 终端运维、依赖编译与系统级复杂任务交互。
+套件包含 15 个针对沙箱工具桥接、CRLF 规范化、指标汇总与 CLI 预检的离线单元测试：
 
----
-
-## 核心设计规范
-
-详细技术设计规范请参阅：
-- [`docs/eval/01-evaluation-harness-architecture.md`](../docs/eval/01-evaluation-harness-architecture.md)
-- [`docs/superpowers/specs/2026-09-24-evaluation-harness-design.md`](../docs/superpowers/specs/2026-09-24-evaluation-harness-design.md)
+```bash
+uv run python -m pytest tests/eval/ -v
+```
