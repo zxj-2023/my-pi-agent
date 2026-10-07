@@ -42,4 +42,3 @@ def test_resolve_eval_llm_deepseek(monkeypatch):
     assert llm.config.model == "deepseek-chat"
     assert llm.config.api_key == "sk-fake-deepseek-key"
     assert llm.config.base_url == "https://api.deepseek.com"
-

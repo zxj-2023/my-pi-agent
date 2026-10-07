@@ -18,6 +18,7 @@ def fake_env():
 @pytest.mark.anyio
 async def test_harbor_bash_tool(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
+
     registry = HarborToolRegistry(fake_env)
     res = await registry.execute("bash", {"command": "echo test"})
     assert res.ok is True
@@ -28,6 +29,7 @@ async def test_harbor_bash_tool(fake_env):
 @pytest.mark.anyio
 async def test_harbor_read_tool(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
+
     registry = HarborToolRegistry(fake_env)
     res = await registry.execute("read", {"path": "/app/main.py", "offset": 1, "limit": 10})
     assert res.ok is True
@@ -37,6 +39,7 @@ async def test_harbor_read_tool(fake_env):
 @pytest.mark.anyio
 async def test_harbor_write_tool_normalizes_crlf(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
+
     registry = HarborToolRegistry(fake_env)
     res = await registry.execute("write", {"path": "/app/run.sh", "content": "echo 1\r\necho 2\r\n"})
     assert res.ok is True
@@ -46,12 +49,12 @@ async def test_harbor_write_tool_normalizes_crlf(fake_env):
 @pytest.mark.anyio
 async def test_harbor_edit_tool_surgical_replacement(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
+
     fake_env.read_file.return_value = "def foo():\n    return 41\n"
     registry = HarborToolRegistry(fake_env)
-    res = await registry.execute("edit", {
-        "path": "/app/main.py",
-        "edits": [{"oldText": "return 41", "newText": "return 42"}]
-    })
+    res = await registry.execute(
+        "edit", {"path": "/app/main.py", "edits": [{"oldText": "return 41", "newText": "return 42"}]}
+    )
     assert res.ok is True
     fake_env.write_file.assert_awaited_once_with("/app/main.py", "def foo():\n    return 42\n")
 
@@ -59,12 +62,10 @@ async def test_harbor_edit_tool_surgical_replacement(fake_env):
 @pytest.mark.anyio
 async def test_harbor_edit_tool_uniqueness_check(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
+
     fake_env.read_file.return_value = "x = 1\nx = 1\n"
     registry = HarborToolRegistry(fake_env)
-    res = await registry.execute("edit", {
-        "path": "/app/main.py",
-        "edits": [{"oldText": "x = 1", "newText": "x = 2"}]
-    })
+    res = await registry.execute("edit", {"path": "/app/main.py", "edits": [{"oldText": "x = 1", "newText": "x = 2"}]})
     assert res.ok is False
     assert "2 times" in str(res.error)
 
@@ -72,6 +73,7 @@ async def test_harbor_edit_tool_uniqueness_check(fake_env):
 @pytest.mark.anyio
 async def test_harbor_tools_never_throw(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
+
     fake_env.exec.side_effect = RuntimeError("Docker crashed")
     registry = HarborToolRegistry(fake_env)
     res = await registry.execute("bash", {"command": "ls"})

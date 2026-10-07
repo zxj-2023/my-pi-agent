@@ -337,10 +337,12 @@ async def test_execute_batch_parallel_cancellation_cleanup():
     reg.register(slow_read_2)
 
     batch_task = asyncio.create_task(
-        reg.execute_batch([
-            {"function": {"name": "slow_read_1", "arguments": "{}"}},
-            {"function": {"name": "slow_read_2", "arguments": "{}"}},
-        ])
+        reg.execute_batch(
+            [
+                {"function": {"name": "slow_read_1", "arguments": "{}"}},
+                {"function": {"name": "slow_read_2", "arguments": "{}"}},
+            ]
+        )
     )
 
     await asyncio.sleep(0.05)

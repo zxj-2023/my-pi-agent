@@ -159,4 +159,3 @@ def _isolate_cwd_agents_for_core_tests(monkeypatch, request):
             return orig_init(self, dirs=dirs, extra_dirs=extra_dirs)
 
         monkeypatch.setattr(SubagentManager, "__init__", safe_init)
-

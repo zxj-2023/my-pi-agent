@@ -72,6 +72,25 @@ def test_tracer_logs_lifecycle_events(tmp_path: Path) -> None:
     assert "[AGENT_END]" in content
 
 
+def test_tracer_marks_error_status_when_tool_fails(tmp_path: Path) -> None:
+    log_file = tmp_path / "debug_err.log"
+    tracer = DebugEventTracer(log_path=log_file)
+
+    tracer(ToolExecutionStart(tool_call_id="call-err-1", tool_name="read", args={"path": "not_found.txt"}))
+    tracer(
+        ToolExecutionEnd(
+            tool_call_id="call-err-1",
+            tool_name="read",
+            result="Error: File not found: not_found.txt",
+            is_error=False,
+        )
+    )
+    tracer.close()
+
+    content = log_file.read_text(encoding="utf-8")
+    assert "[TOOL_CALL_END] tool=read id=call-err-1 status=ERROR" in content
+
+
 def test_export_debug_dump(tmp_path: Path) -> None:
     class DummyAgent:
         class Inner:

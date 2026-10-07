@@ -1354,6 +1354,7 @@ class RpcServer:
         skill_count = len(skill_mgr.skills)
 
         from my_agent_core.subagents import SubagentManager
+
         extra_subagent_dirs = (
             self.agent.agent.plugin_manager.get_subagent_dirs()
             if (self.agent and hasattr(self.agent.agent, "plugin_manager"))
@@ -1365,6 +1366,7 @@ class RpcServer:
             self.agent.agent.subagent_manager = subagent_mgr
             if subagent_mgr:
                 from my_agent_core.tools.builtin.task import make_task_tool
+
                 self.agent.agent.registry.register(make_task_tool(subagent_mgr, self.agent.agent))
             else:
                 self.agent.agent.registry.unregister("task")

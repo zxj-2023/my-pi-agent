@@ -184,7 +184,8 @@ class DebugEventTracer:
                 cost_ms = int((event.timestamp - start) * 1000)
             except (ValueError, TypeError):
                 cost_ms = 0
-            status = "ERROR" if event.is_error else "OK"
+            is_err = event.is_error or (isinstance(event.result, str) and event.result.strip().startswith("Error:"))
+            status = "ERROR" if is_err else "OK"
             res_preview = str(event.result or "").strip().splitlines()[0][:80] if event.result else ""
             self._write_line(
                 f"[{ts_str}] [TOOL_CALL_END] tool={event.tool_name} id={event.tool_call_id} status={status} duration={cost_ms}ms result={json.dumps(res_preview, ensure_ascii=False)}"
