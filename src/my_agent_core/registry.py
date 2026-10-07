@@ -177,12 +177,22 @@ class ToolRegistry:
                 results.append(await self.execute_tool(tc, signal=signal, on_update=_get_update_cb(i, tc)))
             return results
 
-        # 全部都是只读安全工具时，安全并发执行
-        return list(
-            await asyncio.gather(
-                *(
-                    self.execute_tool(tc, signal=signal, on_update=_get_update_cb(i, tc))
-                    for i, tc in enumerate(tool_calls)
-                )
-            )
-        )
+        # 检查是否在并发开始前已经被取消
+        if signal is not None:
+            is_canc = getattr(signal, "is_cancelled", None)
+            cancelled = is_canc() if callable(is_canc) else getattr(signal, "cancelled", False)
+            if cancelled:
+                return [ToolResult(ok=False, error="Tool call interrupted by user") for _ in tool_calls]
+
+        # 全部都是只读安全工具时，结构化安全并发执行（支持打断时即时收敛子任务）
+        tasks = [
+            asyncio.create_task(self.execute_tool(tc, signal=signal, on_update=_get_update_cb(i, tc)))
+            for i, tc in enumerate(tool_calls)
+        ]
+        try:
+            return list(await asyncio.gather(*tasks))
+        except (asyncio.CancelledError, Exception):
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            raise

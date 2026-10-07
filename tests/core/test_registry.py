@@ -305,3 +305,49 @@ async def test_execute_batch_sequential_cancellation():
     assert results[1].ok is False
     assert results[1].error == "Tool call interrupted by user"
     assert run_log == ["step_one"]  # step_two 绝未执行！
+
+
+@pytest.mark.anyio
+async def test_execute_batch_parallel_cancellation_cleanup():
+    """execute_batch: 并发执行被外部任务取消时，所有正在运行的子任务均被立即 cancel。"""
+    import asyncio
+
+    cancelled_tasks = []
+
+    @tool(is_parallel_safe=True)
+    async def slow_read_1():
+        try:
+            await asyncio.sleep(2.0)
+            return "done1"
+        except asyncio.CancelledError:
+            cancelled_tasks.append("task1_cancelled")
+            raise
+
+    @tool(is_parallel_safe=True)
+    async def slow_read_2():
+        try:
+            await asyncio.sleep(2.0)
+            return "done2"
+        except asyncio.CancelledError:
+            cancelled_tasks.append("task2_cancelled")
+            raise
+
+    reg = ToolRegistry()
+    reg.register(slow_read_1)
+    reg.register(slow_read_2)
+
+    batch_task = asyncio.create_task(
+        reg.execute_batch([
+            {"function": {"name": "slow_read_1", "arguments": "{}"}},
+            {"function": {"name": "slow_read_2", "arguments": "{}"}},
+        ])
+    )
+
+    await asyncio.sleep(0.05)
+    batch_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await batch_task
+
+    assert "task1_cancelled" in cancelled_tasks
+    assert "task2_cancelled" in cancelled_tasks

@@ -27,4 +27,4 @@ def make_task_tool(manager: SubagentManager, parent: Agent) -> Tool:
             return str(t.result) if t.result is not None else "(no summary)"
         return str(t.error) if t.error is not None else "(no summary)"
 
-    return Tool(func=task, name="task", is_parallel_safe=True)
+    return Tool(func=task, name="task", is_parallel_safe=False)
