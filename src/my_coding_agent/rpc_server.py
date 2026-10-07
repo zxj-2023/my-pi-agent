@@ -104,6 +104,7 @@ class RpcServer:
         self._write_lock = threading.Lock()
         self._prompt_lock = asyncio.Lock()
         self._is_prompt_running = False
+        self._active_prompt_task: asyncio.Task[Any] | None = None
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self.session_usage: dict[str, Any] = {
             "input": 0,
@@ -353,92 +354,100 @@ class RpcServer:
                 self.agent.follow_up(text)
                 return self.send_response(req_id, result={"status": "ok", "action": "queued"})
 
-        async with self._prompt_lock:
-            self._is_prompt_running = True
-            try:
-                async for event in self.agent.run_stream(text):
-                    if isinstance(event, MessageEnd) and event.message and event.message.role == "assistant":
-                        meta = event.message.metadata or {}
-                        usage = meta.get("usage")
-                        if usage and isinstance(usage, dict):
-                            prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
-                            comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
-                            cache_read = (
-                                usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
-                            )
-                            cache_write = (
-                                usage.get("cache_write_tokens")
-                                or usage.get("cache_write")
-                                or usage.get("cacheWrite")
-                                or 0
-                            )
-                            total_tok = usage.get("total_tokens") or usage.get("total") or (prompt_tok + comp_tok)
+        current_task = asyncio.current_task()
+        self._active_prompt_task = current_task
+        try:
+            async with self._prompt_lock:
+                self._is_prompt_running = True
+                try:
+                    async for event in self.agent.run_stream(text):
+                        if isinstance(event, MessageEnd) and event.message and event.message.role == "assistant":
+                            meta = event.message.metadata or {}
+                            usage = meta.get("usage")
+                            if usage and isinstance(usage, dict):
+                                prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
+                                comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
+                                cache_read = (
+                                    usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                                )
+                                cache_write = (
+                                    usage.get("cache_write_tokens")
+                                    or usage.get("cache_write")
+                                    or usage.get("cacheWrite")
+                                    or 0
+                                )
+                                total_tok = usage.get("total_tokens") or usage.get("total") or (prompt_tok + comp_tok)
 
-                            self.session_usage["input"] += prompt_tok
-                            self.session_usage["output"] += comp_tok
-                            self.session_usage["cacheRead"] += cache_read
-                            self.session_usage["cacheWrite"] += cache_write
-                            self.session_usage["total"] += total_tok
-                            self.session_usage["contextTokens"] = prompt_tok + comp_tok + cache_read + cache_write
+                                self.session_usage["input"] += prompt_tok
+                                self.session_usage["output"] += comp_tok
+                                self.session_usage["cacheRead"] += cache_read
+                                self.session_usage["cacheWrite"] += cache_write
+                                self.session_usage["total"] += total_tok
+                                self.session_usage["contextTokens"] = prompt_tok + comp_tok + cache_read + cache_write
 
-                            total_prompt = prompt_tok + cache_read + cache_write
-                            if total_prompt > 0 and cache_read > 0:
-                                hit_rate = (cache_read / total_prompt) * 100.0
-                                self.session_usage["latestCacheHitRate"] = hit_rate
-                                self.session_usage["cacheHitRate"] = hit_rate
+                                total_prompt = prompt_tok + cache_read + cache_write
+                                if total_prompt > 0 and cache_read > 0:
+                                    hit_rate = (cache_read / total_prompt) * 100.0
+                                    self.session_usage["latestCacheHitRate"] = hit_rate
+                                    self.session_usage["cacheHitRate"] = hit_rate
 
-                            model_id = self._get_current_model_name()
-                            model_lower = model_id.lower()
-                            if "gemini" in model_lower:
-                                self.session_usage["cost"] += (
-                                    prompt_tok * 0.1 + comp_tok * 0.4 + cache_read * 0.025
-                                ) / 1000000.0
-                            elif "claude" in model_lower:
-                                if "opus" in model_lower:
+                                model_id = self._get_current_model_name()
+                                model_lower = model_id.lower()
+                                if "gemini" in model_lower:
                                     self.session_usage["cost"] += (
-                                        prompt_tok * 15.0 + comp_tok * 75.0 + cache_read * 1.5
+                                        prompt_tok * 0.1 + comp_tok * 0.4 + cache_read * 0.025
                                     ) / 1000000.0
-                                else:
+                                elif "claude" in model_lower:
+                                    if "opus" in model_lower:
+                                        self.session_usage["cost"] += (
+                                            prompt_tok * 15.0 + comp_tok * 75.0 + cache_read * 1.5
+                                        ) / 1000000.0
+                                    else:
+                                        self.session_usage["cost"] += (
+                                            prompt_tok * 3.0 + comp_tok * 15.0 + cache_read * 0.3
+                                        ) / 1000000.0
+                                elif "deepseek" in model_lower:
                                     self.session_usage["cost"] += (
-                                        prompt_tok * 3.0 + comp_tok * 15.0 + cache_read * 0.3
+                                        prompt_tok * 0.14 + comp_tok * 0.28 + cache_read * 0.014
                                     ) / 1000000.0
-                            elif "deepseek" in model_lower:
-                                self.session_usage["cost"] += (
-                                    prompt_tok * 0.14 + comp_tok * 0.28 + cache_read * 0.014
-                                ) / 1000000.0
-                            elif "gpt-4o" in model_lower:
-                                self.session_usage["cost"] += (
-                                    prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25
-                                ) / 1000000.0
+                                elif "gpt-4o" in model_lower:
+                                    self.session_usage["cost"] += (
+                                        prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25
+                                    ) / 1000000.0
 
-                    model_name = self._get_current_model_name()
-                    ctx_win = resolve_model_context_window(model_name)
-                    # 上下文占用 = 本次视图的锚定估算（与压缩门控同源）；无视图时回落最近一次单次调用规模
-                    ctx_inst = getattr(getattr(self.agent, "agent", None), "context_manager", None)
-                    context_tok = getattr(ctx_inst, "context_tokens", 0) if ctx_inst is not None else 0
-                    if not context_tok:
-                        context_tok = self.session_usage.get("contextTokens", 0)
+                        model_name = self._get_current_model_name()
+                        ctx_win = resolve_model_context_window(model_name)
+                        # 上下文占用 = 本次视图的锚定估算（与压缩门控同源）；无视图时回落最近一次单次调用规模
+                        ctx_inst = getattr(getattr(self.agent, "agent", None), "context_manager", None)
+                        context_tok = getattr(ctx_inst, "context_tokens", 0) if ctx_inst is not None else 0
+                        if not context_tok:
+                            context_tok = self.session_usage.get("contextTokens", 0)
 
-                    stats = {
-                        "usage": {
-                            "input": self.session_usage["input"],
-                            "output": self.session_usage["output"],
-                            "cacheRead": self.session_usage["cacheRead"],
-                            "cacheWrite": self.session_usage["cacheWrite"],
-                            "cacheHitRate": self.session_usage["latestCacheHitRate"],
-                            "total": self.session_usage["total"],
-                            "contextTokens": context_tok,
-                            "cost": self.session_usage["cost"],
-                        },
-                        "contextWindow": ctx_win,
-                    }
+                        stats = {
+                            "usage": {
+                                "input": self.session_usage["input"],
+                                "output": self.session_usage["output"],
+                                "cacheRead": self.session_usage["cacheRead"],
+                                "cacheWrite": self.session_usage["cacheWrite"],
+                                "cacheHitRate": self.session_usage["latestCacheHitRate"],
+                                "total": self.session_usage["total"],
+                                "contextTokens": context_tok,
+                                "cost": self.session_usage["cost"],
+                            },
+                            "contextWindow": ctx_win,
+                        }
 
-                    serialized = serialize_event(event, stats=stats)
-                    self.send_notification("event", serialized)
+                        serialized = serialize_event(event, stats=stats)
+                        self.send_notification("event", serialized)
 
-                return self.send_response(req_id, result={"status": "completed"})
-            finally:
-                self._is_prompt_running = False
+                    return self.send_response(req_id, result={"status": "completed"})
+                except asyncio.CancelledError:
+                    return self.send_response(req_id, result={"status": "completed"})
+                finally:
+                    self._is_prompt_running = False
+        finally:
+            if self._active_prompt_task is current_task:
+                self._active_prompt_task = None
 
     def _handle_login(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         provider = params.get("provider", "").lower().strip()
@@ -577,6 +586,8 @@ class RpcServer:
     def _handle_abort(self, req_id: Any) -> dict[str, Any]:
         if self.agent:
             self.agent.abort()
+        if self._active_prompt_task and not self._active_prompt_task.done():
+            self._active_prompt_task.cancel()
         return self.send_response(req_id, result={"status": "ok"})
 
     def _handle_clear_queue(self, req_id: Any) -> dict[str, Any]:

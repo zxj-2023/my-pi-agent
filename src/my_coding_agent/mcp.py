@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
@@ -40,24 +41,44 @@ class MCPConnection:
     def __init__(self, config: MCPServerConfig):
         self.config = config
         self._session: ClientSession | None = None
-        self._exit_stack = contextlib.AsyncExitStack()
+        self._runner_task: asyncio.Task[None] | None = None
+        self._ready_event = asyncio.Event()
+        self._stop_event = asyncio.Event()
+        self._error: Exception | None = None
+
+    async def _run(self) -> None:
+        try:
+            server_env = os.environ.copy()
+            if self.config.env:
+                server_env.update(self.config.env)
+
+            params = StdioServerParameters(
+                command=self.config.command,
+                args=self.config.args,
+                env=server_env,
+            )
+
+            async with stdio_client(params) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:
+                    await session.initialize()
+                    self._session = session
+                    self._ready_event.set()
+                    await self._stop_event.wait()
+        except Exception as exc:
+            self._error = exc
+            self._ready_event.set()
+        finally:
+            self._session = None
 
     async def start(self) -> None:
-        """在当前事件循环中异步建立 Stdio 子进程长连接并完成初始化握手。"""
-        server_env = os.environ.copy()
-        if self.config.env:
-            server_env.update(self.config.env)
-
-        params = StdioServerParameters(
-            command=self.config.command,
-            args=self.config.args,
-            env=server_env,
-        )
-
-        read_stream, write_stream = await self._exit_stack.enter_async_context(stdio_client(params))
-        session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
-        self._session = session
-        await session.initialize()
+        """在专用长生命周期后台 Task 中建立 Stdio 子进程长连接并完成初始化握手。"""
+        self._ready_event.clear()
+        self._stop_event.clear()
+        self._error = None
+        self._runner_task = asyncio.create_task(self._run())
+        await self._ready_event.wait()
+        if self._error is not None:
+            raise self._error
 
     async def list_tools(self) -> list[mcp_types.Tool]:
         """异步拉取远程工具列表。"""
@@ -105,7 +126,12 @@ class MCPConnection:
 
     async def close(self) -> None:
         """优雅关闭。"""
-        await self._exit_stack.aclose()
+        self._stop_event.set()
+        if self._runner_task and not self._runner_task.done():
+            try:
+                await asyncio.wait_for(self._runner_task, timeout=5.0)
+            except (asyncio.TimeoutError, Exception):
+                self._runner_task.cancel()
         self._session = None
 
 

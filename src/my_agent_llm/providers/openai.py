@@ -1,6 +1,7 @@
 # pyright: reportArgumentType=false, reportCallIssue=false
 """OpenAI provider：基准实现，deepseek 以此为模板。"""
 
+import inspect
 import json
 from collections.abc import AsyncIterator, Iterator
 
@@ -327,26 +328,32 @@ class OpenAIProvider(Provider):
         text_acc = ""
         usage = None
         final_finish_reason: str | None = None
-        async for chunk in stream:
-            chunk_usage = self._extract_usage(chunk)
-            if chunk_usage:
-                usage = chunk_usage
-            if not chunk.choices:
-                continue  # usage-only 末块（choices 为空）——usage 已捕获，流式结束
-            choice = chunk.choices[0]
-            if choice.finish_reason:
-                final_finish_reason = choice.finish_reason
-            delta = choice.delta
-            accumulator.add(delta)
-            if reasoning_delta := getattr(delta, "reasoning_content", None):
-                yield StreamChunk(
-                    content="",
-                    metadata={"reasoning_content": reasoning_delta},
-                    finish_reason=choice.finish_reason,
-                )
-            if getattr(delta, "content", None):
-                text_acc += delta.content
-                yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+        try:
+            async for chunk in stream:
+                chunk_usage = self._extract_usage(chunk)
+                if chunk_usage:
+                    usage = chunk_usage
+                if not chunk.choices:
+                    continue  # usage-only 末块（choices 为空）——usage 已捕获，流式结束
+                choice = chunk.choices[0]
+                if choice.finish_reason:
+                    final_finish_reason = choice.finish_reason
+                delta = choice.delta
+                accumulator.add(delta)
+                if reasoning_delta := getattr(delta, "reasoning_content", None):
+                    yield StreamChunk(
+                        content="",
+                        metadata={"reasoning_content": reasoning_delta},
+                        finish_reason=choice.finish_reason,
+                    )
+                if getattr(delta, "content", None):
+                    text_acc += delta.content
+                    yield StreamChunk(content=delta.content, finish_reason=choice.finish_reason)
+        finally:
+            if hasattr(stream, "close") and inspect.iscoroutinefunction(stream.close):
+                await stream.close()
+            elif hasattr(stream, "response") and hasattr(stream.response, "aclose"):
+                await stream.response.aclose()
         tool_calls = accumulator.finish()
         final_response = Response(
             content=text_acc,
