@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from my_agent_core import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.events import Event  # pyright: ignore[reportMissingImports]

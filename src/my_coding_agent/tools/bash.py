@@ -170,6 +170,7 @@ def make_bash_tool(
                 "stdout": asyncio.subprocess.PIPE,
                 "stderr": asyncio.subprocess.STDOUT,
                 "stdin": asyncio.subprocess.DEVNULL,
+                "limit": 10 * 1024 * 1024,
             }
             if sys.platform != "win32":
                 kwargs["preexec_fn"] = os.setsid
@@ -209,10 +210,10 @@ def make_bash_tool(
                     if _is_cancelled():
                         _abort_proc()
                         break
-                    line_bytes = await proc.stdout.readline()
-                    if not line_bytes:
+                    chunk = await proc.stdout.read(64 * 1024)
+                    if not chunk:
                         break
-                    text = _decode_stream_bytes(line_bytes)
+                    text = _decode_stream_bytes(chunk)
                     output_chunks.append(text)
                     now = loop.time()
                     if on_update is not None and (now - last_update_time >= 0.1):

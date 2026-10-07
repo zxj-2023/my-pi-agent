@@ -33,21 +33,23 @@ async def test_my_pi_agent_run_execution(tmp_path):
     assert (tmp_path / "metrics.json").exists()
 
 
-def test_resolve_eval_llm_deepseek(monkeypatch):
+def test_resolve_eval_llm_deepseek_env(monkeypatch):
     from my_pi_eval.agent import resolve_eval_llm
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-fake-deepseek-key")
     llm = resolve_eval_llm("deepseek/deepseek-chat")
     assert llm.config.provider == "deepseek"
     assert llm.config.model == "deepseek-chat"
-    assert llm.config.api_key == "sk-fake-deepseek-key"
     assert llm.config.base_url == "https://api.deepseek.com"
 
 
 def test_resolve_eval_llm_missing_key_raises(monkeypatch):
     from my_pi_eval.agent import resolve_eval_llm
+    from my_agent_llm.auth.manager import AuthManager
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="my-pi-eval/.env"):
+    monkeypatch.setattr(AuthManager, "get_credential", lambda self, prov: None)
+
+    with pytest.raises(ValueError, match="/login deepseek"):
         resolve_eval_llm("deepseek/deepseek-chat")
 

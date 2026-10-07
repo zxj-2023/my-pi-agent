@@ -78,6 +78,21 @@ async def test_bash_byte_truncation_spills_log(tmp_path: Path):
     log_path.unlink(missing_ok=True)
 
 
+async def test_bash_tool_single_line_exceeds_64kb(tmp_path: Path):
+    """bash 工具能够稳定处理单行超过 64KB (无换行符) 的巨型输出，不抛出 Separator is not found。"""
+    tool = make_bash_tool(tmp_path)
+    res = await tool.execute(command="python -c \"print('X' * 80000)\"")
+    assert res.ok is True
+    assert "[Output truncated: showing last" in str(res)
+    assert "Full output saved to:" in str(res)
+
+    match = re.search(r"Full output saved to: (.*?)\]", str(res))
+    assert match is not None
+    log_path = Path(match.group(1))
+    assert log_path.exists()
+    log_path.unlink(missing_ok=True)
+
+
 async def test_bash_command_failure_exit_code(tmp_path: Path):
     tool = make_bash_tool(tmp_path)
     res = await tool.execute(command="python -c \"import sys; print('error details'); sys.exit(42)\"")
