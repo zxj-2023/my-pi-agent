@@ -37,7 +37,7 @@ packages = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "."]
+pythonpath = ["src", "my-pi-eval/src", "."]
 testpaths = ["tests"]
 addopts = "-ra -q --import-mode=importlib"
 
