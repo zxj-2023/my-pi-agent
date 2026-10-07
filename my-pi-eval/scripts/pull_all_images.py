@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from datetime import datetime
@@ -82,12 +83,20 @@ def pull_single_image(image: str, max_retries: int = 5) -> bool:
                 errors="replace",
                 env=env,
             )
-            if proc.stdout:
-                for line in proc.stdout:
-                    line_clean = line.strip()
-                    if line_clean:
-                        print(f"     [docker] {line_clean}", flush=True)
-            proc.wait(timeout=180)  # 3 minutes timeout per attempt
+
+            def _stream_output(pipe: Any) -> None:
+                try:
+                    for line in iter(pipe.readline, ""):
+                        clean = line.strip()
+                        if clean:
+                            print(f"     [docker] {clean}", flush=True)
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_stream_output, args=(proc.stdout,), daemon=True)
+            t.start()
+
+            proc.wait(timeout=180)  # 3 minutes HARD timeout per attempt
             elapsed = int(time.time() - start)
             if proc.returncode == 0:
                 print(f"  -> ✅ 成功完成: {image} (耗时 {elapsed}s)", flush=True)
@@ -96,8 +105,11 @@ def pull_single_image(image: str, max_retries: int = 5) -> bool:
                 print(f"  -> ⚠️ 拉取失败 (code {proc.returncode})", flush=True)
         except subprocess.TimeoutExpired:
             if proc is not None:
-                proc.kill()
-            print("  -> ⚠️ 拉取超时 (3分钟)！", flush=True)
+                try:
+                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+                except Exception:
+                    proc.kill()
+            print("  -> ⚠️ 拉取超时 (3分钟)！已强制切断并重试断点续传...", flush=True)
         except Exception as e:
             print(f"  -> ⚠️ 拉取异常: {e}", flush=True)
 
