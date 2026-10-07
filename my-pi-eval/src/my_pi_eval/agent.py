@@ -38,7 +38,7 @@ except ImportError:
 
 
 def resolve_eval_llm(model_str: str) -> LLM:
-    """按全局凭据中心 ~/.my-pi-agent/auth.json 与系统环境变量统一解析 LLM 凭证（严禁使用工作区 .env）。"""
+    """仅从系统环境变量 (os.environ) 解析评测 API Key，严禁读取本地 ~/.my-pi-agent/auth.json。"""
     provider = "openai"
     model_name = model_str
     if "/" in model_str:
@@ -50,48 +50,27 @@ def resolve_eval_llm(model_str: str) -> LLM:
     elif "gemini" in model_str:
         provider = "antigravity"
 
-    from my_agent_llm.auth.manager import AuthManager
-    from my_agent_llm.auth.schema import ApiKeyCredential
-
-    auth_mgr = AuthManager()
     api_key = None
     base_url = None
 
     if provider == "deepseek":
-        cred = auth_mgr.get_credential("deepseek")
-        if isinstance(cred, ApiKeyCredential):
-            api_key = cred.resolve_key()
-        if not api_key:
-            api_key = os.environ.get("DEEPSEEK_API_KEY")
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
         base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     elif provider == "openai":
-        cred = auth_mgr.get_credential("openai")
-        if isinstance(cred, ApiKeyCredential):
-            api_key = cred.resolve_key()
-        if not api_key:
-            api_key = os.environ.get("OPENAI_API_KEY")
+        api_key = os.environ.get("OPENAI_API_KEY")
         base_url = os.environ.get("OPENAI_BASE_URL")
     elif provider == "anthropic":
-        cred = auth_mgr.get_credential("anthropic")
-        if isinstance(cred, ApiKeyCredential):
-            api_key = cred.resolve_key()
-        if not api_key:
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
         base_url = os.environ.get("ANTHROPIC_BASE_URL")
     elif provider == "antigravity":
-        from my_agent_llm.auth.antigravity import AntigravityAuthResolver
-
-        resolver = AntigravityAuthResolver()
-        credentials = resolver.resolve_credentials()
-        if credentials:
-            api_key = credentials.access_token
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTIGRAVITY_API_KEY")
 
     if not api_key:
         env_var = f"{provider.upper()}_API_KEY"
         raise ValueError(
-            f"未检测到 {provider} 的有效 API Key！\n"
-            f"请在 my-pi-agent 终端中运行: /login {provider} <your-api-key>\n"
-            f"或设置系统环境变量: export {env_var}=<your-api-key>。"
+            f"评测环境未检测到环境变量 {env_var}！\n"
+            f"评测模块严格禁止读取本地 ~/.my-pi-agent/auth.json，仅支持通过环境变量提供 API Key。\n"
+            f"请在终端设置: export {env_var}=sk-xxxx (Linux/Mac) 或 $env:{env_var}='sk-xxxx' (PowerShell)。"
         )
 
     config = Config(

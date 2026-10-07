@@ -40,16 +40,14 @@ def test_resolve_eval_llm_deepseek_env(monkeypatch):
     llm = resolve_eval_llm("deepseek/deepseek-chat")
     assert llm.config.provider == "deepseek"
     assert llm.config.model == "deepseek-chat"
+    assert llm.config.api_key == "sk-fake-deepseek-key"
     assert llm.config.base_url == "https://api.deepseek.com"
 
 
 def test_resolve_eval_llm_missing_key_raises(monkeypatch):
     from my_pi_eval.agent import resolve_eval_llm
-    from my_agent_llm.auth.manager import AuthManager
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setattr(AuthManager, "get_credential", lambda self, prov: None)
-
-    with pytest.raises(ValueError, match="/login deepseek"):
+    with pytest.raises(ValueError, match="严格禁止读取本地 ~/.my-pi-agent/auth.json"):
         resolve_eval_llm("deepseek/deepseek-chat")
 
