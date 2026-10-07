@@ -57,12 +57,12 @@ def main() -> None:
             print(f"总体进度: {done}/{total} ({pct:.1f}%)")
             print(f"  - 原本已有缓存: {cached}")
             print(f"  - 新下载成功:   {downloaded}")
-            print(f"  - 下载失败:     {failed}")
+            print(f"  - 跳过/待后置:   {failed}")
             print(f"  - 剩余待下载:   {total - done}")
 
             failed_images = data.get("failed_images", [])
             if failed_images:
-                print(f"\n⚠️ 失败镜像列表 ({len(failed_images)} 个):")
+                print(f"\n⚠️ 跳过/待后置镜像列表 ({len(failed_images)} 个):")
                 for item in failed_images:
                     print(f"  - {item['task_name']}: {item['image']}")
         except Exception as e:

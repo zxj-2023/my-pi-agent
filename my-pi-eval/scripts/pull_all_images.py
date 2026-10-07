@@ -68,7 +68,7 @@ BIG_IMAGES = {
 }
 
 
-def pull_single_image(image: str, max_retries: int = 5, timeout: int = 180) -> bool:
+def pull_single_image(image: str, max_retries: int = 2, timeout: int = 180) -> bool:
     env = os.environ.copy()
     env["HTTP_PROXY"] = "http://127.0.0.1:7897"
     env["HTTPS_PROXY"] = "http://127.0.0.1:7897"
@@ -172,7 +172,10 @@ def main() -> None:
 
     ordered_missing = normal_missing + big_missing
 
-    print(f"👉 策略分配: [轻量镜像冲刺队列] {len(normal_missing)} 个 | [巨无霸攻坚队列] {len(big_missing)} 个\n", flush=True)
+    print(
+        f"👉 策略分配: [轻量镜像冲刺队列] {len(normal_missing)} 个 | [巨无霸攻坚队列] {len(big_missing)} 个\n",
+        flush=True,
+    )
 
     for i, item in enumerate(ordered_missing, start=1):
         task_name = item["task_name"]
@@ -182,10 +185,11 @@ def main() -> None:
 
         print(f"\n[{i}/{len(ordered_missing)}] [{category}] 任务: {task_name} | 镜像: {image}", flush=True)
 
-        success = pull_single_image(image, timeout=task_timeout)
+        success = pull_single_image(image, max_retries=2, timeout=task_timeout)
         if success:
             results["downloaded"] += 1
         else:
+            print("  -> ⏭️ 两次尝试均超时或失败，已主动跳过，继续下一个任务！", flush=True)
             results["failed"] += 1
             results["failed_images"].append({"task_name": task_name, "image": image})
 
