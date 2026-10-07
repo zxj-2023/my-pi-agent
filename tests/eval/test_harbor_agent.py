@@ -50,4 +50,3 @@ def test_resolve_eval_llm_missing_key_raises(monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     with pytest.raises(ValueError, match="my-pi-eval/.env"):
         resolve_eval_llm("deepseek/deepseek-chat")
-
