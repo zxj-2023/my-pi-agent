@@ -12,5 +12,8 @@ dependencies = [
     "harbor>=0.24.0",
 ]
 
+[project.scripts]
+my-pi-eval = "my_pi_eval.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/my_pi_eval"]
