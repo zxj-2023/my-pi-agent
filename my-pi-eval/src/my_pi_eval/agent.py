@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from my_agent_core.agent import Agent
 from my_agent_core.session import Session
 from my_agent_llm.client import LLM
@@ -37,6 +44,64 @@ except ImportError:
             pass
 
 
+def resolve_eval_llm(model_str: str) -> LLM:
+    """Resolve provider, model, API key, and base URL from env or AuthManager."""
+    provider = "openai"
+    model_name = model_str
+    if "/" in model_str:
+        provider, model_name = model_str.split("/", 1)
+    elif "deepseek" in model_str:
+        provider = "deepseek"
+    elif "claude" in model_str:
+        provider = "anthropic"
+    elif "gemini" in model_str:
+        provider = "antigravity"
+
+    from my_agent_llm.auth.manager import AuthManager
+    from my_agent_llm.auth.schema import ApiKeyCredential
+
+    auth_mgr = AuthManager()
+    api_key = None
+    base_url = None
+
+    if provider == "deepseek":
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not api_key:
+            cred = auth_mgr.get_credential("deepseek")
+            if isinstance(cred, ApiKeyCredential):
+                api_key = cred.resolve_key()
+        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    elif provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            cred = auth_mgr.get_credential("openai")
+            if isinstance(cred, ApiKeyCredential):
+                api_key = cred.resolve_key()
+        base_url = os.environ.get("OPENAI_BASE_URL")
+    elif provider == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            cred = auth_mgr.get_credential("anthropic")
+            if isinstance(cred, ApiKeyCredential):
+                api_key = cred.resolve_key()
+        base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    elif provider == "antigravity":
+        from my_agent_llm.auth.antigravity import AntigravityAuthResolver
+
+        resolver = AntigravityAuthResolver()
+        credentials = resolver.resolve_credentials()
+        if credentials:
+            api_key = credentials.access_token
+
+    config = Config(
+        provider=provider,
+        model=model_name,
+        api_key=api_key or os.environ.get(f"{provider.upper()}_API_KEY"),
+        base_url=base_url,
+    )
+    return LLM(config=config)
+
+
 class MyPiAgent(BaseAgent):
     """Adapter bridging my-pi-agent to the Harbor benchmark evaluation harness."""
 
@@ -57,7 +122,7 @@ class MyPiAgent(BaseAgent):
         registry = HarborToolRegistry(environment)
         model_name = getattr(context, "model", None) or os.getenv("DEFAULT_MODEL", "deepseek/deepseek-chat")
 
-        llm = LLM(config=Config(model=model_name))
+        llm = resolve_eval_llm(model_name)
 
         logs_dir = getattr(context, "logs_dir", None)
         if logs_dir:

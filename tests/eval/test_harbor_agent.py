@@ -31,3 +31,15 @@ async def test_my_pi_agent_run_execution(tmp_path):
     await agent.run("Fix the bug", fake_env, fake_context)
     mock_inner_agent.run.assert_awaited_once_with("Fix the bug")
     assert (tmp_path / "metrics.json").exists()
+
+
+def test_resolve_eval_llm_deepseek(monkeypatch):
+    from my_pi_eval.agent import resolve_eval_llm
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-fake-deepseek-key")
+    llm = resolve_eval_llm("deepseek/deepseek-chat")
+    assert llm.config.provider == "deepseek"
+    assert llm.config.model == "deepseek-chat"
+    assert llm.config.api_key == "sk-fake-deepseek-key"
+    assert llm.config.base_url == "https://api.deepseek.com"
+
