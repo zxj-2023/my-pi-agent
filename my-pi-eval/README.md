@@ -27,12 +27,16 @@
    python -m my_pi_eval.cli --check
    ```
 
-2. **环境变量配置**：
-   配置大模型 API Key（与 `my-pi-agent` 一致）：
-   ```bash
-   export DEEPSEEK_API_KEY="your-api-key"
-   # 或 OPENAI_API_KEY / ANTHROPIC_API_KEY
+2. **独立评测环境变量配置**：
+   `my-pi-eval` 采用专属隔离设计，**不读取全局 `~/.my-pi-agent/auth.json`**，仅识别 `my-pi-eval/.env` 或终端环境变量。
+   直接在 `my-pi-eval/.env` 中配置评测专用的 API Key：
+   ```env
+   # my-pi-eval/.env
+   DEEPSEEK_API_KEY=sk-xxxx
+   # 可选自定义接口地址（默认官方 https://api.deepseek.com）
+   DEEPSEEK_BASE_URL=https://api.deepseek.com
    ```
+   *注：`my-pi-eval/.env` 已被全局 `.gitignore` 保护，不会被误提交。*
 
 ---
 
