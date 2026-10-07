@@ -65,6 +65,7 @@ def discover_task_images() -> list[dict[str, str]]:
 
 BIG_IMAGES = {
     "mteb-retrieve": 1800,  # 8.24 GB -> 30 minutes timeout
+    "pytorch-model-recovery": 900,  # 5.76 GB -> 15 minutes timeout
 }
 
 
