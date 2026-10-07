@@ -6,6 +6,7 @@ export interface LoadedResourcesData {
   skills?: string[];
   prompts?: string[];
   extensions?: string[];
+  agents?: string[];
 }
 
 export class StartupResourcesComponent extends Container {
@@ -113,6 +114,22 @@ export class StartupResourcesComponent extends Container {
         }
       } else {
         const wrapped = this.wrapList(this.data.extensions, "  ", 100);
+        for (const line of wrapped) {
+          sections.push(theme.fg("dim", line));
+        }
+      }
+      sections.push("");
+    }
+
+    // 5. [Agents]
+    if (this.data.agents && this.data.agents.length > 0) {
+      sections.push(theme.fg("mdHeading", "[Agents]"));
+      if (this.isExpanded) {
+        for (const a of this.data.agents) {
+          sections.push(theme.fg("dim", `  ${a}`));
+        }
+      } else {
+        const wrapped = this.wrapList(this.data.agents, "  ", 100);
         for (const line of wrapped) {
           sections.push(theme.fg("dim", line));
         }

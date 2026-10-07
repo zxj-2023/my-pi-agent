@@ -240,9 +240,28 @@ def scan_loaded_resources(
         except Exception as exc:
             logger.debug("读取 .mcp.json 失败: %s", exc)
 
+    # ── 5. Agents / Subagents 发现 ──
+    agents_set: set[str] = set()
+    agent_scan_dirs: list[Path] = [
+        ws / ".agents" / "agents",
+        ws / "agents",
+        ws / ".my-pi-agent" / "agents",
+        effective_paths.home / "agents",
+        effective_paths.agents_home / "agents",
+    ]
+    for ad in agent_scan_dirs:
+        if ad.is_dir():
+            try:
+                for md in ad.glob("*.md"):
+                    if not md.name.startswith(".") and md.name.lower() != "readme.md":
+                        agents_set.add(md.stem)
+            except Exception:
+                continue
+
     return {
         "context": context_files,
         "skills": sorted(list(skills_set)),
         "prompts": sorted(list(prompts_set)),
         "extensions": sorted(list(extensions_set)),
+        "agents": sorted(list(agents_set)),
     }

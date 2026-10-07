@@ -1346,7 +1346,30 @@ class RpcServer:
             if new_llm is not None:
                 self.agent.agent.llm = new_llm
 
-        # 3. 重载项目指导文件与系统提示词
+        # 3. 重载 skills 与 subagents
+        skill_dirs = get_all_skill_dirs(workspace_path, paths)
+        skill_mgr = SkillManager(dirs=skill_dirs)
+        if self.agent and hasattr(self.agent.agent, "skill_manager"):
+            self.agent.agent.skill_manager = skill_mgr
+        skill_count = len(skill_mgr.skills)
+
+        from my_agent_core.subagents import SubagentManager
+        extra_subagent_dirs = (
+            self.agent.agent.plugin_manager.get_subagent_dirs()
+            if (self.agent and hasattr(self.agent.agent, "plugin_manager"))
+            else None
+        )
+        subagent_mgr = SubagentManager(extra_dirs=extra_subagent_dirs)
+        subagent_count = len(subagent_mgr.subagents)
+        if self.agent and hasattr(self.agent.agent, "subagent_manager"):
+            self.agent.agent.subagent_manager = subagent_mgr
+            if subagent_mgr:
+                from my_agent_core.tools.builtin.task import make_task_tool
+                self.agent.agent.registry.register(make_task_tool(subagent_mgr, self.agent.agent))
+            else:
+                self.agent.agent.registry.unregister("task")
+
+        # 4. 重载项目指导文件与系统提示词
         tools = self.agent.agent.registry.list() if (self.agent and hasattr(self.agent.agent, "registry")) else None
         new_prompt = build_default_coding_prompt(workspace_path, tools=tools)
         if self.agent:
@@ -1358,14 +1381,8 @@ class RpcServer:
                 if mem_store is not None and hasattr(mem_store, "format_all_for_system_prompt")
                 else None
             )
-            skill_prompt = (
-                self.agent.agent.skill_manager.format_prompt() if hasattr(self.agent.agent, "skill_manager") else ""
-            )
-            subagent_prompt = (
-                self.agent.agent.subagent_manager.format_prompt()
-                if hasattr(self.agent.agent, "subagent_manager")
-                else ""
-            )
+            skill_prompt = skill_mgr.format_prompt()
+            subagent_prompt = subagent_mgr.format_prompt()
             parts = [p for p in (new_prompt, skill_prompt, subagent_prompt, mem_prompt) if p]
             new_sys_content = "\n\n".join(parts)
 
@@ -1374,22 +1391,19 @@ class RpcServer:
             elif parts:
                 self.agent.agent.messages.insert(0, Message(role="system", content=new_sys_content))
 
-        # 3. 重载 skills
-        skill_dirs = get_all_skill_dirs(workspace_path, paths)
-        skill_mgr = SkillManager(dirs=skill_dirs)
-        if self.agent and hasattr(self.agent.agent, "skill_manager"):
-            self.agent.agent.skill_manager = skill_mgr
-        skill_count = len(skill_mgr.skills)
-
         resources = scan_loaded_resources(workspace_path, paths)
         template_count = len(resources.get("prompts", []))
-        summary = f"Reloaded settings, project context, {skill_count} skills, and {template_count} prompt templates."
+        summary = (
+            f"Reloaded settings, project context, {skill_count} skills, "
+            f"{subagent_count} subagents, and {template_count} prompt templates."
+        )
         return self.send_response(
             req_id,
             result={
                 "status": "ok",
                 "summary": summary,
                 "skills_count": skill_count,
+                "subagents_count": subagent_count,
                 "templates_count": template_count,
                 "resources": resources,
             },
