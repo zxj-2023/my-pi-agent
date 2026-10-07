@@ -368,7 +368,10 @@ class RpcServer:
                                 prompt_tok = usage.get("prompt_tokens") or usage.get("input") or 0
                                 comp_tok = usage.get("completion_tokens") or usage.get("output") or 0
                                 cache_read = (
-                                    usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                                    usage.get("cache_read_tokens")
+                                    or usage.get("cache_read")
+                                    or usage.get("cacheRead")
+                                    or 0
                                 )
                                 cache_write = (
                                     usage.get("cache_write_tokens")

@@ -196,6 +196,11 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
     ) -> EditResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+        if "path" not in call_args:
+            for k in ("filePath", "file_path", "file", "filename"):
+                if k in call_args:
+                    call_args["path"] = call_args.pop(k)
+                    break
 
         # 规范化 edits 入参 (对标 Pi 官方 prepareEditArguments 容错)
         raw_edits = call_args.get("edits")

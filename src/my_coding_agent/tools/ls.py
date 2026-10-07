@@ -95,6 +95,11 @@ def make_ls_tool(workspace: Path | str) -> Tool:
     ) -> LsResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+        if "path" not in call_args:
+            for k in ("directory", "dir", "folder"):
+                if k in call_args:
+                    call_args["path"] = call_args.pop(k)
+                    break
         res = await orig_execute(
             call_args,
             signal=signal,

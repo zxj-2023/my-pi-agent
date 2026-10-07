@@ -101,6 +101,16 @@ def make_find_tool(workspace: Path | str) -> Tool:
     ) -> FindResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+        if "pattern" not in call_args:
+            for k in ("query", "glob"):
+                if k in call_args:
+                    call_args["pattern"] = call_args.pop(k)
+                    break
+        if "path" not in call_args:
+            for k in ("directory", "dir", "folder"):
+                if k in call_args:
+                    call_args["path"] = call_args.pop(k)
+                    break
         res = await orig_execute(
             call_args,
             signal=signal,

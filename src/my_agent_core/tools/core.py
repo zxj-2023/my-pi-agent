@@ -144,6 +144,12 @@ class Tool:
         tool_call_id: str | None = None,
     ) -> ToolResult:
         """校验 + 执行，永不抛（错误全部转 ToolResult）。自动适配 sync/async 函数。"""
+        if signal is not None:
+            is_canc = getattr(signal, "is_cancelled", None)
+            cancelled = is_canc() if callable(is_canc) else getattr(signal, "cancelled", False)
+            if cancelled:
+                return ToolResult(ok=False, error="Tool call interrupted by user")
+
         accepting_updates = True
 
         def guarded_on_update(partial: Any) -> None:
@@ -184,9 +190,17 @@ class Tool:
 
         try:
             if self.is_async:
-                result = await async_func_call()
+                if self.timeout is not None and self.timeout > 0:
+                    result = await asyncio.wait_for(async_func_call(), timeout=self.timeout)
+                else:
+                    result = await async_func_call()
             else:
-                result = await asyncio.to_thread(func_call)
+                if self.timeout is not None and self.timeout > 0:
+                    result = await asyncio.wait_for(asyncio.to_thread(func_call), timeout=self.timeout)
+                else:
+                    result = await asyncio.to_thread(func_call)
+        except asyncio.TimeoutError:
+            return ToolResult(ok=False, error=f"Tool '{self.name}' timed out after {self.timeout}s")
         except Exception as exc:  # 工具错误 → 消息，喂回模型
             return ToolResult(ok=False, error=f"Error executing tool '{self.name}': {exc}")
         finally:

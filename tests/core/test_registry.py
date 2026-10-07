@@ -262,3 +262,46 @@ async def test_execute_batch_with_tuples():
     assert len(results) == 2
     assert results[0].data == 6
     assert results[1].data == 20
+
+
+@pytest.mark.anyio
+async def test_execute_batch_sequential_cancellation():
+    """execute_batch: 串行执行中途被取消时，后续工具立即中断，绝不执行。"""
+    reg = ToolRegistry()
+    run_log = []
+
+    class MockSignal:
+        def __init__(self):
+            self.cancelled = False
+
+        def is_cancelled(self) -> bool:
+            return self.cancelled
+
+    signal = MockSignal()
+
+    @tool(is_parallel_safe=False)
+    async def step_one() -> str:
+        run_log.append("step_one")
+        signal.cancelled = True  # 第一个工具执行完毕后触发用户中断
+        return "one_done"
+
+    @tool(is_parallel_safe=False)
+    async def step_two() -> str:
+        run_log.append("step_two")
+        return "two_done"
+
+    reg.register(step_one)
+    reg.register(step_two)
+
+    calls = [
+        {"function": {"name": "step_one", "arguments": "{}"}},
+        {"function": {"name": "step_two", "arguments": "{}"}},
+    ]
+
+    results = await reg.execute_batch(calls, signal=signal)
+    assert len(results) == 2
+    assert results[0].ok is True
+    assert results[0].data == "one_done"
+    assert results[1].ok is False
+    assert results[1].error == "Tool call interrupted by user"
+    assert run_log == ["step_one"]  # step_two 绝未执行！

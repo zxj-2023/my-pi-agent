@@ -56,6 +56,16 @@ def make_write_tool(workspace: Path, mutation_queue: FileMutationQueue | None = 
     ) -> WriteResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+        if "path" not in call_args:
+            for k in ("filePath", "file_path", "file", "filename"):
+                if k in call_args:
+                    call_args["path"] = call_args.pop(k)
+                    break
+        if "content" not in call_args:
+            for k in ("contents", "text"):
+                if k in call_args:
+                    call_args["content"] = call_args.pop(k)
+                    break
         res = await orig_execute(
             call_args,
             signal=signal,

@@ -339,3 +339,39 @@ async def test_tool_with_raw_schema_and_timeout():
     assert res.ok is True
     assert res.data == "Query: python, Limit: 5"
     assert tool_instance.timeout == 45.0
+
+
+@pytest.mark.anyio
+async def test_tool_execute_cancelled_signal():
+    """Tool.execute 收到已取消 signal 时立即返回中断结果，不执行底层函数。"""
+    executed = False
+
+    @tool
+    def mutate(val: int) -> int:
+        nonlocal executed
+        executed = True
+        return val * 2
+
+    class DummySignal:
+        def is_cancelled(self) -> bool:
+            return True
+
+    res = await mutate.execute({"val": 10}, signal=DummySignal())
+    assert res.ok is False
+    assert res.error == "Tool call interrupted by user"
+    assert executed is False
+
+
+@pytest.mark.anyio
+async def test_tool_execute_timeout_enforcement():
+    """Tool.execute 严格执行配置的 timeout 超时终结，超时后返回 ToolResult 错误。"""
+    import asyncio
+
+    @tool(timeout=0.05)
+    async def slow_func(x: int) -> int:
+        await asyncio.sleep(0.5)
+        return x
+
+    res = await slow_func.execute({"x": 42})
+    assert res.ok is False
+    assert "timed out after 0.05s" in str(res.error)

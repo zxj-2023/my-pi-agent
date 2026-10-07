@@ -306,6 +306,11 @@ def make_bash_tool(
     ) -> BashResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+        if "command" not in call_args:
+            for k in ("cmd", "script"):
+                if k in call_args:
+                    call_args["command"] = call_args.pop(k)
+                    break
         res = await orig_execute(
             call_args,
             signal=signal,

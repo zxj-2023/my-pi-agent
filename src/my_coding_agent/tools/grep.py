@@ -154,6 +154,16 @@ def make_grep_tool(workspace: Path | str) -> Tool:
     ) -> GrepResult:
         call_args = dict(args) if isinstance(args, dict) else {}
         call_args.update(kwargs)
+        if "pattern" not in call_args:
+            for k in ("query", "search"):
+                if k in call_args:
+                    call_args["pattern"] = call_args.pop(k)
+                    break
+        if "path" not in call_args:
+            for k in ("directory", "dir", "folder", "filePath", "file_path"):
+                if k in call_args:
+                    call_args["path"] = call_args.pop(k)
+                    break
         if "ignoreCase" in call_args and "ignore_case" not in call_args:
             call_args["ignore_case"] = call_args.pop("ignoreCase")
         if "glob_filter" in call_args and "glob" not in call_args:

@@ -55,6 +55,12 @@ class ToolRegistry:
         5. 协议传参: execute_tool({"function": {"name": "add", "arguments": "..."}})
         任何错误都转成 ToolResult，永不抛。
         """
+        if signal is not None:
+            is_canc = getattr(signal, "is_cancelled", None)
+            cancelled = is_canc() if callable(is_canc) else getattr(signal, "cancelled", False)
+            if cancelled:
+                return ToolResult(ok=False, error="Tool call interrupted by user")
+
         target_name = name
         target_args = args
 
@@ -166,6 +172,12 @@ class ToolRegistry:
             # 只要包含一个写操作，整批严格按大模型输出的原始顺序串行执行，确保因果顺序绝对正确
             results = []
             for i, tc in enumerate(tool_calls):
+                if signal is not None:
+                    is_canc = getattr(signal, "is_cancelled", None)
+                    cancelled = is_canc() if callable(is_canc) else getattr(signal, "cancelled", False)
+                    if cancelled:
+                        results.append(ToolResult(ok=False, error="Tool call interrupted by user"))
+                        continue
                 results.append(
                     await self.execute_tool(
                         tc, signal=signal, on_update=_get_update_cb(i, tc)
