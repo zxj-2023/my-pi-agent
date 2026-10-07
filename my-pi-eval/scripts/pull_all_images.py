@@ -63,14 +63,20 @@ def discover_task_images() -> list[dict[str, str]]:
     return tasks
 
 
-def pull_single_image(image: str, max_retries: int = 5) -> bool:
+BIG_IMAGES = {
+    "mteb-retrieve": 1800,  # 8.24 GB -> 30 minutes timeout
+}
+
+
+def pull_single_image(image: str, max_retries: int = 5, timeout: int = 180) -> bool:
     env = os.environ.copy()
     env["HTTP_PROXY"] = "http://127.0.0.1:7897"
     env["HTTPS_PROXY"] = "http://127.0.0.1:7897"
     env["ALL_PROXY"] = "socks5://127.0.0.1:7897"
 
+    timeout_min = timeout // 60
     for attempt in range(1, max_retries + 1):
-        print(f"  -> [尝试 {attempt}/{max_retries}] 正在拉取: {image} ...", flush=True)
+        print(f"  -> [尝试 {attempt}/{max_retries}] 正在拉取: {image} (单次超时: {timeout_min}分钟) ...", flush=True)
         start = time.time()
         proc: subprocess.Popen[str] | None = None
         try:
@@ -96,7 +102,7 @@ def pull_single_image(image: str, max_retries: int = 5) -> bool:
             t = threading.Thread(target=_stream_output, args=(proc.stdout,), daemon=True)
             t.start()
 
-            proc.wait(timeout=180)  # 3 minutes HARD timeout per attempt
+            proc.wait(timeout=timeout)
             elapsed = int(time.time() - start)
             if proc.returncode == 0:
                 print(f"  -> ✅ 成功完成: {image} (耗时 {elapsed}s)", flush=True)
@@ -109,7 +115,7 @@ def pull_single_image(image: str, max_retries: int = 5) -> bool:
                     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
                 except Exception:
                     proc.kill()
-            print("  -> ⚠️ 拉取超时 (3分钟)！已强制切断并重试断点续传...", flush=True)
+            print(f"  -> ⚠️ 拉取超时 ({timeout_min}分钟)！已强制切断并重试断点续传...", flush=True)
         except Exception as e:
             print(f"  -> ⚠️ 拉取异常: {e}", flush=True)
 
@@ -154,13 +160,29 @@ def main() -> None:
         print("🎉 全部 89 个 Docker 镜像已在本地就绪！可以随时全并发评测！", flush=True)
         return
 
-    # Sequentially pull missing images to guarantee stable proxy throughput
-    for i, item in enumerate(missing, start=1):
+    # 田忌赛马策略：先冲刺常规轻量镜像，最后攻坚超大巨无霸镜像
+    normal_missing: list[dict[str, str]] = []
+    big_missing: list[dict[str, str]] = []
+
+    for item in missing:
+        if item["task_name"] in BIG_IMAGES or any(k in item["image"] for k in ["mteb-retrieve"]):
+            big_missing.append(item)
+        else:
+            normal_missing.append(item)
+
+    ordered_missing = normal_missing + big_missing
+
+    print(f"👉 策略分配: [轻量镜像冲刺队列] {len(normal_missing)} 个 | [巨无霸攻坚队列] {len(big_missing)} 个\n", flush=True)
+
+    for i, item in enumerate(ordered_missing, start=1):
         task_name = item["task_name"]
         image = item["image"]
-        print(f"\n[{i}/{len(missing)}] 任务: {task_name} | 镜像: {image}", flush=True)
+        task_timeout = BIG_IMAGES.get(task_name, 180)
+        category = "巨无霸" if task_name in BIG_IMAGES else "常规"
 
-        success = pull_single_image(image)
+        print(f"\n[{i}/{len(ordered_missing)}] [{category}] 任务: {task_name} | 镜像: {image}", flush=True)
+
+        success = pull_single_image(image, timeout=task_timeout)
         if success:
             results["downloaded"] += 1
         else:
