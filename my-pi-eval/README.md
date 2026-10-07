@@ -27,18 +27,17 @@
    python -m my_pi_eval.cli --check
    ```
 
-2. **仅通过环境变量配置评测 API Key（严禁读取本地 auth.json）**：
-   为确保基准评测环境与开发者日常环境完全隔离，`my-pi-eval` **严格禁止读取本地 `~/.my-pi-agent/auth.json`**，且不使用任何 `.env` 文件。
-   运行评测前，直接在当前终端注入所需的环境变量：
-   - **PowerShell (Windows)**：
-     ```powershell
-     $env:DEEPSEEK_API_KEY="sk-xxxx"
-     ```
-   - **Bash / Linux / Mac / WSL**：
-     ```bash
-     export DEEPSEEK_API_KEY="sk-xxxx"
-     ```
-   - （可选）自定义代理地址：`DEEPSEEK_BASE_URL`。
+2. **专属评测 `.env` 凭证配置（严禁读取本地 auth.json）**：
+   为确保基准评测环境与开发者日常环境完全隔离，`my-pi-eval` **严格禁止读取本地 `~/.my-pi-agent/auth.json`**，而是专门在 `my-pi-eval/.env` 中独立配置 API Key。
+   
+   在 `my-pi-eval/` 目录下创建 `.env`（可参考同目录下的 `.env.example`）：
+   ```env
+   # my-pi-eval/.env
+   DEEPSEEK_API_KEY=sk-xxxx
+   # 可选自定义接口地址（默认官方 https://api.deepseek.com）
+   DEEPSEEK_BASE_URL=https://api.deepseek.com
+   ```
+   *(注：`my-pi-eval/.env` 已被 Git 自动忽略，且主项目运行完全不加载此文件，保证工作区无污染与凭据隔离)*
 
 ---
 

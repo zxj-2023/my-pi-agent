@@ -10,6 +10,19 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+try:
+    from dotenv import load_dotenv
+
+    # 优先加载 my-pi-eval 目录专属的 .env 文件
+    _eval_root = Path(__file__).resolve().parent.parent.parent
+    _eval_env = _eval_root / ".env"
+    if _eval_env.exists():
+        load_dotenv(_eval_env, override=True)
+    else:
+        load_dotenv(override=True)
+except ImportError:
+    pass
+
 from my_agent_core.agent import Agent
 from my_agent_core.session import Session
 from my_agent_llm.client import LLM
@@ -38,7 +51,7 @@ except ImportError:
 
 
 def resolve_eval_llm(model_str: str) -> LLM:
-    """仅从系统环境变量 (os.environ) 解析评测 API Key，严禁读取本地 ~/.my-pi-agent/auth.json。"""
+    """从 my-pi-eval/.env 或系统环境变量解析评测 API Key，严禁读取本地 ~/.my-pi-agent/auth.json。"""
     provider = "openai"
     model_name = model_str
     if "/" in model_str:
@@ -68,9 +81,9 @@ def resolve_eval_llm(model_str: str) -> LLM:
     if not api_key:
         env_var = f"{provider.upper()}_API_KEY"
         raise ValueError(
-            f"评测环境未检测到环境变量 {env_var}！\n"
-            f"评测模块严格禁止读取本地 ~/.my-pi-agent/auth.json，仅支持通过环境变量提供 API Key。\n"
-            f"请在终端设置: export {env_var}=sk-xxxx (Linux/Mac) 或 $env:{env_var}='sk-xxxx' (PowerShell)。"
+            f"评测环境未检测到 {env_var}！\n"
+            f"评测模块严禁读取本地 ~/.my-pi-agent/auth.json，必须在 'my-pi-eval/.env' 中配置 API Key。\n"
+            f"请在 my-pi-eval/.env 中添加: {env_var}=sk-xxxx。"
         )
 
     config = Config(

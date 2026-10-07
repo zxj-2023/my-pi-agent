@@ -48,6 +48,6 @@ def test_resolve_eval_llm_missing_key_raises(monkeypatch):
     from my_pi_eval.agent import resolve_eval_llm
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="严格禁止读取本地 ~/.my-pi-agent/auth.json"):
+    with pytest.raises(ValueError, match="my-pi-eval/.env"):
         resolve_eval_llm("deepseek/deepseek-chat")
 

@@ -5,6 +5,19 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+
+    _eval_root = Path(__file__).resolve().parent.parent.parent
+    _eval_env = _eval_root / ".env"
+    if _eval_env.exists():
+        load_dotenv(_eval_env, override=True)
+    else:
+        load_dotenv(override=True)
+except ImportError:
+    pass
 
 
 def check_docker_environment() -> bool:
