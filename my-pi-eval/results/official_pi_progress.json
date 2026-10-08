@@ -19,13 +19,13 @@
     "build-pov-ray": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 8,
+      "duration_sec": 10,
       "tests_passed": 0,
       "tests_total": 1,
       "tokens": 785599,
       "cost_usd": 0.148567496,
       "summary": "",
-      "finished_at": "2026-10-08T16:45:46.104791"
+      "finished_at": "2026-10-08T17:19:18.887944"
     },
     "build-pmars": {
       "status": "PASSED",
@@ -160,15 +160,15 @@
       "finished_at": "2026-10-08T16:20:28.469226"
     },
     "bn-fit-modify": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 1,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 305,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
-      "summary": "",
-      "finished_at": "2026-10-08T15:16:05.966461"
+      "tokens": 177318,
+      "cost_usd": 0.07777704,
+      "summary": "PASSED in final 6 rescue",
+      "finished_at": "2026-10-08T17:24:24.646151"
     },
     "db-wal-recovery": {
       "status": "PASSED",
@@ -217,24 +217,24 @@
     "dna-assembly": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 2,
+      "duration_sec": 1,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 62623,
+      "cost_usd": 0.042803816,
       "summary": "",
-      "finished_at": "2026-10-08T15:16:08.279190"
+      "finished_at": "2026-10-08T17:19:20.846763"
     },
     "custom-memory-heap-crash": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 2,
+      "duration_sec": 10,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 365350,
+      "cost_usd": 0.093496128,
       "summary": "",
-      "finished_at": "2026-10-08T15:16:08.295082"
+      "finished_at": "2026-10-08T17:19:18.875140"
     },
     "feal-linear-cryptanalysis": {
       "status": "PASSED",
@@ -316,13 +316,13 @@
     "configure-git-webserver": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 1,
+      "duration_sec": 10,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 140765,
+      "cost_usd": 0.059042456,
       "summary": "",
-      "finished_at": "2026-10-08T14:59:30.310234"
+      "finished_at": "2026-10-08T17:19:19.148332"
     },
     "git-leak-recovery": {
       "status": "PASSED",
@@ -336,15 +336,15 @@
       "finished_at": "2026-10-08T08:08:04.288532"
     },
     "gpt2-codegolf": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 1,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 1600,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
-      "summary": "",
-      "finished_at": "2026-10-08T15:16:10.402283"
+      "tokens": 16140569,
+      "cost_usd": 1.529483032,
+      "summary": "PASSED in final 6 rescue",
+      "finished_at": "2026-10-08T09:46:14.062070Z"
     },
     "count-dataset-tokens": {
       "status": "PASSED",
