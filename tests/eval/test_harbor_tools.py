@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -23,7 +24,9 @@ async def test_harbor_bash_tool(fake_env):
     res = await registry.execute("bash", {"command": "echo test"})
     assert res.ok is True
     assert "hello container" in str(res.data)
-    fake_env.exec.assert_awaited_once_with("echo test")
+    call_arg = fake_env.exec.await_args[0][0]
+    assert "echo test" in call_arg
+    assert "DEBIAN_FRONTEND=noninteractive" in call_arg
 
 
 @pytest.mark.anyio
@@ -79,3 +82,27 @@ async def test_harbor_tools_never_throw(fake_env):
     res = await registry.execute("bash", {"command": "ls"})
     assert res.ok is False
     assert "Docker crashed" in str(res.error)
+
+
+@pytest.mark.anyio
+async def test_harbor_cwd_tracking_and_relative_path(fake_env):
+    from my_pi_eval.tools import HarborToolRegistry
+
+    exec_result = MagicMock()
+    exec_result.return_code = 0
+    exec_result.stdout = "changed directory\n__MY_PI_CWD__:/app/subfolder\n"
+    exec_result.stderr = ""
+    fake_env.exec.return_value = exec_result
+
+    registry = HarborToolRegistry(fake_env)
+    res = await registry.execute("bash", {"command": "cd subfolder"})
+    assert res.ok is True
+    assert registry.cwd == "/app/subfolder"
+    assert "__MY_PI_CWD__" not in str(res.data)
+
+    # Now read relative path "foo.py", should resolve to "/app/subfolder/foo.py"
+    fake_env.read_file.return_value = "hello from foo\n"
+    res_read = await registry.execute("read", {"path": "foo.py"})
+    assert res_read.ok is True
+    fake_env.read_file.assert_awaited_with("/app/subfolder/foo.py")
+

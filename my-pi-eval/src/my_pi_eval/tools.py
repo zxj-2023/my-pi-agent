@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import posixpath
+import re
+import shlex
 from typing import Any
 
 from my_agent_core.registry import ToolRegistry
@@ -14,10 +17,24 @@ MAX_OUTPUT_CHARS = 50_000
 class HarborToolRegistry(ToolRegistry):
     """Bridges the agent's workspace tools to Harbor's container BaseEnvironment."""
 
-    def __init__(self, environment: Any):
+    def __init__(self, environment: Any, initial_cwd: str = "/app"):
         super().__init__()
         self.env = environment
+        self._cwd: str = initial_cwd
         self._register_harbor_tools()
+
+    @property
+    def cwd(self) -> str:
+        """Current tracked working directory inside the container."""
+        return self._cwd
+
+    def _resolve_path(self, path: str) -> str:
+        """Resolve a path against the current working directory."""
+        if not path or path == ".":
+            return self._cwd
+        if posixpath.isabs(path):
+            return posixpath.normpath(path)
+        return posixpath.normpath(posixpath.join(self._cwd, path))
 
     async def execute(self, name: str, args: dict[str, Any] | None = None) -> ToolResult:
         """Convenience alias for execute_tool."""
@@ -33,10 +50,27 @@ class HarborToolRegistry(ToolRegistry):
         )
         async def bash(command: str, timeout: float = 120.0) -> ToolResult:
             try:
-                res = await asyncio.wait_for(env.exec(command), timeout=timeout)
+                wrapped_cmd = (
+                    f"cd {shlex.quote(self._cwd)} 2>/dev/null || true; "
+                    "export DEBIAN_FRONTEND=noninteractive PAGER=cat GIT_PAGER=cat CI=true "
+                    "PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ PIP_TRUSTED_HOST=mirrors.aliyun.com; "
+                    f"{command}\n"
+                    "__MY_PI_RC__=$?\n"
+                    "echo \"__MY_PI_CWD__:$(pwd)\"\n"
+                    "exit $__MY_PI_RC__"
+                )
+                res = await asyncio.wait_for(env.exec(wrapped_cmd), timeout=timeout)
                 stdout = getattr(res, "stdout", "") or ""
                 stderr = getattr(res, "stderr", "") or ""
                 return_code = getattr(res, "return_code", 0)
+
+                # Extract updated CWD if present
+                cwd_match = re.search(r"__MY_PI_CWD__:(.+?)(?:\r?\n|$)", stdout)
+                if cwd_match:
+                    detected_cwd = cwd_match.group(1).strip()
+                    if detected_cwd:
+                        self._cwd = detected_cwd
+                    stdout = re.sub(r"__MY_PI_CWD__:.+?(?:\r?\n|$)", "", stdout)
 
                 combined = stdout
                 if stderr:
@@ -63,8 +97,9 @@ class HarborToolRegistry(ToolRegistry):
             prompt_snippet="Read file contents with line numbers",
         )
         async def read(path: str, offset: int = 1, limit: int = 2000) -> ToolResult:
+            target_path = self._resolve_path(path)
             try:
-                content = await env.read_file(path)
+                content = await env.read_file(target_path)
                 lines = content.splitlines()
                 total_lines = len(lines)
 
@@ -79,7 +114,7 @@ class HarborToolRegistry(ToolRegistry):
 
                 return ToolResult(ok=True, data=formatted)
             except Exception as exc:
-                return ToolResult(ok=False, error=f"Error reading file '{path}': {exc}")
+                return ToolResult(ok=False, error=f"Error reading file '{target_path}': {exc}")
 
         @tool(
             name="write",
@@ -87,15 +122,16 @@ class HarborToolRegistry(ToolRegistry):
             prompt_snippet="Write content to container file",
         )
         async def write(path: str, content: str) -> ToolResult:
+            target_path = self._resolve_path(path)
             try:
                 normalized = content.replace("\r\n", "\n")
-                await env.write_file(path, normalized)
+                await env.write_file(target_path, normalized)
                 return ToolResult(
                     ok=True,
-                    data=f"Successfully wrote {len(normalized.encode('utf-8'))} bytes to {path}",
+                    data=f"Successfully wrote {len(normalized.encode('utf-8'))} bytes to {target_path}",
                 )
             except Exception as exc:
-                return ToolResult(ok=False, error=f"Error writing file '{path}': {exc}")
+                return ToolResult(ok=False, error=f"Error writing file '{target_path}': {exc}")
 
         @tool(
             name="edit",
@@ -108,6 +144,7 @@ class HarborToolRegistry(ToolRegistry):
             old_text: str | None = None,
             new_text: str | None = None,
         ) -> ToolResult:
+            target_path = self._resolve_path(path)
             try:
                 # 1. Normalize edit blocks
                 raw_edits = edits or []
@@ -118,7 +155,7 @@ class HarborToolRegistry(ToolRegistry):
                     return ToolResult(ok=False, error="No edits specified")
 
                 # 2. Fetch original content from container
-                content = await env.read_file(path)
+                content = await env.read_file(target_path)
                 content = content.replace("\r\n", "\n")
 
                 # 3. Perform surgical checks on host
@@ -132,20 +169,20 @@ class HarborToolRegistry(ToolRegistry):
                     if count == 0:
                         return ToolResult(
                             ok=False,
-                            error=f"Could not find exact match for oldText in {path}: {target_old[:100]!r}",
+                            error=f"Could not find exact match for oldText in {target_path}: {target_old[:100]!r}",
                         )
                     if count > 1:
                         return ToolResult(
                             ok=False,
-                            error=f"Found {count} times match for oldText in {path}. Must be uniquely matching.",
+                            error=f"Found {count} times match for oldText in {target_path}. Must be uniquely matching.",
                         )
                     content = content.replace(target_old, target_new, 1)
 
                 # 4. Write updated content back to container
-                await env.write_file(path, content)
-                return ToolResult(ok=True, data=f"Successfully applied {len(raw_edits)} edit(s) to {path}")
+                await env.write_file(target_path, content)
+                return ToolResult(ok=True, data=f"Successfully applied {len(raw_edits)} edit(s) to {target_path}")
             except Exception as exc:
-                return ToolResult(ok=False, error=f"Error editing file '{path}': {exc}")
+                return ToolResult(ok=False, error=f"Error editing file '{target_path}': {exc}")
 
         @tool(
             name="ls",
@@ -153,12 +190,13 @@ class HarborToolRegistry(ToolRegistry):
             prompt_snippet="List container directory contents",
         )
         async def ls(path: str = ".") -> ToolResult:
+            target_path = self._resolve_path(path)
             try:
-                res = await env.exec(f"ls -la {path}")
+                res = await env.exec(f"ls -la {shlex.quote(target_path)}")
                 stdout = getattr(res, "stdout", "") or ""
                 return ToolResult(ok=True, data=stdout)
             except Exception as exc:
-                return ToolResult(ok=False, error=f"Error listing directory '{path}': {exc}")
+                return ToolResult(ok=False, error=f"Error listing directory '{target_path}': {exc}")
 
         @tool(
             name="grep",
@@ -166,9 +204,10 @@ class HarborToolRegistry(ToolRegistry):
             prompt_snippet="Search text in container files",
         )
         async def grep(pattern: str, path: str = ".", case_sensitive: bool = True) -> ToolResult:
+            target_path = self._resolve_path(path)
             try:
                 flag = "-rn" if case_sensitive else "-rni"
-                res = await env.exec(f"grep {flag} {pattern!r} {path}")
+                res = await env.exec(f"grep {flag} {shlex.quote(pattern)} {shlex.quote(target_path)}")
                 stdout = getattr(res, "stdout", "") or ""
                 return ToolResult(ok=True, data=stdout)
             except Exception as exc:
@@ -180,8 +219,9 @@ class HarborToolRegistry(ToolRegistry):
             prompt_snippet="Find files by name in container",
         )
         async def find(pattern: str = "*", path: str = ".") -> ToolResult:
+            target_path = self._resolve_path(path)
             try:
-                res = await env.exec(f"find {path} -name {pattern!r}")
+                res = await env.exec(f"find {shlex.quote(target_path)} -name {shlex.quote(pattern)}")
                 stdout = getattr(res, "stdout", "") or ""
                 return ToolResult(ok=True, data=stdout)
             except Exception as exc:

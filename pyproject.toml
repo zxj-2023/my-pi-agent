@@ -48,3 +48,6 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["E501"]
+
+[tool.pyright]
+extraPaths = ["src", "my-pi-eval/src", "."]

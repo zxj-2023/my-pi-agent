@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from my_pi_eval.agent import MyPiAgent
@@ -6,7 +7,7 @@ from my_pi_eval.agent import MyPiAgent
 def test_my_pi_agent_metadata():
     agent = MyPiAgent()
     assert agent.name() == "my-pi-agent"
-    assert agent.version == "0.1.1"
+    assert agent.version() == "0.1.1"
 
 
 @pytest.mark.anyio
