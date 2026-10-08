@@ -31,5 +31,6 @@ docs/archive/
 *.flag
 jobs/
 my-pi-eval/results/active_task_locks/
+my-pi-eval/cache/
 
 
