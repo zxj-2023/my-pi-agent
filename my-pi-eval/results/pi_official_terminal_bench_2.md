@@ -1,10 +1,10 @@
-# Terminal-Bench 2.0 官方基准评测报告：原厂 Pi + DeepSeek-V3 终局战报
+# Terminal-Bench 2.0 官方基准评测报告：原厂 Pi + DeepSeek-V4.1 终局战报
 
 > **评测对象**：`@earendil-works/pi-coding-agent` (原厂 Pi)  
-> **底座大模型**：`deepseek/deepseek-chat` (DeepSeek-V3)  
+> **底座大模型**：`deepseek/deepseek-chat` (DeepSeek-V4.1 / DS-V4.1-Flash)  
 > **评测框架**：`harbor==0.24.0` (Terminal-Bench 2.0 官方评测运行器)  
 > **硬件与宿主**：Windows 11 x64 + Docker Desktop (WSL2) + Clash 代理链路  
-> **报告生成时间**：2026-10-08 14:30:03  
+> **报告生成时间**：2026-10-08 14:46:25  
 
 ---
 
