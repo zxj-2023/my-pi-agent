@@ -19,13 +19,13 @@
     "build-pov-ray": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 1269,
+      "duration_sec": 8,
       "tests_passed": 0,
-      "tests_total": 0,
+      "tests_total": 1,
       "tokens": 785599,
       "cost_usd": 0.148567496,
       "summary": "",
-      "finished_at": "2026-10-08T12:35:03.948911"
+      "finished_at": "2026-10-08T16:45:46.104791"
     },
     "build-pmars": {
       "status": "PASSED",
@@ -127,15 +127,15 @@
       "finished_at": "2026-10-08T11:42:28.958731"
     },
     "constraints-scheduling": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 419,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 72708,
-      "cost_usd": 0.048834192000000005,
-      "summary": "",
-      "finished_at": "2026-10-08T00:35:27.749844"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 287,
+      "tests_passed": 3,
+      "tests_total": 3,
+      "tokens": 37489,
+      "cost_usd": 0.026362424,
+      "summary": "CTRF 3/3 tests passed",
+      "finished_at": "2026-10-08T07:20:49.136325Z"
     },
     "crack-7z-hash": {
       "status": "PASSED",
@@ -151,24 +151,24 @@
     "caffe-cifar-10": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 2026,
+      "duration_sec": 3864,
       "tests_passed": 0,
-      "tests_total": 0,
+      "tests_total": 1,
       "tokens": 0,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T13:08:28.953915"
+      "finished_at": "2026-10-08T16:20:28.469226"
     },
     "bn-fit-modify": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 442,
+      "duration_sec": 1,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 100326,
-      "cost_usd": 0.04994070400000001,
-      "summary": "Done. Here's a summary of the work.\n\n## Analysis\n\nThe sample has 5 continuous variables: `U, Y, R, D, M`. I analyzed the partial-correlation (precision) matrix of the multivariate Gaussian, which reveals the moralized graph:\n\n| pair | partial corr | interpretation |\n|------|-------------|----------------|\n| U–Y | 0.331 | edge |\n| U–R | 0.440 | edge |\n| U–D | 0.235 | edge |\n| U–M | 0.382 | edge |\n| Y–D | 0.320 | edge |\n| R–M | 0.249 | edge |\n| Y–R | 0.015 | ∅ |\n| Y–M | −0.024 | ∅ |\n| R–D | 0.003 ",
-      "finished_at": "2026-10-07T22:27:09.166400"
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "summary": "",
+      "finished_at": "2026-10-08T15:16:05.966461"
     },
     "db-wal-recovery": {
       "status": "PASSED",
@@ -217,24 +217,24 @@
     "dna-assembly": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 6,
+      "duration_sec": 2,
       "tests_passed": 0,
-      "tests_total": 0,
+      "tests_total": 1,
       "tokens": 0,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T12:34:49.243037"
+      "finished_at": "2026-10-08T15:16:08.279190"
     },
     "custom-memory-heap-crash": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 236,
+      "duration_sec": 2,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 365350,
-      "cost_usd": 0.093496128,
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T11:14:53.403801"
+      "finished_at": "2026-10-08T15:16:08.295082"
     },
     "feal-linear-cryptanalysis": {
       "status": "PASSED",
@@ -261,13 +261,13 @@
     "extract-moves-from-video": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 2322,
+      "duration_sec": 3900,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 984162,
-      "cost_usd": 0.15912512,
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T13:00:21.678081"
+      "finished_at": "2026-10-08T16:21:08.419525"
     },
     "financial-document-processor": {
       "status": "PASSED",
@@ -316,13 +316,13 @@
     "configure-git-webserver": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 651,
+      "duration_sec": 1,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 140765,
-      "cost_usd": 0.059042456,
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T13:50:36.289627"
+      "finished_at": "2026-10-08T14:59:30.310234"
     },
     "git-leak-recovery": {
       "status": "PASSED",
@@ -338,13 +338,13 @@
     "gpt2-codegolf": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 685,
+      "duration_sec": 1,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 3682922,
-      "cost_usd": 0.583813648,
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T01:08:47.300682"
+      "finished_at": "2026-10-08T15:16:10.402283"
     },
     "count-dataset-tokens": {
       "status": "PASSED",
@@ -492,13 +492,13 @@
     "model-extraction-relu-logits": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 561,
+      "duration_sec": 718,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 1296019,
-      "cost_usd": 0.39333439200000003,
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T01:29:49.205197"
+      "finished_at": "2026-10-08T15:32:52.906991"
     },
     "modernize-scientific-stack": {
       "status": "PASSED",
@@ -569,13 +569,13 @@
     "make-doom-for-mips": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 1168,
+      "duration_sec": 2990,
       "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 9101298,
-      "cost_usd": 0.950011744,
+      "tests_total": 1,
+      "tokens": 0,
+      "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T13:05:39.559071"
+      "finished_at": "2026-10-08T16:06:01.489433"
     },
     "openssl-selfsigned-cert": {
       "status": "PASSED",
@@ -611,15 +611,15 @@
       "finished_at": "2026-10-08T01:41:26.405461"
     },
     "overfull-hbox": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 331,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 699937,
-      "cost_usd": 0.153083832,
-      "summary": "",
-      "finished_at": "2026-10-08T01:43:56.804142"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 546,
+      "tests_passed": 4,
+      "tests_total": 4,
+      "tokens": 199591,
+      "cost_usd": 0.069522024,
+      "summary": "CTRF 4/4 tests passed",
+      "finished_at": "2026-10-08T07:41:54.716006Z"
     },
     "make-mips-interpreter": {
       "status": "FAILED",
@@ -677,48 +677,48 @@
       "finished_at": "2026-10-08T08:18:51.807819"
     },
     "pypi-server": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 161,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 45536,
-      "cost_usd": 0.016984,
-      "summary": "",
-      "finished_at": "2026-10-08T01:48:10.601708"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
+      "tests_total": 1,
+      "tokens": 88211,
+      "cost_usd": 0.03929156,
+      "summary": "PASSED in 4-worker rescue",
+      "finished_at": "2026-10-08T07:55:39.883567Z"
     },
     "pytorch-model-recovery": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 1347,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 1142760,
-      "cost_usd": 0.25919608,
-      "summary": "",
-      "finished_at": "2026-10-08T14:22:21.800659"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
+      "tests_total": 1,
+      "tokens": 991466,
+      "cost_usd": 0.25880096,
+      "summary": "PASSED in 4-worker rescue",
+      "finished_at": "2026-10-08T08:20:39.285097Z"
     },
     "qemu-alpine-ssh": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 71,
+      "duration_sec": 426,
       "tests_passed": 0,
-      "tests_total": 0,
+      "tests_total": 1,
       "tokens": 0,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-08T14:25:28.712058"
+      "finished_at": "2026-10-08T16:13:07.838626"
     },
     "qemu-startup": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 54,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 0,
-      "cost_usd": 0.0,
-      "summary": "",
-      "finished_at": "2026-10-08T14:24:17.261768"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
+      "tests_total": 1,
+      "tokens": 881306,
+      "cost_usd": 0.201717648,
+      "summary": "PASSED in 4-worker rescue",
+      "finished_at": "2026-10-08T08:25:24.637738Z"
     },
     "prove-plus-comm": {
       "status": "PASSED",
@@ -820,15 +820,15 @@
       "finished_at": "2026-10-07T23:16:08.337186"
     },
     "path-tracing-reverse": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 566,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 3154535,
-      "cost_usd": 0.51176268,
-      "summary": "",
-      "finished_at": "2026-10-08T13:56:20.308524"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
+      "tests_total": 1,
+      "tokens": 2438213,
+      "cost_usd": 0.5412456720000001,
+      "summary": "PASSED in 4-worker rescue",
+      "finished_at": "2026-10-08T07:52:12.114202Z"
     },
     "sqlite-db-truncate": {
       "status": "PASSED",
@@ -930,15 +930,15 @@
       "finished_at": "2026-10-08T02:11:44.952700"
     },
     "torch-pipeline-parallelism": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 1264,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 359038,
-      "cost_usd": 0.256524224,
-      "summary": "",
-      "finished_at": "2026-10-08T14:26:27.251678"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 2300,
+      "tests_passed": 4,
+      "tests_total": 4,
+      "tokens": 2094434,
+      "cost_usd": 0.328212016,
+      "summary": "PASSED in 4-worker rescue",
+      "finished_at": "2026-10-08T08:58:48.731686Z"
     },
     "vulnerable-secret": {
       "status": "PASSED",
@@ -952,15 +952,15 @@
       "finished_at": "2026-10-07T23:35:24.966850"
     },
     "tune-mjcf": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 61,
-      "tests_passed": 0,
-      "tests_total": 0,
-      "tokens": 0,
-      "cost_usd": 0.0,
-      "summary": "",
-      "finished_at": "2026-10-08T14:23:23.011686"
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 940,
+      "tests_passed": 1,
+      "tests_total": 1,
+      "tokens": 462672,
+      "cost_usd": 0.112909456,
+      "summary": "PASSED in 4-worker rescue",
+      "finished_at": "2026-10-08T08:36:20.731628Z"
     },
     "winning-avg-corewars": {
       "status": "PASSED",
