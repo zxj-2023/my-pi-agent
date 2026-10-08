@@ -17,15 +17,15 @@
       "finished_at": "2026-10-07T14:15:00"
     },
     "build-pov-ray": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 10,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 785599,
-      "cost_usd": 0.148567496,
-      "summary": "",
-      "finished_at": "2026-10-08T17:19:18.887944"
+      "tokens": 1137551,
+      "cost_usd": 0.153792584,
+      "summary": "PASSED in final 4 rescue",
+      "finished_at": "2026-10-08T10:03:51.033032Z"
     },
     "build-pmars": {
       "status": "PASSED",
@@ -217,24 +217,24 @@
     "dna-assembly": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 1,
+      "duration_sec": 816,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 62623,
-      "cost_usd": 0.042803816,
+      "tokens": 2450554,
+      "cost_usd": 0.65814496,
       "summary": "",
-      "finished_at": "2026-10-08T17:19:20.846763"
+      "finished_at": "2026-10-08T18:06:56.995868"
     },
     "custom-memory-heap-crash": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 10,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 365350,
-      "cost_usd": 0.093496128,
-      "summary": "",
-      "finished_at": "2026-10-08T17:19:18.875140"
+      "tokens": 910092,
+      "cost_usd": 0.156074336,
+      "summary": "PASSED in final 4 rescue",
+      "finished_at": "2026-10-08T09:58:27.841797Z"
     },
     "feal-linear-cryptanalysis": {
       "status": "PASSED",
@@ -314,15 +314,15 @@
       "finished_at": "2026-10-08T08:05:55.291005"
     },
     "configure-git-webserver": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 10,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 600,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 140765,
-      "cost_usd": 0.059042456,
-      "summary": "",
-      "finished_at": "2026-10-08T17:19:19.148332"
+      "tokens": 376418,
+      "cost_usd": 0.111937584,
+      "summary": "PASSED in final 4 rescue",
+      "finished_at": "2026-10-08T10:00:32.931891Z"
     },
     "git-leak-recovery": {
       "status": "PASSED",
