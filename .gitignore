@@ -29,5 +29,7 @@ docs/archive/
 *.log
 *.pid
 *.flag
+jobs/
+my-pi-eval/results/active_task_locks/
 
 
