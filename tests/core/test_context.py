@@ -181,6 +181,35 @@ async def test_prepare_below_threshold_no_summary():
 
 
 @pytest.mark.anyio
+async def test_prepare_preserves_prefix_invariance_across_turns():
+    """验证多轮 ReAct 对话中，在未达到压缩阈值时，每一轮产生的 view 保持严格的前缀不变性 (Prefix Invariance)。
+
+    任何第 k+1 轮的前缀必须与第 k 轮 100% 字节级一致，绝不插入滚动式动态占位符。
+    """
+    ctx = _small_ctx(llm=None, budget=100_000)
+    history: list[Message] = [_msg("system", "You are a helpful coding assistant.")]
+    views: list[list[Message]] = []
+
+    # 模拟 30 轮（60 条消息：User + Assistant）
+    for turn in range(30):
+        history.append(_msg("user", f"User prompt for turn {turn}"))
+        history.append(_msg("assistant", f"Assistant response for turn {turn}"))
+        view = await ctx.prepare(history)
+        views.append(view)
+
+    # 验证前缀单调性：对任意相邻轮次，下一轮的前缀必须 100% 等于上一轮的全部消息
+    for i in range(len(views) - 1):
+        prev_view = views[i]
+        next_view = views[i + 1]
+        assert len(next_view) > len(prev_view)
+        for j in range(len(prev_view)):
+            assert prev_view[j].role == next_view[j].role
+            assert prev_view[j].content == next_view[j].content
+            assert prev_view[j].metadata == next_view[j].metadata
+
+
+
+@pytest.mark.anyio
 async def test_prepare_gate_below_threshold_leaves_everything_untouched(tmp_path):
     """门控未开：条数超 L1 阈值、单条超 L3 阈值，也一条都不动（本次新行为核心）。"""
     llm = FakeLLM()
@@ -207,15 +236,18 @@ async def test_prepare_gate_above_threshold_runs_l3_spill(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_prepare_gate_above_threshold_runs_l2_compact():
-    """门控开启：超阈 → L2 旧工具结果占位，最近 5 条保留原文。"""
-    llm = FakeLLM()
+async def test_prepare_gate_above_threshold_triggers_l4_summary():
+    """门控开启：超阈值且无法单靠 L3 规避时，触发 L4 离散摘要建立稳定前缀，绝不进行滚动中间篡改。"""
+    llm = FakeLLM([_response(content="Summary of earlier conversation")])
     ctx = _small_ctx(llm, budget=10_000)
-    msgs = [_msg("user", "q")] + [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    msgs = (
+        [_msg("user", "turn 1"), _msg("assistant", "ans 1")]
+        + [_msg("user", "q")]
+        + [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    )
     view = await ctx.prepare(msgs)
-    assert any("[Earlier tool result compacted]" in m.content for m in view)
-    assert sum(1 for m in view if m.content == "y" * 5000) == 5  # 最近 5 条保留
-    assert len(llm.calls) == 0
+    assert any("Summary of earlier conversation" in m.content for m in view)
+    assert len(llm.calls) == 1
 
 
 @pytest.mark.anyio
@@ -270,8 +302,8 @@ async def test_context_tokens_falls_back_to_measured_input():
 @pytest.mark.anyio
 async def test_context_tokens_reflects_compressed_view():
     """超阀走完整管线时，占用反映**压缩后**的最终视图。"""
-    ctx = _small_ctx(FakeLLM(), budget=10_000)
-    msgs = [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    ctx = _small_ctx(FakeLLM([_response(content="## Goal\nSummary")]), budget=2000, keep_recent_tokens=200)
+    msgs = [_msg("user", f"query {i} " + "x" * 500) for i in range(25)]
     view = await ctx.prepare(msgs)
     assert ctx.context_tokens == estimate_tokens(view, ctx._ratio)
     assert ctx.context_tokens < estimate_tokens(msgs, ctx._ratio)
@@ -340,23 +372,18 @@ async def test_cache_reused_no_resummary():
 
 @pytest.mark.anyio
 async def test_cache_branch_applies_free_layers_to_newly(tmp_path):
-    """缓存分支对新增段也跑免费层（L3 落盘 + L2 占位）——压缩后免费层不失效。"""
+    """缓存分支：新增内容也支持 L3 大输出落盘，保证超大输出不撑爆上下文。"""
     llm = FakeLLM([_response(content="## Goal\n...")])
     ctx = _small_ctx(llm, budget=2000, keep_recent_tokens=100, results_dir=tmp_path)
-    msgs = [_msg("user", "x" * 300) for _ in range(22)]
+    msgs = [_msg("user", "x" * 300) for _ in range(25)]
     await ctx.prepare(msgs)  # 触发压缩 → 有缓存
-    # 压缩后新增：6 条旧 tool（L2 占位）+ 1 条超大 tool（L3 落盘 → 视图变 preview → 不超阈）
-    old_tools = [_msg("tool", "y" * 500, tool_call_id=f"c{i}") for i in range(6)]
-    big_tool = _msg("tool", "z" * 30000, tool_call_id="big")
-    more = msgs + old_tools + [big_tool]
-    view = await ctx.prepare(more)
-    # 走缓存分支（未触发重摘要）：L3 落盘后视图变 preview
     assert len(llm.calls) == 1
-    # L3：大结果落盘 + 视图预览
+    big_tool = _msg("tool", "z" * 30000, tool_call_id="big")
+    more = msgs + [big_tool]
+    view = await ctx.prepare(more)
+    assert len(llm.calls) == 1  # 走缓存分支、未再次调摘要、且 L3 落盘后视图有 preview
     assert any("<persisted-output>" in m.content for m in view)
     assert (tmp_path / "big.txt").exists()
-    # L2：旧 tool 占位（非最近 5 条）
-    assert any("[Earlier tool result compacted]" in m.content for m in view)
 
 
 @pytest.mark.anyio
