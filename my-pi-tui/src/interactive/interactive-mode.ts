@@ -490,6 +490,7 @@ export class InteractiveMode {
       }
 
       case "message_end": {
+        if (event.message?.role !== "assistant") break;
         const isError =
           event.message?.metadata?.stop_reason === "error" ||
           event.message?.stopReason === "error" ||
@@ -827,7 +828,7 @@ export class InteractiveMode {
     editor.onSubmit = async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
-      const content = editor.getMessageContent();
+      const content = editor.getMessageContent(text);
       editor.addToHistory?.(trimmed);
       editor.setText("");
       await this.handleUserInput(trimmed, typeof content === "string" ? undefined : content);
@@ -962,7 +963,7 @@ export class InteractiveMode {
 
     // 4. 普通文本输入：渲染用户气泡并提交给 Python
     this.isSubmitting = true;
-    const userMsg = new UserMessageComponent(content ? displayMessageContent(content) : input);
+    const userMsg = new UserMessageComponent(input);
     this.chatContainer.addChild(userMsg);
     this.chatContainer.addChild(new Spacer(1));
     this.ui.requestRender();

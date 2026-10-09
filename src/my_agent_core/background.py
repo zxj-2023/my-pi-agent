@@ -77,6 +77,7 @@ class BackgroundRunner:
                     cwd=str(cwd),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    start_new_session=os.name != "nt",
                 )
                 job.process = proc
                 stdout, stderr = await proc.communicate()

@@ -1,5 +1,6 @@
 """测试工具提示词格式化模块 (format_tools_section, format_rules_section, format_cwd_section)。"""
 
+import os
 from pathlib import Path
 from my_agent_core.tools import Tool
 from my_agent_core.tools.prompt import (
@@ -97,6 +98,7 @@ def test_format_rules_section_deduplication():
 
 def test_format_cwd_section():
     """测试 <cwd> 路径生成及 POSIX 斜杠规范化。"""
-    path = Path("D:/code/python/my-pi-agent")
+    path = Path("D:/code/python/my-pi-agent") if os.name == "nt" else Path("/tmp/code/python/my-pi-agent")
     cwd_sec = format_cwd_section(path)
-    assert cwd_sec == "<cwd>\nD:/code/python/my-pi-agent\n</cwd>"
+    normalized_path = str(path.resolve()).replace("\\", "/")
+    assert cwd_sec == f"<cwd>\n{normalized_path}\n</cwd>"

@@ -58,7 +58,7 @@ export interface MessageUpdateSessionEvent {
 
 export interface MessageEndSessionEvent extends UsageStatsPassThrough {
   type: "message_end";
-  message: AssistantMessageState;
+  message: AssistantMessageState | Record<string, unknown>;
 }
 
 export interface ToolExecutionStartSessionEvent {
@@ -258,6 +258,13 @@ export class EventTranslator {
 
       case "message_end": {
         const rawMsg = event.message as Record<string, unknown> | undefined;
+        if (rawMsg?.role && rawMsg.role !== "assistant") {
+          return {
+            type: "message_end",
+            message: rawMsg,
+            ...extractUsageStats(event),
+          };
+        }
         const rawMeta = (rawMsg?.metadata ?? event.metadata) as
           | Record<string, unknown>
           | undefined;

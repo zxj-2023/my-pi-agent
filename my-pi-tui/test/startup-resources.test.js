@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { stripVTControlCharacters } from "node:util";
 import { StartupResourcesComponent } from "../dist/components/startup-resources.js";
 
 test("StartupResourcesComponent renders [Context], [Skills], [Prompts], [Extensions] sections", () => {
@@ -50,7 +51,7 @@ test("StartupResourcesComponent toggleExpanded toggles between compact and expan
   assert.equal(comp.getExpanded(), true);
 
   // Expanded view: individual lines
-  const expandedLines = comp.render(120);
+  const expandedLines = comp.render(120).map(stripVTControlCharacters);
   assert.ok(expandedLines.some((l) => l.trim() === "skill-a"));
   assert.ok(expandedLines.some((l) => l.trim() === "skill-b"));
 

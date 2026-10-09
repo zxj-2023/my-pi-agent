@@ -126,8 +126,7 @@ export class CustomEditor extends Editor {
     return marker;
   }
 
-  public getImageAttachments(): ImageAttachment[] {
-    const text = this.getExpandedText();
+  public getImageAttachments(text = this.getExpandedText()): ImageAttachment[] {
     const attachments: ImageAttachment[] = [];
     for (const match of text.matchAll(/\[image \d+\]/g)) {
       const image = this.imageAttachments.get(match[0]);
@@ -136,9 +135,8 @@ export class CustomEditor extends Editor {
     return attachments;
   }
 
-  public getMessageContent(): MessageContent {
-    const text = this.getExpandedText();
-    const attachments = this.getImageAttachments();
+  public getMessageContent(text = this.getExpandedText()): MessageContent {
+    const attachments = this.getImageAttachments(text);
     if (attachments.length === 0) return text;
 
     const blocks: MessageContentBlock[] = [];

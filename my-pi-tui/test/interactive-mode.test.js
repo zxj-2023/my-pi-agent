@@ -158,6 +158,24 @@ test("InteractiveMode does not duplicate UserMessageComponent when message_start
   assert.equal(userMsgCount2, 1);
 });
 
+test("InteractiveMode preserves image markers and does not echo user completion as an assistant", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  const text = "[image 2]里面说了什么？";
+  const content = [
+    { type: "image", data: "aGVsbG8=", mime_type: "image/png" },
+    { type: "text", text: "里面说了什么？" },
+  ];
+  await mode.handleUserInput(text, content);
+  for (const type of ["message_start", "message_end"]) {
+    mode.handleAgentEvent(bridge.translator.translate({ type, message: { role: "user", content } }));
+  }
+  const userMessages = mode.chatContainer.children.filter((c) => c.constructor.name === "UserMessageComponent");
+  assert.equal(userMessages.length, 1);
+  assert.equal(userMessages[0].text, text);
+  assert.equal(mode.chatContainer.children.some((c) => c.constructor.name === "AssistantMessageComponent"), false);
+});
+
 test("InteractiveMode showSelector lifecycle handles mount and cleanup", () => {
   const { bridge } = createMockBridge();
   const mode = new InteractiveMode(bridge);
@@ -509,7 +527,7 @@ test("InteractiveMode submits editor images as ordered content blocks", async ()
   mode.defaultEditor.insertImageAttachment({ data: "aGVsbG8=", mime_type: "image/png" });
   mode.defaultEditor.insertTextAtCursor(" after");
 
-  await mode.defaultEditor.onSubmit?.(mode.defaultEditor.getText());
+  mode.defaultEditor.handleInput("\r");
   const request = calls.at(-1);
   assert.equal(request?.method, "prompt");
   assert.deepEqual(request?.params?.content, [
@@ -519,6 +537,22 @@ test("InteractiveMode submits editor images as ordered content blocks", async ()
   ]);
   assert.equal(mode.defaultEditor.getText(), "");
   assert.deepEqual(mode.defaultEditor.getImageAttachments(), []);
+});
+
+test("Enter submits image-only and expanded mixed content after the editor clears", () => {
+  const image = { type: "image", data: "aGVsbG8=", mime_type: "image/png" };
+  for (const text of ["", "long text ".repeat(120)]) {
+    const { bridge, calls } = createMockBridge();
+    const mode = new InteractiveMode(bridge);
+    const editor = mode.defaultEditor;
+    if (text) editor.handleInput(`\x1b[200~${text}\x1b[201~`);
+    editor.insertImageAttachment(image);
+    editor.handleInput("\r");
+    assert.equal(editor.getText(), "");
+    assert.deepEqual(calls.at(-1)?.params?.content, text
+      ? [{ type: "text", text }, image]
+      : [image]);
+  }
 });
 
 test("Ctrl+V reads clipboard image bytes and submits them", { skip: process.platform !== "linux" }, async () => {
@@ -540,7 +574,7 @@ test("Ctrl+V reads clipboard image bytes and submits them", { skip: process.plat
     mode.defaultEditor.insertTextAtCursor("after");
     assert.equal(await pasted, true);
     assert.equal(mode.defaultEditor.disableSubmit, false);
-    await mode.defaultEditor.onSubmit?.(mode.defaultEditor.getText());
+    mode.defaultEditor.handleInput("\r");
     assert.deepEqual(calls.at(-1)?.params?.content, [
       { type: "text", text: "before" },
       { type: "image", data: Buffer.from("clipboard image bytes").toString("base64"), mime_type: "image/png" },
