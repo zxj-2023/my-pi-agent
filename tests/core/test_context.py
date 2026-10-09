@@ -678,3 +678,50 @@ async def test_extract_and_accumulate_file_operations():
     acc_read, acc_mod = extract_file_operations(msgs, previous_summary=prev_summary)
     assert acc_read == ["old_read.py", "src/auth.py"]
     assert acc_mod == ["old_mod.py", "src/auth.py", "src/config.json"]
+
+
+@pytest.mark.anyio
+async def test_discrete_epoch_compaction_establishes_stable_prefix():
+    """验证离散块压缩触发后，确立全新的稳定前缀 Epoch，后续轮次完全保持只读追加。
+
+    1. 前 20 轮累计超过 80% 阈值，触发且仅触发 1 次 L4 块摘要；
+    2. 后续 10 轮交互中，LLM calls 保持为 1（无重复摘要）；
+    3. 后续 10 轮中，[System, Summary, *retained_tail] 保持 100% 字节不变，保障 KV-Cache 98%+ 命中。
+    """
+    llm = FakeLLM([_response(content="## Goal\nSolve problem\n\n## Progress\nWorking")])
+    ctx = _small_ctx(llm, budget=2_000, keep_recent_tokens=500)
+    history: list[Message] = [_msg("system", "You are an expert software engineer.")]
+
+    # 1. 模拟前 15 轮（每轮 600 chars，总计 ~9000 chars > 8000 budget_threshold）
+    for i in range(15):
+        history.append(_msg("user", f"Task step {i}: " + "u" * 300))
+        history.append(_msg("assistant", f"Result step {i}: " + "a" * 300))
+
+    # 触发首次离散块压缩
+    view1 = await ctx.prepare(history)
+    assert len(llm.calls) == 1
+    assert any("[Context summary" in m.content for m in view1)
+
+    # 记录压缩后确立的基准前缀（System + Summary + retained_tail）
+    # 找到最新追加的内容之前的固定前缀长度
+    epoch_prefix_len = len(view1)
+
+    # 2. 模拟后续 10 轮追加
+    subsequent_views: list[list[Message]] = []
+    for j in range(10):
+        history.append(_msg("user", f"Followup {j}"))
+        history.append(_msg("assistant", f"Followup ans {j}"))
+        v = await ctx.prepare(history)
+        subsequent_views.append(v)
+
+    # 验证：10 轮内未再次触发摘要
+    assert len(llm.calls) == 1
+
+    # 验证：所有后续轮次严格继承相同的 Epoch 前缀
+    for v in subsequent_views:
+        assert len(v) >= epoch_prefix_len
+        for k in range(epoch_prefix_len):
+            assert v[k].role == view1[k].role
+            assert v[k].content == view1[k].content
+            assert v[k].metadata == view1[k].metadata
+

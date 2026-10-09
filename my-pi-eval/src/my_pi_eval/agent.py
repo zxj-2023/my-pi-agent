@@ -31,6 +31,7 @@ from my_agent_llm.config import Config
 from my_pi_eval.tools import HarborToolRegistry
 
 if TYPE_CHECKING:
+
     class BaseAgent:
         """Harbor BaseAgent stub for static type checking."""
 
@@ -50,6 +51,7 @@ else:
     try:
         from harbor.agents.base import BaseAgent
     except ImportError:
+
         class BaseAgent:
             def __init__(
                 self,
@@ -181,7 +183,8 @@ class MyPiAgent(BaseAgent):
             tools=registry.list(),
             session=session,
             system_prompt=system_prompt,
-            context_budget=64_000,
+            context_budget=100_000,
+            keep_recent_tokens=20_000,
         )
 
         class AgentFacade:
@@ -211,7 +214,9 @@ class MyPiAgent(BaseAgent):
         completion_tokens = 0
         cache_read_tokens = 0
 
-        session = getattr(coding_agent, "session", None) or getattr(getattr(coding_agent, "agent", None), "session", None)
+        session = getattr(coding_agent, "session", None) or getattr(
+            getattr(coding_agent, "agent", None), "session", None
+        )
         if session and hasattr(session, "get_entries"):
             try:
                 for entry in session.get_entries():
@@ -223,7 +228,9 @@ class MyPiAgent(BaseAgent):
                     if isinstance(usage, dict):
                         prompt_tokens += usage.get("prompt_tokens") or usage.get("input") or 0
                         completion_tokens += usage.get("completion_tokens") or usage.get("output") or 0
-                        cache_read_tokens += usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                        cache_read_tokens += (
+                            usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                        )
             except (AttributeError, KeyError, TypeError):
                 pass
 
