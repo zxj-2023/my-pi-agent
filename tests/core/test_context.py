@@ -1,5 +1,5 @@
 # pyright: reportArgumentType=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false
-"""Context 管理测试：估算 + 三层免费压缩（context 设计文档 §8 #1、#4–#6）。"""
+"""Context 管理测试：估算 + 离散 Epoch 块级压缩与 Append-Only 前缀一致性（对标 Pi/Tau 规范）。"""
 
 import tempfile
 from pathlib import Path
