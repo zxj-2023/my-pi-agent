@@ -105,4 +105,3 @@ async def test_harbor_cwd_tracking_and_relative_path(fake_env):
     res_read = await registry.execute("read", {"path": "foo.py"})
     assert res_read.ok is True
     fake_env.read_file.assert_awaited_with("/app/subfolder/foo.py")
-

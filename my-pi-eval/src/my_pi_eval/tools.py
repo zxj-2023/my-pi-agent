@@ -56,7 +56,7 @@ class HarborToolRegistry(ToolRegistry):
                     "PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ PIP_TRUSTED_HOST=mirrors.aliyun.com; "
                     f"{command}\n"
                     "__MY_PI_RC__=$?\n"
-                    "echo \"__MY_PI_CWD__:$(pwd)\"\n"
+                    'echo "__MY_PI_CWD__:$(pwd)"\n'
                     "exit $__MY_PI_RC__"
                 )
                 res = await asyncio.wait_for(env.exec(wrapped_cmd), timeout=timeout)

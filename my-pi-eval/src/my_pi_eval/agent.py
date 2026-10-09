@@ -209,7 +209,7 @@ class MyPiAgent(BaseAgent):
             error_msg = str(exc)
         duration_sec = time.perf_counter() - start_time
 
-        # Extract token usage from session entries or tracker
+        # Extract token usage directly from session file (most reliable and complete)
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
@@ -217,31 +217,24 @@ class MyPiAgent(BaseAgent):
         session = getattr(coding_agent, "session", None) or getattr(
             getattr(coding_agent, "agent", None), "session", None
         )
-        if session and hasattr(session, "get_entries"):
+        session_file = Path(session.path) if session and getattr(session, "path", None) else None
+        if session_file and session_file.exists():
             try:
-                for entry in session.get_entries():
-                    msg = getattr(entry, "message", None)
-                    if not msg:
+                for line in session_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if not line.strip():
                         continue
-                    meta = getattr(msg, "metadata", {}) or {}
-                    usage = meta.get("usage") or getattr(msg, "usage", {}) or {}
+                    d_entry = json.loads(line)
+                    msg = d_entry.get("message") or {}
+                    meta = msg.get("metadata") or {}
+                    usage = meta.get("usage") or msg.get("usage") or {}
                     if isinstance(usage, dict):
                         prompt_tokens += usage.get("prompt_tokens") or usage.get("input") or 0
                         completion_tokens += usage.get("completion_tokens") or usage.get("output") or 0
                         cache_read_tokens += (
                             usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
                         )
-            except (AttributeError, KeyError, TypeError):
-                pass
-
-        if prompt_tokens == 0:
-            inner_agent = getattr(coding_agent, "agent", None)
-            if inner_agent and getattr(inner_agent, "context_manager", None):
-                tracker = getattr(inner_agent.context_manager, "token_tracker", None)
-                if tracker:
-                    prompt_tokens = getattr(tracker, "prompt_tokens", 0)
-                    completion_tokens = getattr(tracker, "completion_tokens", 0)
-                    cache_read_tokens = getattr(tracker, "cache_read_tokens", 0)
+            except (json.JSONDecodeError, OSError) as exc:
+                _ = exc
 
         logs_dir = getattr(context, "logs_dir", None) or getattr(self, "logs_dir", None)
         if logs_dir:
