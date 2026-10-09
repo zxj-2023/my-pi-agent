@@ -30,6 +30,11 @@ from my_agent_llm.config import Config
 
 from my_pi_eval.tools import HarborToolRegistry
 
+try:
+    from my_coding_agent.tracer import DebugEventTracer
+except ImportError:
+    DebugEventTracer = None
+
 if TYPE_CHECKING:
 
     class BaseAgent:
@@ -186,6 +191,19 @@ class MyPiAgent(BaseAgent):
             context_budget=100_000,
             keep_recent_tokens=20_000,
         )
+
+        if logs_dir and DebugEventTracer is not None:
+            try:
+                debug_log_path = Path(logs_dir) / "debug.log"
+                events_log_path = Path(logs_dir) / "events.jsonl"
+                tracer = DebugEventTracer(
+                    log_path=debug_log_path,
+                    events_path=events_log_path,
+                    console_output=False,
+                )
+                inner_agent.subscribe(tracer)
+            except (OSError, RuntimeError) as exc:
+                _ = exc
 
         class AgentFacade:
             def __init__(self, agent_instance: Agent):

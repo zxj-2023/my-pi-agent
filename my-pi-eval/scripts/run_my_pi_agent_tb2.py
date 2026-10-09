@@ -105,6 +105,7 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
     env["DEEPSEEK_API_KEY"] = "sk-0ecbb64201d441119f6a6b57e7eb15e3"
     env["PIP_INDEX_URL"] = "https://mirrors.aliyun.com/pypi/simple/"
     env["PIP_TRUSTED_HOST"] = "mirrors.aliyun.com"
+    env["MY_AGENT_DEBUG"] = "1"
 
     start_time = time.time()
     try:
