@@ -54,7 +54,7 @@ from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMi
     TaskGuardHook,
     make_task_tools,
 )
-from my_agent_llm import LLM, Message  # pyright: ignore[reportMissingImports]
+from my_agent_llm import LLM, Message, MessageContent, TextContent  # pyright: ignore[reportMissingImports]
 
 
 class Agent:
@@ -294,7 +294,7 @@ class Agent:
             return [m.content for m in self.message_queue.get_followup_messages()]
         return []
 
-    async def prompt_stream(self, user_input: str) -> AsyncIterator[Event]:
+    async def prompt_stream(self, user_input: MessageContent) -> AsyncIterator[Event]:
         """原生事件流一等公民接口：调用 run_agent_loop 执行 ReAct 循环，逐一产生生命周期事件，并更新 session 与 messages。"""
         self._aborted = False
         self._current_signal = CancellationToken()
@@ -304,21 +304,33 @@ class Agent:
             self._extensions_loaded = True
 
         # ── Hook 1: UserInputHook 拦截与改写（在进入 Session 和消息历史之前触发）
-        user_input_decision = await self.hooks.emit(UserInputHook(input_text=user_input))
-        if isinstance(user_input_decision, HookResult):
-            if user_input_decision.block:
-                reason = f": {user_input_decision.reason}" if user_input_decision.reason else ""
-                end_ev = AgentEnd(
-                    messages=list(self.messages),
-                    final_text=f"(blocked{reason})",
-                    iterations=0,
-                    stop_reason="blocked",
-                )
-                await self._notify(end_ev)
-                yield end_ev
-                return
-            if user_input_decision.updated_input is not None:
-                user_input = user_input_decision.updated_input
+        prompt = Message(role="user", content=user_input)
+        # 混合输入逐个改写文字块，保留图片位置；纯图片仍触发一次空文字 Hook。
+        text_parts: list[TextContent] = (
+            [{"type": "text", "text": prompt.content}]
+            if isinstance(prompt.content, str)
+            else [part for part in prompt.content if part["type"] == "text"]
+        )
+        for part in text_parts or [{"type": "text", "text": ""}]:
+            user_input_decision = await self.hooks.emit(UserInputHook(input_text=part["text"]))
+            if isinstance(user_input_decision, HookResult):
+                if user_input_decision.block:
+                    reason = f": {user_input_decision.reason}" if user_input_decision.reason else ""
+                    end_ev = AgentEnd(
+                        messages=list(self.messages),
+                        final_text=f"(blocked{reason})",
+                        iterations=0,
+                        stop_reason="blocked",
+                    )
+                    await self._notify(end_ev)
+                    yield end_ev
+                    return
+                if user_input_decision.updated_input is not None:
+                    part["text"] = user_input_decision.updated_input
+        if isinstance(prompt.content, str):
+            prompt.content = text_parts[0]["text"]
+        elif not text_parts and part["text"]:
+            prompt.content.insert(0, part)
 
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
@@ -330,7 +342,7 @@ class Agent:
         system_prompt = self.system_prompt or ""
         system_msgs = [m for m in self.messages if m.role == "system"]
         if system_msgs:
-            system_prompt = system_msgs[0].content
+            system_prompt = system_msgs[0].text_content
 
         # ── Hook 2: AgentStartHook 拦截启动或动态重写 system_prompt
         start_decision = await self.hooks.emit(AgentStartHook(system_prompt=system_prompt))
@@ -361,7 +373,7 @@ class Agent:
             context_manager=self._ctx,
             model=self.model,
             system=system_prompt,
-            prompts=[Message(role="user", content=user_input)],
+            prompts=[prompt],
             signal=self._current_signal,
             get_steering_messages=self._get_steering_messages,
             get_follow_up_messages=self._get_follow_up_messages,
@@ -390,7 +402,7 @@ class Agent:
 
             yield event
 
-    async def run(self, user_input: str) -> str | None:
+    async def run(self, user_input: MessageContent) -> str | None:
         """追加 user 消息 → 内部消费 prompt_stream 事件流 → 返回最终文本。"""
         final_text = None
         async for event in self.prompt_stream(user_input):

@@ -60,6 +60,30 @@ def test_estimate_tokens_monotonic():
     assert estimate_tokens(big, ratio=1.0) > estimate_tokens(big, ratio=0.1)
 
 
+def test_image_payload_is_not_counted_as_text():
+    from my_agent_core.context import _chars_of
+
+    content = [{"type": "text", "text": "inspect"}, {"type": "image", "data": "x" * 1_000_000, "mime_type": "image/png"}]
+    message = Message(role="user", content=content, metadata={"source": "clipboard"})
+    small = Message(role="user", content=[content[0], {**content[1], "data": "x"}], metadata=message.metadata)
+    assert _chars_of([message]) == _chars_of([small])
+    assert estimate_tokens([message]) == estimate_tokens([small])
+    assert estimate_tokens([message], ratio=0.5) == estimate_tokens([small], ratio=0.5)
+    assert len(message.content[1]["data"]) == 1_000_000
+    assert _chars_of([message]) > _chars_of([message.model_copy(update={"metadata": None})])
+
+
+def test_ordered_content_summary_omits_image_data():
+    from my_agent_core.context import _serialize_messages
+
+    message = Message(role="user", content=[
+        {"type": "text", "text": "before"},
+        {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"},
+        {"type": "text", "text": "after"},
+    ])
+    assert _serialize_messages([message]) == "user: before[image]after"
+
+
 def test_snip_keeps_pairing():
     """L1：>50 消息裁中间 + [snipped] 占位，双向配对不变式完好（#5）。"""
     tc = [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]

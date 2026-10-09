@@ -2,6 +2,7 @@
 """Agent 单层循环离线测试（假 LLM 替身，不碰真网络）。"""
 
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
 import pytest  # pyright: ignore[reportMissingImports]
@@ -41,6 +42,63 @@ def _agent(llm, *, tools=(multiply,), session=None, **kwargs) -> Agent:
     if session is None:
         session = Session(path=Path(tempfile.mkdtemp()) / "s.jsonl")
     return Agent(llm=llm, tools=list(tools), session=session, **kwargs)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("image_only", [False, True])
+async def test_ordered_content_survives_hook_and_session_reload(tmp_path, image_only):
+    llm = FakeLLM()
+    path = tmp_path / "images.jsonl"
+    agent = _agent(llm, session=Session(path=path))
+    agent.hooks.register(UserInputHook, lambda hook: HookResult(updated_input=hook.input_text.replace("foo", "bar")))
+    image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
+    content = [image] if image_only else [{"type": "text", "text": "foo before"}, image, {"type": "text", "text": "foo after"}]
+    expected = [image] if image_only else [{"type": "text", "text": "bar before"}, image, {"type": "text", "text": "bar after"}]
+    original = deepcopy(content)
+    events = []
+    agent.subscribe(events.append)
+
+    assert await agent.run(content) == "ok"
+    user = next(m for m in llm.calls[0]["messages"] if m.role == "user")
+    assert user.content == expected
+    assert user.metadata is None
+    assert content == original
+    start = next(event for event in events if isinstance(event, AgentStart))
+    assert start.user_input == ("" if image_only else "bar beforebar after")
+    assert next(event.message for event in events if isinstance(event, MessageEnd)).content == expected
+
+    restored = Session.load(path)
+    assert restored.get_full_history_messages()[0] == user
+    await _agent(llm, session=restored).run("continue")
+    users = [m for m in llm.calls[-1]["messages"] if m.role == "user"]
+    assert users[0] == user
+    assert users[-1].content == "continue"
+    assert users[-1].metadata is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("content", [
+    [{"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}],
+    [{"type": "text", "text": "safe"}, {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}, {"type": "text", "text": "blocked"}],
+])
+async def test_ordered_input_can_be_blocked_before_persistence(tmp_path, content):
+    llm = FakeLLM()
+    agent = _agent(llm, session=Session(path=tmp_path / "s.jsonl"))
+    agent.hooks.register(UserInputHook, lambda hook: HookResult(block=hook.input_text in ("blocked", "")))
+    assert await agent.run(content) == "(blocked)"
+    assert llm.calls == []
+    assert agent.session.get_full_history_messages() == []
+
+
+@pytest.mark.anyio
+async def test_image_only_input_hook_can_add_text(tmp_path):
+    llm = FakeLLM()
+    agent = _agent(llm, session=Session(path=tmp_path / "s.jsonl"))
+    agent.hooks.register(UserInputHook, lambda hook: HookResult(updated_input="inspect"))
+    image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
+    await agent.run([image])
+    user = next(m for m in llm.calls[0]["messages"] if m.role == "user")
+    assert user.content == [{"type": "text", "text": "inspect"}, image]
 
 
 @pytest.mark.anyio

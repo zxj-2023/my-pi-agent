@@ -36,12 +36,21 @@ class AnthropicProvider(Provider):
         system_message = None
         anthropic_messages = []
         for msg in messages:
+            message_content = msg.content if isinstance(msg.content, str) else [
+                part if part["type"] == "text" else {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": part["mime_type"], "data": part["data"]},
+                }
+                for part in msg.content
+            ]
             if msg.role == "system":
-                system_message = msg.content
+                system_message = msg.text_content
             elif msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
                 content = []
-                if msg.content:
-                    content.append({"type": "text", "text": msg.content})
+                if isinstance(message_content, list):
+                    content.extend(message_content)
+                elif message_content:
+                    content.append({"type": "text", "text": message_content})
                 for tc in msg.metadata["tool_calls"]:
                     if isinstance(tc, ToolCall):
                         tc_id = tc.id
@@ -87,13 +96,13 @@ class AnthropicProvider(Provider):
                             {
                                 "type": "tool_result",
                                 "tool_use_id": msg.metadata.get("tool_call_id"),
-                                "content": msg.content,
+                                "content": message_content,
                             }
                         ],
                     }
                 )
             else:
-                anthropic_messages.append({"role": msg.role, "content": msg.content})
+                anthropic_messages.append({"role": msg.role, "content": message_content})
         return system_message, anthropic_messages
 
     def _convert_tools(self, tools: list[dict] | None) -> list[dict] | None:

@@ -23,7 +23,7 @@ DEFAULT_CONTEXT_BUDGET = 100_000  # 默认 token 预算（约 gpt-4 context 上�
 
 def estimate_tokens(messages: list[Message], ratio: float | None = None) -> int:
     """估算 token 数。ratio 为 usage 锚定比例（每字符 token 数）；None 用 chars/4 兜底。"""
-    chars = len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))
+    chars = _chars_of(messages)
     if ratio is not None:
         return max(1, round(chars * ratio))
     return max(1, chars // CHARS_PER_TOKEN)
@@ -75,7 +75,7 @@ def micro_compact(messages: list[Message], keep_recent: int = 5, min_chars: int 
     result = list(messages)
     tool_indices = [i for i, m in enumerate(result) if m.role == "tool"]
     for i in tool_indices[:-keep_recent]:
-        if len(result[i].content) > min_chars:
+        if isinstance(result[i].content, str) and len(result[i].content) > min_chars:
             result[i] = result[i].model_copy(update={"content": "[Earlier tool result compacted]"})
     return result
 
@@ -89,7 +89,7 @@ def budget_tool_results(
     """
     result = list(messages)
     for i, m in enumerate(result):
-        if m.role != "tool" or len(m.content) <= max_chars:
+        if m.role != "tool" or not isinstance(m.content, str) or len(m.content) <= max_chars:
             continue
         if results_dir is None:
             continue
@@ -250,13 +250,16 @@ def _serialize_messages(messages: list[Message]) -> str:
     """逐条 'role: content'（tool_calls 只列名称）——摘要器好读，省 token。"""
     lines = []
     for m in messages:
+        content = m.content if isinstance(m.content, str) else "".join(
+            part["text"] if part["type"] == "text" else "[image]" for part in m.content
+        )
         if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
             names = [tc.get("function", {}).get("name", "?") for tc in m.metadata["tool_calls"]]
-            lines.append(f"assistant: [tool_calls: {', '.join(names)}] {m.content}")
+            lines.append(f"assistant: [tool_calls: {', '.join(names)}] {content}")
         elif m.role == "tool":
-            lines.append(f"tool: {m.content[:4000]}")
+            lines.append(f"tool: {content[:4000]}")
         else:
-            lines.append(f"{m.role}: {m.content}")
+            lines.append(f"{m.role}: {content}")
     return "\n".join(lines)
 
 
@@ -457,7 +460,7 @@ class ContextManager:
         acc = 0
         cut = len(messages)
         for i in range(len(messages) - 1, 0, -1):  # 跳过 system（index 0）
-            acc += len(messages[i].content)
+            acc += len(messages[i].text_content)
             if acc >= budget_chars:
                 cut = i
                 break
@@ -545,4 +548,11 @@ class ContextSessionBridge:
 
 
 def _chars_of(messages: list[Message]) -> int:
-    return len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))
+    # base64 是图像传输数据，不能按文本字符估算 token；实际 usage 仍用于锚定。
+    return len(
+        json.dumps(
+            [m.model_dump(exclude={"content": {"__all__": {"data"}}}) for m in messages],
+            ensure_ascii=False,
+            default=str,
+        )
+    )

@@ -145,25 +145,30 @@ class AntigravityProvider(OpenAIProvider):
         self, messages: list[Message]
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         contents: list[dict[str, Any]] = []
-        system_parts: list[dict[str, str]] = []
+        system_parts: list[dict[str, Any]] = []
 
         for msg in messages:
+            if isinstance(msg.content, str):
+                parts = [{"text": msg.content}] if msg.content else []
+            else:
+                parts = [
+                    {"text": part["text"]} if part["type"] == "text" else {
+                        "inlineData": {"mimeType": part["mime_type"], "data": part["data"]}
+                    }
+                    for part in msg.content
+                ]
             if msg.role == "system":
-                if msg.content:
-                    system_parts.append({"text": msg.content})
+                system_parts.extend(parts)
                 continue
 
             if msg.role == "user":
                 contents.append(
                     {
                         "role": "user",
-                        "parts": [{"text": msg.content or ""}],
+                        "parts": parts or [{"text": ""}],
                     }
                 )
             elif msg.role == "assistant":
-                parts: list[dict[str, Any]] = []
-                if msg.content:
-                    parts.append({"text": msg.content})
                 tool_calls = (msg.metadata or {}).get("tool_calls") or []
                 for tc in tool_calls:
                     tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
@@ -189,7 +194,7 @@ class AntigravityProvider(OpenAIProvider):
                             {
                                 "functionResponse": {
                                     "name": tool_name,
-                                    "response": {"result": msg.content or ""},
+                                    "response": {"result": msg.text_content},
                                 }
                             }
                         ],

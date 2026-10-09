@@ -542,12 +542,12 @@ async def run_agent_loop(
     if system and (not messages or messages[0].role != "system"):
         messages.insert(0, Message(role="system", content=system))
     elif not system and messages and messages[0].role == "system":
-        system = messages[0].content
+        system = messages[0].text_content
 
     # prompts 规范化
     converted_prompts = _as_messages(prompts)
 
-    user_input = converted_prompts[0].content if converted_prompts else ""
+    user_input = converted_prompts[0].text_content if converted_prompts else ""
 
     # 1. 注入初始 prompts 并发射事件
     yield AgentStart(system_prompt=system, user_input=user_input)
