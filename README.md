@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
   <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/"><img src="https://img.shields.io/badge/blog-series-success.svg?style=flat-square" alt="blog" /></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/tests-777%20python%20%7C%2071%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tests-773%20python%20%7C%2071%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
 </p>
 
 <p align="center">
@@ -174,7 +174,7 @@ npm install
 npm run build
 
 # 4. 运行全量离线自动化测试套件 (100% 绿灯全通)
-uv run python -m pytest   # 777 Python offline tests passed (746+ baseline)
+uv run python -m pytest   # 773 Python offline tests passed (746+ baseline)
 npm test                  # 71 TUI tests passed
 
 # 5. 启动开发态终端
@@ -343,7 +343,7 @@ my-pi-agent/
 │       ├── file_reference.py       # @ 文件引用解析与快照直通注入
 │       └── rpc_server.py           # stdio JSON-RPC 2.0 服务端门面
 │
-├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 777 测试并发全通)
+├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 773 测试并发全通)
 │   ├── llm/                        # LLM 层单元测试 (91 tests)
 │   ├── core/                       # 框架内核单元测试 (392 tests)
 │   ├── coding/                     # 业务与工具测试 (276 tests)

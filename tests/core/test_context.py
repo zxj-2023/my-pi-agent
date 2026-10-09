@@ -164,7 +164,6 @@ async def test_prepare_preserves_prefix_invariance_across_turns():
             assert prev_view[j].metadata == next_view[j].metadata
 
 
-
 @pytest.mark.anyio
 async def test_prepare_gate_below_threshold_leaves_everything_untouched(tmp_path):
     """门控未开：条数超 L1 阈值、单条超 L3 阈值，也一条都不动（本次新行为核心）。"""
@@ -735,5 +734,3 @@ async def test_100_turns_prefix_stability_simulation():
     assert divergence_count <= 2
     # 98 轮以上的前缀匹配率为 100%
     assert divergence_count >= 1  # 确实触发过压缩
-
-

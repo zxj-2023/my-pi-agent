@@ -1,6 +1,18 @@
-# my-pi-eval: Harbor & Terminal-Bench 2.0 评测套件
+# my-pi-eval: Harbor & Terminal-Bench 2.0 / 2.1 评测套件
 
-`my-pi-eval` 是专为 `my-pi-agent` 打造的官方基准评测适配与调度子系统，基于标准 **Harbor Framework** 协议实现，主要用于在 **Terminal-Bench 2.0**（以及后续的 SWE-bench）真实沙箱中全自动评测 Agent 的终端解题能力。
+`my-pi-eval` 是专为 `my-pi-agent` 打造的官方基准评测适配与调度子系统，基于标准 **Harbor Framework** 协议实现，用于在 **Terminal-Bench 2.0 / 2.1**（以及后续的 SWE-bench）真实沙箱中全自动评测 Agent 的终端解题能力。
+
+---
+
+## 🏆 Terminal-Bench 2.1 终局全量战报 (Milestone)
+
+在以真实 Linux 系统运维、混合编译与复杂调试为核心的 **Terminal-Bench 2.1** 全量评测中（底座大模型统一采用 `deepseek/deepseek-chat` / DeepSeek-V4.1-Flash）：
+
+- **赛题规模**：89 道官方全量有效赛题；
+- **满分通过 (PASSED)**：**72 道** 满分通过 (`reward = 1.0`)；
+- **🏆 最终绝对胜率**：**80.90% (72/89)**，正式突破 80% 行业关键大关；
+- **Prompt Cache 命中率**：在 `build-cython-ext` 等复杂编译任务中，通过 Append-Only 前缀一致性与执行期输出定型截断，实测斩获 **96.7% 缓存命中率**！
+- 完整战报详见：[results/pi_official_terminal_bench_2.md](results/pi_official_terminal_bench_2.md) 与 [results/comparison_matrix.md](results/comparison_matrix.md)。
 
 ---
 
@@ -78,7 +90,7 @@ harbor run \
 
 ## 单元测试与验证
 
-套件包含 15 个针对沙箱工具桥接、CRLF 规范化、指标汇总与 CLI 预检的离线单元测试：
+套件包含 18 个针对沙箱工具桥接、CRLF 规范化、指标汇总与 CLI 预检的离线单元测试：
 
 ```bash
 uv run python -m pytest tests/eval/ -v

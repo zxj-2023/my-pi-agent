@@ -1040,7 +1040,7 @@ my-pi-agent/
   - **Terminal-Bench 2.1 全量 89 题终局攻坚**：
     - 攻克 Docker 虚拟网桥 IP 池耗尽、Debian 官方源 502、Commander.js CLI `--` 越界与官方动态配时四大工程陷阱；
     - 在 89 道真实环境 Linux 赛题中斩获 **72 胜 / 80.90% 绝对胜率**（底座大模型：DeepSeek-V4.1-Flash），攻克 `gpt2-codegolf` (1614万 Tokens)、`torch-pipeline-parallelism`、`compile-compcert`、`fix-ocaml-gc` 等地狱级题目，突破 80% 行业关键大关。
-- **验证**：新增 `tests/eval/` 单元测试套件（18 个测试全部通过），全库 Python 离线测试规模达 **777 个测试全部通过**（前端 71 个测试全绿，总计 848 个自动化测试 100% 绿灯）。
+- **验证**：新增 `tests/eval/` 单元测试套件（18 个测试全部通过），全库 Python 离线测试规模达 **773 个测试全部通过**（前端 71 个测试全绿，总计 844 个自动化测试 100% 绿灯）。
 
 
 
