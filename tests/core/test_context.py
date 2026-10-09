@@ -9,10 +9,9 @@ from my_agent_llm import Message, Response  # pyright: ignore[reportMissingImpor
 
 from my_agent_core.agent import Agent
 from my_agent_core.context import (
+    _snap_cut_to_group,
     budget_tool_results,
     estimate_tokens,
-    micro_compact,
-    snip_messages,
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
@@ -60,56 +59,13 @@ def test_estimate_tokens_monotonic():
     assert estimate_tokens(big, ratio=1.0) > estimate_tokens(big, ratio=0.1)
 
 
-def test_snip_keeps_pairing():
-    """L1：>50 消息裁中间 + [snipped] 占位，双向配对不变式完好（#5）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
-    msgs = [_msg("user", f"q{i}") for i in range(40)]
-    msgs.append(_msg("assistant", "", tool_calls=tc))  # index 40
-    msgs.append(_msg("tool", "result"))  # index 41（配对）
-    msgs += [_msg("user", f"t{i}") for i in range(15)]  # 共 57 条
-    view = snip_messages(msgs)
-    assert len(view) <= 50
-    assert any(m.content.startswith("[snipped") for m in view)
-    _assert_pairing_intact(view)
-
-
-def test_snip_head_boundary_inside_parallel_tool_group():
-    """头边界落在并行工具组内部（第 2 个结果上）→ 组不得被切成两半（回归）。"""
+def test_snap_cut_to_group_preserves_parallel_tool_groups():
+    """验证 _snap_cut_to_group 将切点安全回退到合法组边界，绝不拆分并行工具调用。"""
     msgs = [_msg("user", "q0")] + _parallel_group("a", "b")  # [1]assistant(2) [2]tool [3]tool
-    msgs += [_msg("user", f"t{i}") for i in range(49)]  # 共 53 条 → head 边界=3 落在组内
-    view = snip_messages(msgs)
-    assert any(m.content.startswith("[snipped") for m in view)
-    _assert_pairing_intact(view)
-
-
-def test_snip_tail_boundary_inside_parallel_tool_group():
-    """尾边界落在并行工具组内部 → 整组并回尾部，不留孤儿 tool（回归）。"""
-    msgs = [_msg("user", f"q{i}") for i in range(4)]  # [0..3]
-    msgs += _parallel_group("a", "b")  # [4]assistant(2) [5]tool [6]tool
-    msgs += [_msg("user", f"t{i}") for i in range(45)]  # 共 52 条 → tail 边界=6 落在组内
-    view = snip_messages(msgs)
-    assert view[-1].content == "t44"  # 尾部仍然保留
-    _assert_pairing_intact(view)
-    # 组完整保留在视图里（未被切成两半）
-    kept = [(m.metadata or {}).get("tool_call_id") for m in view if m.role == "tool"]
-    assert kept == ["a", "b"]
-
-
-def test_snip_below_limit_noop():
-    """L1：≤50 消息原样返回（#5）。"""
-    msgs = [_msg("user", f"q{i}") for i in range(10)]
-    assert snip_messages(msgs) == msgs
-
-
-def test_micro_compact_old_tool_results():
-    """L2：旧 tool 消息（>200 字符、非最近 5 条）→ 占位，metadata 保留（#6）。"""
-    msgs = [_msg("tool", "y" * 500, tool_call_id=f"c{i}") for i in range(8)]
-    view = micro_compact(msgs)
-    assert view[0].content == "[Earlier tool result compacted]"
-    assert view[0].metadata["tool_call_id"] == "c0"  # metadata 保留
-    assert view[-1].content == "y" * 500  # 最近 5 条不动
-    orig = [_msg("tool", "y" * 500, tool_call_id="c9")]
-    assert micro_compact(orig) == orig  # 不足 keep_recent 不动
+    msgs += [_msg("user", f"t{i}") for i in range(10)]
+    # 切点落在第 2 个 tool (index 3) 上 → 必须安全回退到 assistant 前面
+    cut = _snap_cut_to_group(msgs, 3)
+    assert cut <= 1
 
 
 def test_budget_tool_results_persists_large(tmp_path):

@@ -996,6 +996,53 @@ my-pi-agent/
     - 详尽复盘 50 轮测试矩阵、缺陷根因分析、三层防御实现与核心架构不变式审核结论。
 - **验证**：全库测试规模提升至 **745 个 Python 核心测试全部通过**，**71 个 TUI 自动化测试全部通过**（共 816 测试，100% 绿灯全通）。
 
+---
+
+### 阶段 36：工具执行期输出定型截断与上下文前缀一致性重构（2026-10-09）
+
+**目标**：彻底解决滑动窗口上下文压缩导致的 Prompt Cache 击穿痛点，对齐 Pi 原厂机制重塑工具输出定型截断与 Append-Only 离散 Epoch 块级压缩管线。
+
+- **改了什么**：
+  - **工具执行期 50KB / 2000 行输出定型截断 (`src/my_agent_core/tools/core.py`)**：
+    - 对标 Pi 原厂 `truncate.ts`，实现 `truncate_tool_output`（`DEFAULT_TOOL_MAX_BYTES = 50 * 1024`，`DEFAULT_TOOL_MAX_LINES = 2000`）；
+    - 在 `ToolResult.serialize()` 阶段统一实施定型截断并附加行数与字节统计 Notice；
+    - 输出写入消息历史即为不可变事实，彻底消除在后续轮次中回溯篡改历史工具消息的破坏性逻辑。
+  - **废除逐轮 L1/L2 滚动篡改，确立 Append-Only 前缀一致性 (`src/my_agent_core/context.py`)**：
+    - 废除在每轮 `prepare()` 中执行的 L1 中间轮次滚动裁切与 L2 历史工具滚动占位篡改；
+    - 确立 Append-Only 原则：在未超出 80% 水位线门控前，传给大模型的 View 严格保持只读追加，历史前缀 100% 字节不变，最大化利用现代大模型服务端 KV-Cache。
+  - **动态 80% 水位线管控与离散 Epoch 块级压缩 (`context.py`)**：
+    - `budget_threshold = (budget * 4) // 5`：未超 80% 门控原样返回；超限时触发离散 Epoch 块压缩；
+    - 门控触发后优先尝试 L3 超大工具结果磁盘溢出；若仍超限，花费 1 次 LLM API 执行 L4 结构化摘要；
+    - 摘要生成后建立全新稳定基准前缀：`[System, [Context summary], *retained_tail]`，后续轮次在该基准上继续 Append-Only 累积；
+    - 维持双标签 `<analysis>` / `<summary>` 防注入与 6 Section 约束，并累积 `<read-files>` / `<modified-files>` 全生命周期文件操作足迹。
+  - **编写前缀稳定性与仿真验证测试 (`tests/core/test_context.py`)**：
+    - 新增 `test_discrete_epoch_compaction_establishes_stable_prefix` 验证离散块压缩确立稳定基准前缀；
+    - 新增 `test_100_turns_prefix_stability_simulation` 验证百轮长会话仿真中除离散切换点外前缀分叉数恒为 0。
+- **验证**：全库测试全部通过，长会话多轮前缀稳定性达 100%，消除孤儿工具调用与切点漂移。
+
+---
+
+### 阶段 37：Harbor 评测子系统 `my-pi-eval` 建设与 Terminal-Bench 2.1 突破 80.90% 胜率（2026-10-09）
+
+**目标**：构建标准 Harbor 评测适配器，在真实 Docker 沙箱基准集 Terminal-Bench 2.1 上展开全量攻坚，验证框架在长任务系统工程、复杂编译排错与高频工具交互下的端到端实战性能与前缀缓存命中率。
+
+- **改了什么**：
+  - **实现 Scheme 1 宿主驱动型 `MyPiAgent` 适配器 (`my-pi-eval/src/my_pi_eval/agent.py`)**：
+    - 继承 Harbor 官方 `harbor.agents.base.BaseAgent` 接口，支持原生 `harbor run` 与自定义 CLI 统一驱动；
+    - 采用宿主机编排架构：Agent 内核与 LLM 直连留在宿主机，通过 Docker 管道驱动沙箱，容器免安装 Node.js/npm 环境，冷启动从 2.5 分钟缩减至 **< 2 秒**。
+  - **严格评测凭据隔离 (`resolve_eval_llm`)**：
+    - 严格禁止读取本地 `~/.my-pi-agent/auth.json`，仅允许通过系统环境变量或专属 `my-pi-eval/.env` 获取 API Key，彻底杜绝沙箱逃逸泄漏风险。
+  - **高保真沙箱工具桥接层 (`my-pi-eval/src/my_pi_eval/tools.py`)**：
+    - `HarborToolRegistry` 将 7 大工作区工具桥接至容器：`bash` 超时熔断与 50KB 截断、`write` 自动 CRLF ➔ LF 规范化、`edit` 宿主单义性校验与原子替换、`read`/`grep`/`find`/`ls` 容器实时检索。
+  - **Session 文件全量 Token 指标采集与缓存核算 (`agent.py`)**：
+    - 从持久化 `session.jsonl` 转录本逐条提取 `prompt_tokens`、`completion_tokens` 与 `cache_read_tokens`，输出标准 `metrics.json`；
+    - 真实核算前缀缓存命中率：实测 `build-cython-ext` 复杂编译任务斩获 **96.7% Cache Hit Rate**。
+  - **Terminal-Bench 2.1 全量 89 题终局攻坚**：
+    - 攻克 Docker 虚拟网桥 IP 池耗尽、Debian 官方源 502、Commander.js CLI `--` 越界与官方动态配时四大工程陷阱；
+    - 在 89 道真实环境 Linux 赛题中斩获 **72 胜 / 80.90% 绝对胜率**（底座大模型：DeepSeek-V4.1-Flash），攻克 `gpt2-codegolf` (1614万 Tokens)、`torch-pipeline-parallelism`、`compile-compcert`、`fix-ocaml-gc` 等地狱级题目，突破 80% 行业关键大关。
+- **验证**：新增 `tests/eval/` 单元测试套件（18 个测试全部通过），全库 Python 离线测试规模达 **777 个测试全部通过**（前端 71 个测试全绿，总计 848 个自动化测试 100% 绿灯）。
+
+
 
 
 

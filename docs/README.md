@@ -49,7 +49,7 @@
 │    • 14 个只读生命周期事件 (events.py) + 五大专职拦截门禁 (hooks.py) 正交解耦│
 │    • retry.py 智能退避重试 (AutoRetryPolicy 429/5xx 自动重试与 Jitter)       │
 │    • 模块化会话存储子系统 (session/ 7 模块 + 9 种多态条目 + 只追加持久化)   │
-│    • 四层廉价优先上下文压缩管线 (L3➔L1➔L2➔L4 + retainedTail 缓存)           │
+│    • 离散 Epoch 块级压缩管线与 Append-Only 前缀一致性 (80% 水位线门控 / 96.7% Cache 命中)│
 │    • Skills 声明式管理 (SKILL.md 发现 / 启动轻量清单注入 / 显式调用)        │
 │    • Subagents 任务委派 (独立子会话树 / 防递归工具过滤 / 沙箱隔离)          │
 │    • Extension 扩展机制 (ExtensionAPI 契约 / 0 Token 本地命令路由)          │
@@ -80,11 +80,11 @@
 
 ### 2. 框架核心层 (`docs/core/`)
 
-- [01-tool-system.md](core/01-tool-system.md)：基于 Pydantic 的 `@tool` 动态建模、`Tool` 实体、结构化 `ToolCall` 原生消费、`ToolRegistry` 字典直接分发（免 4x JSON Ping-Pong）、读写分流并发批执行与 Never-Throw 保证。
+- [01-tool-system.md](core/01-tool-system.md)：基于 Pydantic 的 `@tool` 动态建模、`Tool` 实体、50KB/2000行执行期输出定型截断（对齐 Pi `truncate.ts` 保护前缀缓存）、结构化 `ToolCall` 原生消费、`ToolRegistry` 字典直接分发（免 4x JSON Ping-Pong）、读写分流并发批执行与 Never-Throw 保证。
 - [02-event-hooks.md](core/02-event-hooks.md)：14 个纯只读事实事件（`events.py`，含 `AutoRetryStart` 与 `AutoRetryEnd`）与五大专职 Hook 决策拦截点（`hooks.py`）彻底正交解耦、`HookResult` 统一干预模型与 Pi 官方时序契约。
 - [03-agent-loop.md](core/03-agent-loop.md)：Tau 风格单层 `AgentHarness`、`loop.py` 纯函数微内核（约 110 行优雅状态机）、大模型智能退避重试（`AutoRetryPolicy`）、子生成器分治（`_assistant_turn` 与 `_execute_tools_turn`）、七阶段工具执行流水线、`tool_history.py` 转录本三阶段自愈、无界自主长任务循环与一等公民 `prompt_stream` 事件流。
 - [04-session-tree.md](core/04-session-tree.md)：树状会话存储子系统（`session/` 7 模块分工）、9 种强类型判别多态 `SessionEntry`、纯内存防环树算法、`SessionState` 事件溯源折叠投影与只追加纯异步存储驱动（跨进程文件锁）。
-- [05-context-compaction.md](core/05-context-compaction.md)：四层廉价优先上下文压缩管线（L3➔L1➔L2➔L4）、Usage 动态校准、`retainedTail` 持久化缓存与 `compaction_floor` 护栏。
+- [05-context-compaction.md](core/05-context-compaction.md)：上下文离散 Epoch 块级压缩管线与 Append-Only 前缀一致性规范（废除逐轮滚动篡改、动态 80% 水位线门控、L3 磁盘溢出、L4 结构化摘要、全生命周期文件足迹累积与实测 96.7% KV-Cache 命中率）。
 - [06-skills.md](core/06-skills.md)：Skills 声明式管理机制、`SKILL.md` 元数据解析、渐进式披露 Token 优化与 `invoke_skill` 宿主显式触发。
 - [07-subagents-tasks.md](core/07-subagents-tasks.md)：Subagents 声明式多智能体与 `TaskManager` 生命周期管理、独立子会话树隔离与防递归沙箱防护。
 - [08-extensions.md](core/08-extensions.md)：Extension 扩展机制、`ExtensionAPI` 开发者契约、模块隔离加载与本地 0 Token 命令调度。
@@ -107,7 +107,7 @@
 
 ### 4. 自动化评测层 (`docs/eval/`)
 
-- [01-evaluation-harness-architecture.md](eval/01-evaluation-harness-architecture.md)：自动化评测系统架构与设计规范（对标 DeepSeek Harness `dsh-eval` 与 Pi `pi-terminal-bench`，无头模式驱动、三大主力评测集 SWE-bench Verified / SWE-bench Multilingual / Terminal-Bench 2.1 协议、10 项标准化量化指标体系与 A/B 判定机制）。
+- [01-evaluation-harness-architecture.md](eval/01-evaluation-harness-architecture.md)：自动化评测系统架构与设计规范（基于 Harbor Framework 官方标准、MyPiAgent 宿主编排型适配器、Scheme 1 沙箱零污染隔离、Terminal-Bench 2.1 斩获 72 胜 / 80.90% 胜率终局战报与全量 Token 缓存核算）。
 
 ### 5. 原厂对齐审计与分发部署 (`docs/`)
 

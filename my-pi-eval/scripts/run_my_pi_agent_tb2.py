@@ -157,7 +157,6 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
             if reward == 0.0 and "reward" in rdata and rdata.get("reward") is not None:
                 reward = float(rdata.get("reward", 0.0) or 0.0)
             ar = rdata.get("agent_result") or {}
-            cache_read = 0
             if isinstance(ar, dict):
                 tokens = (ar.get("n_input_tokens") or 0) + (ar.get("n_output_tokens") or 0)
                 cache_read = ar.get("n_cache_tokens") or 0

@@ -11,8 +11,6 @@ from typing import Any
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools.core import ToolResult, tool
 
-MAX_OUTPUT_CHARS = 50_000
-
 
 class HarborToolRegistry(ToolRegistry):
     """Bridges the agent's workspace tools to Harbor's container BaseEnvironment."""
@@ -75,9 +73,6 @@ class HarborToolRegistry(ToolRegistry):
                 combined = stdout
                 if stderr:
                     combined = f"{stdout}\nstderr:\n{stderr}" if stdout else stderr
-
-                if len(combined) > MAX_OUTPUT_CHARS:
-                    combined = combined[:MAX_OUTPUT_CHARS] + "\n... [Output truncated at 50KB]"
 
                 if return_code != 0:
                     return ToolResult(
