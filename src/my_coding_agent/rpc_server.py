@@ -573,7 +573,7 @@ class RpcServer:
                 req_id,
                 error={"code": -32001, "message": "Agent not initialized"},
             )
-        msg = params.get("message") or params.get("prompt") or params.get("text") or ""
+        msg = params.get("content") if "content" in params else (params.get("message") or params.get("prompt") or params.get("text") or "")
         self.agent.steer(msg)
         return self.send_response(req_id, result={"status": "ok"})
 
@@ -583,7 +583,7 @@ class RpcServer:
                 req_id,
                 error={"code": -32001, "message": "Agent not initialized"},
             )
-        msg = params.get("message") or params.get("prompt") or params.get("text") or ""
+        msg = params.get("content") if "content" in params else (params.get("message") or params.get("prompt") or params.get("text") or "")
         self.agent.follow_up(msg)
         return self.send_response(req_id, result={"status": "ok"})
 
@@ -1553,7 +1553,7 @@ class RpcServer:
                 return self._handle_login(req_id, params)
             elif method == "steer":
                 return self._handle_steer(req_id, params)
-            elif method == "followup":
+            elif method in ("followup", "follow_up"):
                 return self._handle_followup(req_id, params)
             elif method == "abort":
                 return self._handle_abort(req_id)

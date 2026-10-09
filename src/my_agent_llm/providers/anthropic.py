@@ -45,49 +45,49 @@ class AnthropicProvider(Provider):
             ]
             if msg.role == "system":
                 system_message = msg.text_content
-            elif msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
+            elif msg.role == "assistant":
+                # Claude API 契约：assistant 消息只能包含 text 和 tool_use 块，严禁包含 image 块
                 content = []
-                if isinstance(message_content, list):
-                    content.extend(message_content)
-                elif message_content:
-                    content.append({"type": "text", "text": message_content})
-                for tc in msg.metadata["tool_calls"]:
-                    if isinstance(tc, ToolCall):
-                        tc_id = tc.id
-                        tc_name = tc.name
-                        tc_args = tc.args
-                    elif isinstance(tc, dict):
-                        tc_id = tc.get("id", "")
-                        if "name" in tc and "args" in tc:
-                            tc_name = tc["name"]
-                            tc_args = tc["args"]
-                        elif "function" in tc:
-                            tc_name = tc["function"].get("name", "")
-                            raw = tc["function"].get("arguments", "{}")
-                            try:
-                                tc_args = (
-                                    json.loads(raw)
-                                    if isinstance(raw, str) and raw.strip()
-                                    else (raw if isinstance(raw, dict) else {})
-                                )
-                            except Exception:
-                                tc_args = {}
+                if msg.text_content:
+                    content.append({"type": "text", "text": msg.text_content})
+                if msg.metadata and "tool_calls" in msg.metadata:
+                    for tc in msg.metadata["tool_calls"]:
+                        if isinstance(tc, ToolCall):
+                            tc_id = tc.id
+                            tc_name = tc.name
+                            tc_args = tc.args
+                        elif isinstance(tc, dict):
+                            tc_id = tc.get("id", "")
+                            if "name" in tc and "args" in tc:
+                                tc_name = tc["name"]
+                                tc_args = tc["args"]
+                            elif "function" in tc:
+                                tc_name = tc["function"].get("name", "")
+                                raw = tc["function"].get("arguments", "{}")
+                                try:
+                                    tc_args = (
+                                        json.loads(raw)
+                                        if isinstance(raw, str) and raw.strip()
+                                        else (raw if isinstance(raw, dict) else {})
+                                    )
+                                except Exception:
+                                    tc_args = {}
+                            else:
+                                tc_name = tc.get("name", "")
+                                tc_args = tc.get("args", {})
                         else:
-                            tc_name = tc.get("name", "")
-                            tc_args = tc.get("args", {})
-                    else:
-                        tc_id = getattr(tc, "id", "")
-                        tc_name = getattr(tc, "name", "")
-                        tc_args = getattr(tc, "args", {})
-                    content.append(
-                        {
-                            "type": "tool_use",
-                            "id": tc_id,
-                            "name": tc_name,
-                            "input": tc_args,
-                        }
-                    )
-                anthropic_messages.append({"role": "assistant", "content": content})
+                            tc_id = getattr(tc, "id", "")
+                            tc_name = getattr(tc, "name", "")
+                            tc_args = getattr(tc, "args", {})
+                        content.append(
+                            {
+                                "type": "tool_use",
+                                "id": tc_id,
+                                "name": tc_name,
+                                "input": tc_args,
+                            }
+                        )
+                anthropic_messages.append({"role": "assistant", "content": content or [{"type": "text", "text": ""}]})
             elif msg.role == "tool" and msg.metadata:
                 anthropic_messages.append(
                     {

@@ -13,6 +13,7 @@ from .events import (  # pyright: ignore[reportMissingImports]
     ToolCallDoneEvent,
 )
 from .models import (
+    ContentBlock,
     ImageContent,
     Message,
     MessageContent,
@@ -31,6 +32,7 @@ __all__ = [
     "Config",
     "Message",
     "MessageContent",
+    "ContentBlock",
     "TextContent",
     "ImageContent",
     "Response",

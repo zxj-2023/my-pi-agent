@@ -198,6 +198,7 @@ export class InteractiveMode {
   public isStreaming = false;
   public isWorking = false;
   public isSubmitting = false;
+  public pendingSubmittedPrompts = 0;
   public pendingSteeringList: MessageContent[] = [];
   public pendingFollowupList: MessageContent[] = [];
   public currentThinkingLevel = "off";
@@ -426,22 +427,25 @@ export class InteractiveMode {
         if (event.message?.role === "user") {
           const content = displayMessageContent(event.message.content);
           if (content) {
-            let isQueued = false;
+            let isLocallyPreRendered = false;
+            if (this.pendingSubmittedPrompts > 0) {
+              this.pendingSubmittedPrompts--;
+              isLocallyPreRendered = true;
+            }
+
             const steerIdx = this.pendingSteeringList.findIndex((message) => displayMessageContent(message) === content);
             if (steerIdx !== -1) {
               this.pendingSteeringList.splice(steerIdx, 1);
-              isQueued = true;
             } else {
               const followIdx = this.pendingFollowupList.findIndex((message) => displayMessageContent(message) === content);
               if (followIdx !== -1) {
                 this.pendingFollowupList.splice(followIdx, 1);
-                isQueued = true;
               }
             }
             this.updatePendingMessagesDisplay();
 
-            // 仅对从待发队列出队的插话/追问渲染气泡；普通 Prompt 已在 handleUserInput 中先行挂载，杜绝重复渲染！
-            if (isQueued) {
+            // 若不是刚刚在 handleUserInput 中本地预挂载的普通 Prompt，则正常挂载用户气泡
+            if (!isLocallyPreRendered) {
               const userMsg = new UserMessageComponent(content);
               this.chatContainer.addChild(userMsg);
               this.chatContainer.addChild(new Spacer(1));
@@ -963,6 +967,7 @@ export class InteractiveMode {
 
     // 4. 普通文本输入：渲染用户气泡并提交给 Python
     this.isSubmitting = true;
+    this.pendingSubmittedPrompts++;
     const userMsg = new UserMessageComponent(input);
     this.chatContainer.addChild(userMsg);
     this.chatContainer.addChild(new Spacer(1));
@@ -972,6 +977,7 @@ export class InteractiveMode {
       this.footer.update({ isBusy: true });
       await this.bridge.prompt(input, content ? { content } : undefined);
     } catch (err: any) {
+      this.pendingSubmittedPrompts = Math.max(0, this.pendingSubmittedPrompts - 1);
       this.appendErrorMessage(`请求失败: ${err.message || String(err)}`);
       this.isStreaming = false;
       this.isWorking = false;
@@ -1010,7 +1016,9 @@ export class InteractiveMode {
 
       if (matchesKey(data, "ctrl+v") || matchesKey(data, "ctrl+shift+v")) {
         void this.defaultEditor.pasteImageFromClipboard().then((pasted) => {
-          if (!pasted) this.appendErrorMessage("剪贴板中没有可粘贴的图片。");
+          if (!pasted) {
+            this.defaultEditor.handleInput?.(data);
+          }
           this.ui.requestRender();
         });
         return { consume: true };

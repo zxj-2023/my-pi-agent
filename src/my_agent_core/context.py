@@ -17,6 +17,7 @@ from my_agent_llm import Message  # pyright: ignore[reportMissingImports]
 if TYPE_CHECKING:
     from my_agent_core.session import Session
 
+IMAGE_EQUIVALENT_CHARS = 4000  # 一张图片约等效 1000 Tokens (4000 字符)
 CHARS_PER_TOKEN = 4
 DEFAULT_CONTEXT_BUDGET = 100_000  # 默认 token 预算（约 gpt-4 context 上限）
 
@@ -320,7 +321,9 @@ class ContextManager:
         if total_prompt_tokens > 0:
             self._last_prompt_tokens = total_prompt_tokens
         if total_prompt_tokens > 0 and self._last_view_chars > 0:
-            self._ratio = total_prompt_tokens / self._last_view_chars
+            raw_ratio = total_prompt_tokens / self._last_view_chars
+            # 限制 ratio 在合理自然语言区间 [0.1, 2.5]，防止多模态或极短文本引发比例污染 (Ratio Poisoning)
+            self._ratio = max(0.1, min(raw_ratio, 2.5))
 
     @property
     def context_tokens(self) -> int:
@@ -548,11 +551,18 @@ class ContextSessionBridge:
 
 
 def _chars_of(messages: list[Message]) -> int:
-    # base64 是图像传输数据，不能按文本字符估算 token；实际 usage 仍用于锚定。
-    return len(
-        json.dumps(
-            [m.model_dump(exclude={"content": {"__all__": {"data"}}}) for m in messages],
-            ensure_ascii=False,
-            default=str,
-        )
-    )
+    """计算消息列表的等效字符数。对图片赋予合理等效字符权重，防止比例失真。"""
+    total_chars = 0
+    for m in messages:
+        if isinstance(m.content, str):
+            total_chars += len(m.content)
+        elif isinstance(m.content, list):
+            for part in m.content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        total_chars += len(str(part.get("text", "")))
+                    elif part.get("type") == "image":
+                        total_chars += IMAGE_EQUIVALENT_CHARS
+        if m.metadata:
+            total_chars += len(json.dumps(m.metadata, ensure_ascii=False))
+    return max(1, total_chars)

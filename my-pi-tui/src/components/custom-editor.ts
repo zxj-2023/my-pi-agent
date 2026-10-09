@@ -17,13 +17,33 @@ export interface ImageAttachment {
   position: number;
 }
 
-function runClipboardCommand(command: string, args: string[]): Promise<Buffer> {
+function runClipboardCommand(command: string, args: string[], timeoutMs = 1500): Promise<Buffer> {
   return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined;
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.once("error", reject);
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.once("error", (err) => {
+      cleanup();
+      reject(err);
+    });
     child.once("close", (code) => {
+      cleanup();
       if (code === 0) resolve(Buffer.concat(chunks));
       else reject(new Error(`${command} exited with code ${code}`));
     });
@@ -33,14 +53,20 @@ function runClipboardCommand(command: string, args: string[]): Promise<Buffer> {
 async function readClipboardImage(): Promise<Omit<ImageAttachment, "marker" | "position"> | undefined> {
   if (platform === "linux") {
     for (const command of ["wl-paste", "xclip"]) {
+      let commandAvailable = true;
       for (const mime_type of ["image/png", "image/jpeg", "image/webp", "image/gif"] as const) {
+        if (!commandAvailable) break;
         try {
           const args = command === "wl-paste"
             ? ["--no-newline", "--type", mime_type]
             : ["-selection", "clipboard", "-t", mime_type, "-o"];
           const data = await runClipboardCommand(command, args);
           if (data.length > 0) return { data: data.toString("base64"), mime_type };
-        } catch {
+        } catch (err: any) {
+          if (err && (err.code === "ENOENT" || err.message?.includes("ENOENT"))) {
+            commandAvailable = false;
+            break;
+          }
           // Try the next clipboard backend or image type.
         }
       }

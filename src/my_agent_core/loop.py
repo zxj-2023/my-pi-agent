@@ -664,7 +664,7 @@ async def run_agent_loop(
                 yield TurnEnd(message=assistant, tool_results=synth_tools)
                 yield AgentEnd(
                     messages=list(messages),
-                    final_text=assistant.content if stop_reason == "error" else None,
+                    final_text=assistant.text_content if stop_reason == "error" else None,
                     iterations=iteration,
                     stop_reason=stop_reason,
                 )
@@ -693,15 +693,15 @@ async def run_agent_loop(
                         messages.append(ev.message)
 
                 # 阶段 7: 批量优雅熔断判定（any 语义）
-                terminating_obs = [m.content for m in tool_results if (m.metadata or {}).get("terminate")]
+                terminating_obs = [m.text_content for m in tool_results if (m.metadata or {}).get("terminate")]
                 if terminating_obs:
                     has_more_tools = False
-                    final_text = assistant.content or terminating_obs[-1]
+                    final_text = assistant.text_content or terminating_obs[-1]
                 else:
                     has_more_tools = True
             else:
                 has_more_tools = False
-                final_text = assistant.content
+                final_text = assistant.text_content
 
             # 严密闭合当前轮次
             yield TurnEnd(message=assistant, tool_results=tool_results)

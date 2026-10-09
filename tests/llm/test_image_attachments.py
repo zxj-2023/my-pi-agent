@@ -72,3 +72,38 @@ def test_provider_preserves_ordered_content(image_only):
         ],
         None,
     )
+
+
+def test_empty_image_data_filtered():
+    msg = Message(role="user", content=[{"type": "text", "text": "hi"}, {"type": "image", "data": "   ", "mime_type": "image/png"}])
+    assert len(msg.content) == 1
+    assert msg.content[0]["type"] == "text"
+
+
+def test_image_jpg_normalized():
+    msg = Message(role="user", content=[{"type": "image", "data": "abc", "mime_type": "image/jpg"}])
+    assert msg.content[0]["mime_type"] == "image/jpeg"
+
+
+def test_provider_role_contracts():
+    config = Config(api_key="test")
+    openai = OpenAIProvider(config, client=object())
+    anthropic = AnthropicProvider(config, client=object())
+    gemini = AntigravityProvider(config, client=object())
+
+    img_msg = Message(role="tool", content=[{"type": "text", "text": "result"}, {"type": "image", "data": "abc", "mime_type": "image/png"}], metadata={"tool_call_id": "call_1"})
+    # OpenAI tool 必须是 string
+    conv = openai._convert_messages([img_msg])
+    assert conv[0]["content"] == "result"
+    assert isinstance(conv[0]["content"], str)
+
+    # Anthropic assistant 严禁 image 块
+    asst_msg = Message(role="assistant", content=[{"type": "text", "text": "hello"}, {"type": "image", "data": "abc", "mime_type": "image/png"}])
+    _, a_conv = anthropic._convert_messages([asst_msg])
+    assert a_conv[0]["content"] == [{"type": "text", "text": "hello"}]
+
+    # Gemini system 过滤 inlineData
+    sys_msg = Message(role="system", content=[{"type": "text", "text": "sys instruction"}, {"type": "image", "data": "abc", "mime_type": "image/png"}])
+    _, sys_inst = gemini._convert_antigravity_messages([sys_msg])
+    assert sys_inst["parts"] == [{"text": "sys instruction"}]
+

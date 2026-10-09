@@ -96,7 +96,9 @@ class OpenAIProvider(Provider):
                 }
                 for part in msg.content
             ]
-            if msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
+            if msg.role in ("system", "developer"):
+                result.append({"role": msg.role, "content": msg.text_content})
+            elif msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
                 wire_calls = []
                 for tc in msg.metadata["tool_calls"]:
                     if isinstance(tc, ToolCall):
@@ -120,7 +122,7 @@ class OpenAIProvider(Provider):
                 result.append(
                     {
                         "role": "tool",
-                        "content": content,
+                        "content": msg.text_content,
                         "tool_call_id": msg.metadata.get("tool_call_id", ""),
                     }
                 )
