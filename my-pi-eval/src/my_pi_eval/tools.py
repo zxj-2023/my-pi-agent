@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import posixpath
 import re
 import shlex
@@ -90,11 +91,17 @@ class HarborToolRegistry(ToolRegistry):
             name="read",
             description="Read file contents from the container environment with line numbers.",
             prompt_snippet="Read file contents with line numbers",
+            prompt_guidelines=["Use read to examine files instead of cat or sed."],
         )
         async def read(path: str, offset: int = 1, limit: int = 2000) -> ToolResult:
             target_path = self._resolve_path(path)
             try:
-                content = await env.read_file(target_path)
+                res = await env.exec(f"cat {shlex.quote(target_path)}")
+                return_code = getattr(res, "return_code", 0)
+                if return_code != 0:
+                    return ToolResult(ok=False, error=f"File not found: '{target_path}'")
+
+                content = getattr(res, "stdout", "") or ""
                 lines = content.splitlines()
                 total_lines = len(lines)
 
@@ -113,14 +120,24 @@ class HarborToolRegistry(ToolRegistry):
 
         @tool(
             name="write",
-            description="Write content to a file inside the container environment.",
-            prompt_snippet="Write content to container file",
+            description="Create or overwrite files inside the container environment.",
+            prompt_snippet="Create or overwrite files",
+            prompt_guidelines=["Use write only for new files or complete rewrites."],
         )
         async def write(path: str, content: str) -> ToolResult:
             target_path = self._resolve_path(path)
             try:
                 normalized = content.replace("\r\n", "\n")
-                await env.write_file(target_path, normalized)
+                b64_payload = base64.b64encode(normalized.encode("utf-8")).decode("ascii")
+                cmd = (
+                    f"mkdir -p $(dirname {shlex.quote(target_path)}) && "
+                    f"echo {shlex.quote(b64_payload)} | base64 -d > {shlex.quote(target_path)}"
+                )
+                res = await env.exec(cmd)
+                return_code = getattr(res, "return_code", 0)
+                if return_code != 0:
+                    stderr = getattr(res, "stderr", "")
+                    return ToolResult(ok=False, error=f"Failed to write file '{target_path}': {stderr}")
                 return ToolResult(
                     ok=True,
                     data=f"Successfully wrote {len(normalized.encode('utf-8'))} bytes to {target_path}",
@@ -130,8 +147,14 @@ class HarborToolRegistry(ToolRegistry):
 
         @tool(
             name="edit",
-            description="Surgically edit file inside container with exact matching on host.",
-            prompt_snippet="Exact string replacement edit in container file",
+            description="Make precise file edits with exact text replacement inside the container.",
+            prompt_snippet="Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+            prompt_guidelines=[
+                "Use edit for precise changes (edits[].oldText must match exactly)",
+                "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls",
+                "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.",
+                "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.",
+            ],
         )
         async def edit(
             path: str,
@@ -149,16 +172,18 @@ class HarborToolRegistry(ToolRegistry):
                 if not raw_edits:
                     return ToolResult(ok=False, error="No edits specified")
 
-                # 2. Fetch original content from container
-                content = await env.read_file(target_path)
-                content = content.replace("\r\n", "\n")
+                # 2. Fetch original content from container via cat
+                res = await env.exec(f"cat {shlex.quote(target_path)}")
+                return_code = getattr(res, "return_code", 0)
+                if return_code != 0:
+                    return ToolResult(ok=False, error=f"File not found: '{target_path}'")
+
+                content = (getattr(res, "stdout", "") or "").replace("\r\n", "\n")
 
                 # 3. Perform surgical checks on host
                 for edit_block in raw_edits:
-                    target_old = edit_block.get("oldText") or edit_block.get("old_text") or ""
-                    target_new = edit_block.get("newText") or edit_block.get("new_text") or ""
-                    target_old = target_old.replace("\r\n", "\n")
-                    target_new = target_new.replace("\r\n", "\n")
+                    target_old = (edit_block.get("oldText") or edit_block.get("old_text") or "").replace("\r\n", "\n")
+                    target_new = (edit_block.get("newText") or edit_block.get("new_text") or "").replace("\r\n", "\n")
 
                     count = content.count(target_old)
                     if count == 0:
@@ -173,8 +198,15 @@ class HarborToolRegistry(ToolRegistry):
                         )
                     content = content.replace(target_old, target_new, 1)
 
-                # 4. Write updated content back to container
-                await env.write_file(target_path, content)
+                # 4. Write updated content back to container via base64 pipe
+                b64_payload = base64.b64encode(content.encode("utf-8")).decode("ascii")
+                cmd = f"echo {shlex.quote(b64_payload)} | base64 -d > {shlex.quote(target_path)}"
+                w_res = await env.exec(cmd)
+                w_rc = getattr(w_res, "return_code", 0)
+                if w_rc != 0:
+                    stderr = getattr(w_res, "stderr", "")
+                    return ToolResult(ok=False, error=f"Failed to save edit to '{target_path}': {stderr}")
+
                 return ToolResult(ok=True, data=f"Successfully applied {len(raw_edits)} edit(s) to {target_path}")
             except Exception as exc:
                 return ToolResult(ok=False, error=f"Error editing file '{target_path}': {exc}")
