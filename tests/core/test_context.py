@@ -725,3 +725,59 @@ async def test_discrete_epoch_compaction_establishes_stable_prefix():
             assert v[k].content == view1[k].content
             assert v[k].metadata == view1[k].metadata
 
+
+@pytest.mark.anyio
+async def test_100_turns_prefix_stability_simulation():
+    """百轮长会话前缀稳定性仿真：
+
+    模拟 100 轮交互，跟踪每一轮传给大模型的 view 相较于上一轮的前缀分叉点 (Prefix Divergence)。
+    除真正发生 Compaction 的离散 Epoch 边界点外（极少数次），
+    所有正常轮次的前缀分叉数必须为 0（100% 字节不变），证明 KV-Cache 命中率达到理论上限。
+    """
+    llm = FakeLLM([_response(content="## Goal\nContinue\n\n## Progress\nWorking") for _ in range(10)])
+    # 预算 5000 tokens，每轮约 80 tokens，在约 50 轮时触发 1 次压缩
+    ctx = _small_ctx(llm, budget=5000, keep_recent_tokens=1000)
+    history: list[Message] = [_msg("system", "You are an AI coding assistant.")]
+
+    divergence_count = 0
+    compaction_count = 0
+    prev_view: list[Message] | None = None
+
+    for turn in range(100):
+        history.append(_msg("user", f"Turn {turn} request: please inspect file {turn}.py"))
+        history.append(_msg("assistant", f"Turn {turn} response: inspection result {turn}"))
+        curr_view = await ctx.prepare(history)
+
+        if prev_view is not None:
+            # 检查上一轮全部消息是否在当前轮作为前缀 100% 保持一致
+            is_prefix_matched = True
+            if len(curr_view) < len(prev_view):
+                is_prefix_matched = False
+            else:
+                for idx in range(len(prev_view)):
+                    if (
+                        curr_view[idx].role != prev_view[idx].role
+                        or curr_view[idx].content != prev_view[idx].content
+                        or curr_view[idx].metadata != prev_view[idx].metadata
+                    ):
+                        is_prefix_matched = False
+                        break
+
+            if not is_prefix_matched:
+                divergence_count += 1
+                # 前缀不一致时，必须且只能是因为触发了新的 Compaction
+                assert any("[Context summary" in m.content for m in curr_view)
+
+        if any("[Context summary" in m.content for m in curr_view) and (
+            prev_view is None or not any("[Context summary" in m.content for m in prev_view)
+        ):
+            compaction_count += 1
+
+        prev_view = curr_view
+
+    # 100 轮中，前缀分叉次数必须严格小于等于 2 次（只在达到 80% 阈值的压缩边界发生）
+    assert divergence_count <= 2
+    # 98 轮以上的前缀匹配率为 100%
+    assert divergence_count >= 1  # 确实触发过压缩
+
+

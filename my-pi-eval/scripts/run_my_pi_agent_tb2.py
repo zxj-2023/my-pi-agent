@@ -86,11 +86,16 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
     cmd = [
         str(HARBOR_EXE),
         "run",
-        "-p", str(task_dir),
-        "-a", "my_pi_eval.agent:MyPiAgent",
-        "-m", "deepseek/deepseek-chat",
-        "--env-file", str(EVAL_DIR / ".env"),
-        "--timeout-multiplier", "3.0",
+        "-p",
+        str(task_dir),
+        "-a",
+        "my_pi_eval.agent:MyPiAgent",
+        "-m",
+        "deepseek/deepseek-chat",
+        "--env-file",
+        str(EVAL_DIR / ".env"),
+        "--timeout-multiplier",
+        "3.0",
     ]
 
     env = os.environ.copy()
@@ -138,6 +143,7 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
 
     reward = 0.0
     tokens = 0
+    cache_read = 0
     cost = 0.0
     status = "FAILED"
 
@@ -151,12 +157,27 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
             if reward == 0.0 and "reward" in rdata and rdata.get("reward") is not None:
                 reward = float(rdata.get("reward", 0.0) or 0.0)
             ar = rdata.get("agent_result") or {}
+            cache_read = 0
             if isinstance(ar, dict):
                 tokens = (ar.get("n_input_tokens") or 0) + (ar.get("n_output_tokens") or 0)
+                cache_read = ar.get("n_cache_tokens") or 0
                 cost = float(ar.get("cost_usd") or 0.0)
+
+            # Fallback to metrics.json
+            metrics_file = latest_result.parent / "agent" / "metrics.json"
+            if metrics_file.exists():
+                try:
+                    mdata = json.loads(metrics_file.read_text(encoding="utf-8", errors="replace"))
+                    if tokens == 0:
+                        tokens = (mdata.get("prompt_tokens") or 0) + (mdata.get("completion_tokens") or 0)
+                    if cache_read == 0:
+                        cache_read = mdata.get("cache_read_tokens") or 0
+                except (json.JSONDecodeError, OSError):
+                    pass
+
             if reward >= 1.0:
                 status = "PASSED"
-        except Exception:
+        except (json.JSONDecodeError, OSError, ValueError):
             pass
 
     # Prune network after container run
@@ -176,6 +197,7 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
             "tests_passed": 1 if reward >= 1.0 else 0,
             "tests_total": 1,
             "tokens": tokens,
+            "cache_read_tokens": cache_read,
             "cost_usd": cost,
             "summary": "PASSED via MyPiAgent" if status == "PASSED" else "",
             "finished_at": datetime.now().isoformat(),
@@ -202,10 +224,7 @@ def main() -> None:
     print(f"评估赛题总数: {total} 道 (已剔除 4 道物理瓶颈题) | 并发度: 4\n", flush=True)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(run_one_task, tname, i + 1, total): tname
-            for i, tname in enumerate(tasks_85)
-        }
+        futures = {executor.submit(run_one_task, tname, i + 1, total): tname for i, tname in enumerate(tasks_85)}
         for future in concurrent.futures.as_completed(futures):
             tname = futures[future]
             try:

@@ -25,11 +25,16 @@ def main() -> None:
     cmd = [
         str(HARBOR_EXE),
         "run",
-        "-p", str(TASK_DIR),
-        "-a", "my_pi_eval.agent:MyPiAgent",
-        "-m", "deepseek/deepseek-chat",
-        "--env-file", str(EVAL_DIR / ".env"),
-        "--timeout-multiplier", "2.0",
+        "-p",
+        str(TASK_DIR),
+        "-a",
+        "my_pi_eval.agent:MyPiAgent",
+        "-m",
+        "deepseek/deepseek-chat",
+        "--env-file",
+        str(EVAL_DIR / ".env"),
+        "--timeout-multiplier",
+        "2.0",
     ]
 
     env = os.environ.copy()
@@ -76,8 +81,29 @@ def main() -> None:
             rew = vr.get("rewards", {}).get("reward", 0.0) if isinstance(vr, dict) else 0.0
             ar = rdata.get("agent_result") or {}
             tok = (ar.get("n_input_tokens") or 0) + (ar.get("n_output_tokens") or 0)
+            cache_read = ar.get("n_cache_tokens") or 0
+
+            # Fallback to metrics.json or session.jsonl
+            trial_dir = latest_result.parent
+            metrics_file = trial_dir / "agent" / "metrics.json"
+            if metrics_file.exists():
+                try:
+                    mdata = json.loads(metrics_file.read_text(encoding="utf-8", errors="replace"))
+                    if tok == 0:
+                        tok = (mdata.get("prompt_tokens") or 0) + (mdata.get("completion_tokens") or 0)
+                    if cache_read == 0:
+                        cache_read = mdata.get("cache_read_tokens") or 0
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            total_in = tok + cache_read
+            hit_rate = (cache_read / total_in * 100) if total_in > 0 else 0
+
             print("=" * 80)
-            print(f"🎉 冒烟验证战报: build-cython-ext -> 得分: {rew} | 耗时: {dur}s | Tokens: {tok:,}")
+            print(
+                f"🎉 冒烟验证战报: build-cython-ext -> 得分: {rew} | 耗时: {dur}s | "
+                f"Tokens: {tok:,} | Cache Read: {cache_read:,} (缓存命中率: {hit_rate:.1f}%)"
+            )
             print("=" * 80)
         except Exception as e:
             print(f"解析结果失败: {e}")
