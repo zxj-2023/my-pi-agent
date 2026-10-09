@@ -375,3 +375,33 @@ async def test_tool_execute_timeout_enforcement():
     res = await slow_func.execute({"x": 42})
     assert res.ok is False
     assert "timed out after 0.05s" in str(res.error)
+
+
+def test_truncate_tool_output_noop():
+    """正常短输出不做截断，原样保留。"""
+    from my_agent_core.tools.core import truncate_tool_output
+
+    text = "Hello world\nLine 2"
+    assert truncate_tool_output(text) == text
+
+
+def test_truncate_tool_output_bytes():
+    """超 50KB (51,200 bytes) 输出截断并附带大小提示。"""
+    from my_agent_core.tools.core import truncate_tool_output
+
+    large_text = "a" * 100_000
+    res = truncate_tool_output(large_text, max_bytes=51_200)
+    assert len(res.encode("utf-8")) <= 51_500  # including notice
+    assert "[Output truncated" in res
+    assert "100.0KB" in res or "97.7KB" in res or "100000" in res or "KB" in res
+
+
+def test_truncate_tool_output_lines():
+    """超 2000 行输出截断，行数不超过 2000。"""
+    from my_agent_core.tools.core import truncate_tool_output
+
+    lines = "\n".join([f"Line {i}" for i in range(3000)])
+    res = truncate_tool_output(lines, max_lines=2000)
+    assert "[Output truncated" in res
+    assert len(res.splitlines()) <= 2005  # 2000 lines + notice
+
