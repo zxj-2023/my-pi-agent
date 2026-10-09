@@ -1,10 +1,76 @@
 import { Editor, visibleWidth } from "@earendil-works/pi-tui";
+import { spawn } from "node:child_process";
+import { platform } from "node:process";
+import type { MessageContent, MessageContentBlock } from "../protocol.js";
 import { type StatusIndicator } from "./status-indicator.js";
 
 export interface CustomEditorOptions {
   embedWorkingStatus?: boolean;
   paddingX?: number;
   autocompleteMaxVisible?: number;
+}
+
+export interface ImageAttachment {
+  marker: string;
+  data: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  position: number;
+}
+
+function runClipboardCommand(command: string, args: string[]): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve(Buffer.concat(chunks));
+      else reject(new Error(`${command} exited with code ${code}`));
+    });
+  });
+}
+
+async function readClipboardImage(): Promise<Omit<ImageAttachment, "marker" | "position"> | undefined> {
+  if (platform === "linux") {
+    for (const command of ["wl-paste", "xclip"]) {
+      for (const mime_type of ["image/png", "image/jpeg", "image/webp", "image/gif"] as const) {
+        try {
+          const args = command === "wl-paste"
+            ? ["--no-newline", "--type", mime_type]
+            : ["-selection", "clipboard", "-t", mime_type, "-o"];
+          const data = await runClipboardCommand(command, args);
+          if (data.length > 0) return { data: data.toString("base64"), mime_type };
+        } catch {
+          // Try the next clipboard backend or image type.
+        }
+      }
+    }
+  } else if (platform === "darwin") {
+    try {
+      const output = await runClipboardCommand("osascript", [
+        "-e",
+        "the clipboard as «class PNGf»",
+      ]);
+      const hex = output.toString().match(/«data PNGf([0-9a-f]+)»/i)?.[1];
+      if (hex) return { data: Buffer.from(hex, "hex").toString("base64"), mime_type: "image/png" };
+    } catch {
+      return undefined;
+    }
+  } else if (platform === "win32") {
+    try {
+      const output = await runClipboardCommand("powershell", [
+        "-NoProfile",
+        "-STA",
+        "-Command",
+        "Add-Type -AssemblyName System.Windows.Forms; $image = [Windows.Forms.Clipboard]::GetImage(); if ($image) { $stream = New-Object IO.MemoryStream; $image.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png); [Convert]::ToBase64String($stream.ToArray()) }",
+      ]);
+      const data = output.toString().trim();
+      if (data) return { data, mime_type: "image/png" };
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -14,6 +80,10 @@ export interface CustomEditorOptions {
 export class CustomEditor extends Editor {
   public embedWorkingStatus: boolean;
   private workingStatusIndicator?: StatusIndicator;
+  private imageAttachments = new Map<string, Omit<ImageAttachment, "marker" | "position">>();
+  private imageCounter = 0;
+  private pendingImagePastes = 0;
+  private submitDisabledBeforePaste = false;
 
   constructor(tui: any, theme: any, options?: CustomEditorOptions) {
     super(tui, theme, options);
@@ -23,6 +93,76 @@ export class CustomEditor extends Editor {
   public setWorkingStatusIndicator(indicator?: StatusIndicator): void {
     this.workingStatusIndicator = indicator;
     this.tui.requestRender();
+  }
+
+  public async pasteImageFromClipboard(): Promise<boolean> {
+    if (this.pendingImagePastes++ === 0) {
+      this.submitDisabledBeforePaste = this.disableSubmit;
+      this.disableSubmit = true;
+    }
+    const marker = this.insertImageMarker();
+    try {
+      const image = await readClipboardImage();
+      if (!image) {
+        this.setText(this.getExpandedText().replace(marker, ""));
+        return false;
+      }
+      this.imageAttachments.set(marker, image);
+      return true;
+    } finally {
+      if (--this.pendingImagePastes === 0) this.disableSubmit = this.submitDisabledBeforePaste;
+    }
+  }
+
+  public insertImageAttachment(image: Omit<ImageAttachment, "marker" | "position">): void {
+    const marker = this.insertImageMarker();
+    this.imageAttachments.set(marker, image);
+  }
+
+  private insertImageMarker(): string {
+    const marker = `[image ${++this.imageCounter}]`;
+    this.insertTextAtCursor(marker);
+    this.tui.requestRender();
+    return marker;
+  }
+
+  public getImageAttachments(): ImageAttachment[] {
+    const text = this.getExpandedText();
+    const attachments: ImageAttachment[] = [];
+    for (const match of text.matchAll(/\[image \d+\]/g)) {
+      const image = this.imageAttachments.get(match[0]);
+      if (image) attachments.push({ marker: match[0], ...image, position: match.index });
+    }
+    return attachments;
+  }
+
+  public getMessageContent(): MessageContent {
+    const text = this.getExpandedText();
+    const attachments = this.getImageAttachments();
+    if (attachments.length === 0) return text;
+
+    const blocks: MessageContentBlock[] = [];
+    let cursor = 0;
+    for (const attachment of attachments) {
+      const position = attachment.position;
+      if (position > cursor) blocks.push({ type: "text", text: text.slice(cursor, position) });
+      blocks.push({ type: "image", data: attachment.data, mime_type: attachment.mime_type });
+      cursor = position + attachment.marker.length;
+    }
+    if (cursor < text.length) blocks.push({ type: "text", text: text.slice(cursor) });
+    return blocks;
+  }
+
+  public setMessageContent(content: MessageContent): void {
+    this.setText("");
+    if (typeof content === "string") {
+      this.setText(content);
+    } else {
+      for (const block of content) {
+        if (block.type === "text") this.insertTextAtCursor(block.text);
+        else this.insertImageAttachment(block);
+      }
+    }
   }
 
   public override renderTopBorder(

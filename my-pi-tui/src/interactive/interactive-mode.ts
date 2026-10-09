@@ -17,6 +17,7 @@ import { KernelBridge } from "../bridge/kernel-bridge.js";
 import { AssistantMessageComponent } from "../components/assistant-message.js";
 import { CompactionSummaryMessageComponent } from "../components/compaction-summary-message.js";
 import { CustomEditor } from "../components/custom-editor.js";
+import type { MessageContent, MessageContentBlock } from "../protocol.js";
 import { DynamicBorder } from "../components/dynamic-border.js";
 import { FooterComponent, formatTokens } from "../components/footer.js";
 import { HeaderComponent } from "../components/header.js";
@@ -61,6 +62,12 @@ import {
   createInteractiveTui,
   type InteractiveTuiOptions,
 } from "./tui-renderer.js";
+
+function displayMessageContent(content: MessageContent): string {
+  return typeof content === "string"
+    ? content
+    : content.map((block) => block.type === "image" ? "[image]" : block.text).join("");
+}
 
 export interface InteractiveModeOptions extends InteractiveTuiOptions {
   workspace?: string;
@@ -191,8 +198,8 @@ export class InteractiveMode {
   public isStreaming = false;
   public isWorking = false;
   public isSubmitting = false;
-  public pendingSteeringList: string[] = [];
-  public pendingFollowupList: string[] = [];
+  public pendingSteeringList: MessageContent[] = [];
+  public pendingFollowupList: MessageContent[] = [];
   public currentThinkingLevel = "off";
   public currentModelName = "default";
   public workspace: string;
@@ -332,12 +339,12 @@ export class InteractiveMode {
 
     for (const text of this.pendingSteeringList) {
       this.pendingMessagesContainer.addChild(
-        new Text(theme.dim(`Steering: ${text}`), 0, 0),
+        new Text(theme.dim(`Steering: ${displayMessageContent(text)}`), 0, 0),
       );
     }
     for (const text of this.pendingFollowupList) {
       this.pendingMessagesContainer.addChild(
-        new Text(theme.dim(`Follow-up: ${text}`), 0, 0),
+        new Text(theme.dim(`Follow-up: ${displayMessageContent(text)}`), 0, 0),
       );
     }
     this.pendingMessagesContainer.addChild(
@@ -347,23 +354,25 @@ export class InteractiveMode {
   }
 
   public async handleFollowUp(): Promise<void> {
+    if (this.defaultEditor.disableSubmit) return;
     const text = this.defaultEditor.getText().trim();
     if (!text) return;
 
+    const content = this.defaultEditor.getMessageContent();
     this.defaultEditor.addToHistory?.(text);
     this.defaultEditor.setText("");
 
     const isBusy = this.isStreaming || this.isWorking || this.isSubmitting;
     if (isBusy) {
-      this.pendingFollowupList.push(text);
+      this.pendingFollowupList.push(typeof content === "string" ? text : content);
       this.updatePendingMessagesDisplay();
       try {
-        await this.bridge.followUp(text);
+        await this.bridge.followUp(typeof content === "string" ? text : content);
       } catch (err: any) {
         this.appendErrorMessage(`Follow-up 注入异常: ${err.message || String(err)}`);
       }
     } else {
-      await this.handleUserInput(text);
+      await this.handleUserInput(text, typeof content === "string" ? undefined : content);
     }
   }
 
@@ -375,10 +384,15 @@ export class InteractiveMode {
     this.pendingFollowupList = [];
     this.updatePendingMessagesDisplay();
 
-    const currentText = this.defaultEditor.getText();
-    const restoredText = allPending.join("\n\n");
-    const newText = currentText ? `${currentText}\n\n${restoredText}` : restoredText;
-    this.defaultEditor.setText(newText);
+    const current = this.defaultEditor.getMessageContent();
+    const inputs = current.length > 0 ? [current, ...allPending] : allPending;
+    const blocks: MessageContentBlock[] = [];
+    inputs.forEach((content, index) => {
+      if (index > 0) blocks.push({ type: "text", text: "\n\n" });
+      if (typeof content === "string") blocks.push({ type: "text", text: content });
+      else blocks.push(...content);
+    });
+    this.defaultEditor.setMessageContent(blocks);
 
     try {
       await this.bridge.clearQueue();
@@ -410,20 +424,15 @@ export class InteractiveMode {
 
       case "message_start": {
         if (event.message?.role === "user") {
-          const content =
-            typeof event.message?.content === "string"
-              ? event.message.content
-              : Array.isArray(event.message?.content)
-                ? event.message.content.map((b: any) => b.text || "").join("")
-                : "";
+          const content = displayMessageContent(event.message.content);
           if (content) {
             let isQueued = false;
-            const steerIdx = this.pendingSteeringList.indexOf(content);
+            const steerIdx = this.pendingSteeringList.findIndex((message) => displayMessageContent(message) === content);
             if (steerIdx !== -1) {
               this.pendingSteeringList.splice(steerIdx, 1);
               isQueued = true;
             } else {
-              const followIdx = this.pendingFollowupList.indexOf(content);
+              const followIdx = this.pendingFollowupList.findIndex((message) => displayMessageContent(message) === content);
               if (followIdx !== -1) {
                 this.pendingFollowupList.splice(followIdx, 1);
                 isQueued = true;
@@ -818,20 +827,21 @@ export class InteractiveMode {
     editor.onSubmit = async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      const content = editor.getMessageContent();
       editor.addToHistory?.(trimmed);
       editor.setText("");
-      await this.handleUserInput(trimmed);
+      await this.handleUserInput(trimmed, typeof content === "string" ? undefined : content);
     };
 
     return editor;
   }
 
-  public async handleUserInput(input: string): Promise<void> {
+  public async handleUserInput(input: string, content?: MessageContentBlock[]): Promise<void> {
     const isBusy = this.isStreaming || this.isWorking || this.isSubmitting;
 
     // ── 运行期/提交中动态分流与即时转向 (Smart Steer Routing) ──
     if (isBusy) {
-      if (input.startsWith("/steer")) {
+      if (!content && input.startsWith("/steer")) {
         const steerText = input.replace(/^\/steer\s*/i, "").trim();
         if (steerText) {
           this.pendingSteeringList.push(steerText);
@@ -843,7 +853,7 @@ export class InteractiveMode {
         return;
       }
 
-      if (input.startsWith("/followup")) {
+      if (!content && input.startsWith("/followup")) {
         const followupText = input.replace(/^\/followup\s*/i, "").trim();
         if (followupText) {
           this.pendingFollowupList.push(followupText);
@@ -855,7 +865,7 @@ export class InteractiveMode {
         return;
       }
 
-      if (input === "/abort" || input.startsWith("/abort ")) {
+      if (!content && (input === "/abort" || input.startsWith("/abort "))) {
         void this.bridge.abort();
         this.isStreaming = false;
         this.isWorking = false;
@@ -874,7 +884,7 @@ export class InteractiveMode {
         return;
       }
 
-      if (input.startsWith("/")) {
+      if (!content && input.startsWith("/")) {
         this.appendErrorMessage(
           "当前智能体正在执行中，请等待完成或输入 /steer 插话、按 Esc 中断后再执行其他管理命令。",
         );
@@ -883,10 +893,10 @@ export class InteractiveMode {
       }
 
       // 运行期普通文本输入直接加入 Pending 转向队列并在下方待发区展示
-      this.pendingSteeringList.push(input);
+      this.pendingSteeringList.push(content ?? input);
       this.updatePendingMessagesDisplay();
       try {
-        await this.bridge.steer(input);
+        await this.bridge.steer(content ?? input);
       } catch (err: any) {
         this.appendErrorMessage(`转向注入异常: ${err.message || String(err)}`);
       }
@@ -895,6 +905,7 @@ export class InteractiveMode {
 
     // 1. 处理技能或提示词模板宏扩展
     if (
+      !content &&
       input.startsWith("/") &&
       (input.startsWith("/skill:") ||
         input.startsWith("/skill ") ||
@@ -938,27 +949,27 @@ export class InteractiveMode {
     }
 
     // 2. 处理斜杠命令
-    if (input.startsWith("/")) {
+    if (!content && input.startsWith("/")) {
       await this.handleSlashCommand(input);
       return;
     }
 
     // 3. 处理 Shell 快捷命令 !cmd 或 !!cmd
-    if (input.startsWith("!")) {
+    if (!content && input.startsWith("!")) {
       await this.handleShellMacro(input);
       return;
     }
 
     // 4. 普通文本输入：渲染用户气泡并提交给 Python
     this.isSubmitting = true;
-    const userMsg = new UserMessageComponent(input);
+    const userMsg = new UserMessageComponent(content ? displayMessageContent(content) : input);
     this.chatContainer.addChild(userMsg);
     this.chatContainer.addChild(new Spacer(1));
     this.ui.requestRender();
 
     try {
       this.footer.update({ isBusy: true });
-      await this.bridge.prompt(input);
+      await this.bridge.prompt(input, content ? { content } : undefined);
     } catch (err: any) {
       this.appendErrorMessage(`请求失败: ${err.message || String(err)}`);
       this.isStreaming = false;
@@ -996,7 +1007,13 @@ export class InteractiveMode {
         return { consume: true };
       }
 
-      if (matchesKey(data, "ctrl+c")) {
+      if (matchesKey(data, "ctrl+v") || matchesKey(data, "ctrl+shift+v")) {
+        void this.defaultEditor.pasteImageFromClipboard().then((pasted) => {
+          if (!pasted) this.appendErrorMessage("剪贴板中没有可粘贴的图片。");
+          this.ui.requestRender();
+        });
+        return { consume: true };
+      } else if (matchesKey(data, "ctrl+c")) {
         if (this.isStreaming || this.isSubmitting || this.isWorking) {
           void this.bridge.abort();
           this.isStreaming = false;
@@ -1539,7 +1556,7 @@ export class InteractiveMode {
               this.renderSessionHistory(branchRes.messages);
             }
             if (branchRes?.editor_text) {
-              this.defaultEditor.setText(String(branchRes.editor_text));
+              this.defaultEditor.setMessageContent(branchRes.editor_text);
             }
             this.appendSystemNotice(`✓ 已切换至分支节点: ${node.id}`);
           } catch (err: any) {
@@ -2092,6 +2109,7 @@ export class InteractiveMode {
             "",
             `  ${theme.bold("编辑与会话 (Editing):")}`,
             `    Enter         提交提问 (在输入框) 或确认当前所选条目 (在选择器)`,
+            `    Ctrl+V        粘贴剪贴板图片（也支持 Ctrl+Shift+V）`,
             `    Ctrl+Q        排队追问 (Follow-up) 当前任务完成后自动顺延执行`,
             `    Alt+Q/Alt+Up  召回并编辑全部待发排队消息 (Steering & Follow-up)`,
             `    Ctrl+C        清空当前输入文字 (输入框有文字时) / 关闭弹窗 (选择器中)`,
@@ -2206,7 +2224,7 @@ export class InteractiveMode {
             : Array.isArray(msg.content)
               ? msg.content
                   .map((b: any) =>
-                    typeof b === "string" ? b : b?.text || b?.content || "",
+                    typeof b === "string" ? b : b?.type === "image" ? "[image]" : b?.text || b?.content || "",
                   )
                   .join("")
               : String(msg.content ?? "");
