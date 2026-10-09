@@ -74,7 +74,7 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
         print(f"[{index}/{total}] ❌ 任务目录不存在: {task_dir}", flush=True)
         return {"task": task_name, "status": "FAILED", "error": "not_found"}
 
-    timeout_sec = 2400
+    timeout_sec = 3600
     kill_deadline = timeout_sec + 300
 
     print(
@@ -95,7 +95,7 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
         "--env-file",
         str(EVAL_DIR / ".env"),
         "--timeout-multiplier",
-        "3.0",
+        "4.0",
     ]
 
     env = os.environ.copy()
@@ -104,7 +104,8 @@ def run_one_task(task_name: str, index: int, total: int) -> dict:
     env["PYTHONPATH"] = f"{REPO_ROOT / 'src'};{REPO_ROOT / 'my-pi-eval' / 'src'}"
     env["DEEPSEEK_API_KEY"] = "sk-0ecbb64201d441119f6a6b57e7eb15e3"
     env["PIP_INDEX_URL"] = "https://mirrors.aliyun.com/pypi/simple/"
-    env["PIP_TRUSTED_HOST"] = "mirrors.aliyun.com"
+    env["PIP_EXTRA_INDEX_URL"] = "https://download.pytorch.org/whl/cpu"
+    env["PIP_TRUSTED_HOST"] = "mirrors.aliyun.com download.pytorch.org"
     env["MY_AGENT_DEBUG"] = "1"
 
     start_time = time.time()

@@ -93,9 +93,7 @@ async def test_harbor_edit_tool_uniqueness_check(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
 
     registry = HarborToolRegistry(fake_env)
-    res = await registry.execute(
-        "edit", {"path": "/app/dup.py", "edits": [{"oldText": "x = 1", "newText": "x = 2"}]}
-    )
+    res = await registry.execute("edit", {"path": "/app/dup.py", "edits": [{"oldText": "x = 1", "newText": "x = 2"}]})
     assert res.ok is False
     assert "2 times" in str(res.error)
     assert "Must be uniquely matching" in str(res.error)

@@ -52,7 +52,9 @@ class HarborToolRegistry(ToolRegistry):
                 wrapped_cmd = (
                     f"cd {shlex.quote(self._cwd)} 2>/dev/null || true; "
                     "export DEBIAN_FRONTEND=noninteractive PAGER=cat GIT_PAGER=cat CI=true "
-                    "PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ PIP_TRUSTED_HOST=mirrors.aliyun.com; "
+                    "PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ "
+                    "PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu "
+                    "PIP_TRUSTED_HOST='mirrors.aliyun.com download.pytorch.org'; "
                     f"{command}\n"
                     "__MY_PI_RC__=$?\n"
                     'echo "__MY_PI_CWD__:$(pwd)"\n'
