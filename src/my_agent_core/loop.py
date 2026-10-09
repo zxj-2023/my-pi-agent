@@ -559,6 +559,8 @@ async def run_agent_loop(
     iteration = 0
     final_text: str | None = None
     pending_messages: list[Message] = []
+    length_continuations = 0
+    MAX_LENGTH_CONTINUATIONS = 3
     # 若初始已传入 prompts 任务，首轮推理严格执行初始任务；steering 消息统一在首轮工具执行完毕后交付（对标 Pi 契约）
     if not converted_prompts and get_steering_messages is not None:
         init_steer = get_steering_messages()
@@ -675,6 +677,7 @@ async def run_agent_loop(
             calls = (assistant.metadata or {}).get("tool_calls")
             is_truncated = (assistant.metadata or {}).get("stop_reason") == "length"
             if calls:
+                length_continuations = 0
                 tool_stream = (
                     _fail_tool_calls_from_truncated_message(calls)
                     if is_truncated
@@ -699,6 +702,19 @@ async def run_agent_loop(
                     final_text = assistant.content or terminating_obs[-1]
                 else:
                     has_more_tools = True
+            elif is_truncated and length_continuations < MAX_LENGTH_CONTINUATIONS:
+                # ── 对标 Pi isRecoverableLength / willRetry ────────────────────────
+                # 当大模型因达到 max_tokens 输出截断且尚未吐出 tool_calls 时，
+                # 绝不草率退出！注入自动续写提示，引导模型继续输出并调用工具。
+                length_continuations += 1
+                continuation_msg = Message(
+                    role="user",
+                    content="[System: Your previous response reached the maximum output token limit. Please continue your response and proceed to call tools to execute your plan.]",
+                )
+                messages.append(continuation_msg)
+                yield MessageStart(continuation_msg)
+                yield MessageEnd(continuation_msg)
+                has_more_tools = True
             else:
                 has_more_tools = False
                 final_text = assistant.content

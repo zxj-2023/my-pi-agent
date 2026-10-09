@@ -12,6 +12,16 @@ from typing import Any
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools.core import ToolResult, tool
 
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def strip_ansi_and_cr(text: str) -> str:
+    """对标 Pi sanitizeBinaryOutput(stripAnsi(rawText)).replace(/\\r/g, '')。"""
+    if not text:
+        return ""
+    clean = ANSI_ESCAPE_RE.sub("", text)
+    return clean.replace("\r", "")
+
 
 class HarborToolRegistry(ToolRegistry):
     """Bridges the agent's workspace tools to Harbor's container BaseEnvironment."""
@@ -61,8 +71,10 @@ class HarborToolRegistry(ToolRegistry):
                     "exit $__MY_PI_RC__"
                 )
                 res = await asyncio.wait_for(env.exec(wrapped_cmd), timeout=timeout)
-                stdout = getattr(res, "stdout", "") or ""
-                stderr = getattr(res, "stderr", "") or ""
+                raw_stdout = getattr(res, "stdout", "") or ""
+                raw_stderr = getattr(res, "stderr", "") or ""
+                stdout = strip_ansi_and_cr(raw_stdout)
+                stderr = strip_ansi_and_cr(raw_stderr)
                 return_code = getattr(res, "return_code", 0)
 
                 # Extract updated CWD if present
@@ -78,10 +90,13 @@ class HarborToolRegistry(ToolRegistry):
                     combined = f"{stdout}\nstderr:\n{stderr}" if stdout else stderr
 
                 if return_code != 0:
+                    # 对标 Pi bash.ts: appendStatus(outputText, `Command exited with code ${exitCode}`)
+                    exit_status = f"Command exited with code {return_code}"
+                    err_msg = f"{combined}\n\n{exit_status}" if combined else exit_status
                     return ToolResult(
                         ok=False,
                         data=combined,
-                        error=f"Command exited with code {return_code}: {stderr or stdout}",
+                        error=err_msg,
                     )
                 return ToolResult(ok=True, data=combined)
             except asyncio.TimeoutError:

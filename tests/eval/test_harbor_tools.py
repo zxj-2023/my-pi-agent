@@ -57,6 +57,48 @@ async def test_harbor_bash_tool(fake_env):
 
 
 @pytest.mark.anyio
+async def test_harbor_bash_strips_ansi_and_cr(fake_env):
+    """对标 Pi bash-executor.ts：清洗 ANSI 颜色控制符与 \r 进度条。"""
+    from my_pi_eval.tools import HarborToolRegistry
+
+    fake_env.exec.side_effect = None
+    exec_res = MagicMock()
+    exec_res.return_code = 0
+    exec_res.stdout = "\x1b[31mFAILED\x1b[0m 10%\r20%\rFinished\n"
+    exec_res.stderr = ""
+    fake_env.exec.return_value = exec_res
+
+    registry = HarborToolRegistry(fake_env)
+    res = await registry.execute("bash", {"command": "pytest"})
+    assert res.ok is True
+    assert "\x1b[31m" not in str(res.data)
+    assert "\r" not in str(res.data)
+    assert "FAILED" in str(res.data)
+    assert "Finished" in str(res.data)
+
+
+@pytest.mark.anyio
+async def test_harbor_bash_error_merges_stdout_and_exit_code(fake_env):
+    """对标 Pi bash.ts：失败时完整保留 stdout+stderr，并在末尾追加 Command exited with code {code}。"""
+    from my_pi_eval.tools import HarborToolRegistry
+
+    fake_env.exec.side_effect = None
+    exec_res = MagicMock()
+    exec_res.return_code = 1
+    exec_res.stdout = "Traceback (most recent call last):\n  File 'app.py', line 10\nZeroDivisionError"
+    exec_res.stderr = "warning: unused import"
+    fake_env.exec.return_value = exec_res
+
+    registry = HarborToolRegistry(fake_env)
+    res = await registry.execute("bash", {"command": "python app.py"})
+    assert res.ok is False
+    serialized = res.serialize()
+    assert "ZeroDivisionError" in serialized
+    assert "warning: unused import" in serialized
+    assert "Command exited with code 1" in serialized
+
+
+@pytest.mark.anyio
 async def test_harbor_read_tool(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
 

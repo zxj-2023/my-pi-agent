@@ -782,3 +782,24 @@ async def test_run_agent_loop_hook_terminate_composition():
     assert len(agent_ends2) == 1
     assert agent_ends2[0].iterations == 2  # 成功跑了 2 轮，没有被第一轮的工具强行提前退出
     assert agent_ends2[0].final_text == "Continued after suppression"
+
+
+@pytest.mark.anyio
+async def test_loop_continuation_on_length_truncation_without_tools():
+    """对标 Pi isRecoverableLength / willRetry：当模型输出被 max_tokens (length) 截断且无 tool_calls 时，自动续写而不是提前交卷。"""
+    resp1 = _response(content="Thinking deeply about the solution...", finish_reason="length")
+    resp2 = _response(content="Finally done with implementation.")
+
+    llm = FakeLLM([resp1, resp2])
+    events = []
+    async for ev in run_agent_loop(
+        llm=llm,
+        messages=[],
+        prompts=[Message(role="user", content="Write code")],
+    ):
+        events.append(ev)
+
+    agent_ends = [e for e in events if isinstance(e, AgentEnd)]
+    assert len(agent_ends) == 1
+    assert agent_ends[0].iterations == 2  # 自动触发续写，进入第二轮！
+    assert agent_ends[0].final_text == "Finally done with implementation."
