@@ -127,6 +127,86 @@ async def test_rpc_server_initialize_and_prompt(tmp_path: Path):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("content", [
+    "plain text",
+    [{"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}],
+    [{"type": "text", "text": "before"}, {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}, {"type": "text", "text": "after"}],
+])
+async def test_rpc_prompt_content_events_and_history(tmp_path: Path, monkeypatch, content):
+    monkeypatch.setenv("MY_AGENT_HOME", str(tmp_path / "home"))
+    captured = []
+
+    class CapturingLLM(FakeLLM):
+        async def achat_stream(self, *args, **kwargs):
+            captured.append(kwargs["messages"][-1].content)
+            async for chunk in super().achat_stream(*args, **kwargs):
+                yield chunk
+
+    output = io.StringIO()
+    server = RpcServer(stdout=output, llm=CapturingLLM())
+    init = await server.handle_request({"id": 1, "method": "initialize", "params": {"workspace": str(tmp_path)}})
+    session_id = init["result"]["session_id"]
+    request = json.loads(json.dumps({"id": 2, "method": "prompt", "params": {"content": content, "text": "ignored"}}))
+    response = await server.handle_request(request)
+    assert response["result"]["status"] == "completed"
+    assert captured == [content]
+
+    events = [line["params"] for line in map(json.loads, output.getvalue().splitlines()) if line.get("method") == "event"]
+    user_events = [event for event in events if event.get("message", {}).get("role") == "user"]
+    assert [event["type"] for event in user_events] == ["message_start", "message_end"]
+    assert all(event["message"]["content"] == content for event in user_events)
+    history = await server.handle_request({"id": 3, "method": "session_history"})
+    assert history["result"]["messages"][0]["content"] == content
+
+    await server.handle_request({"id": 4, "method": "session_new"})
+    resumed = await server.handle_request({"id": 5, "method": "session_resume", "params": {"session_id": session_id}})
+    assert resumed["result"]["messages"][0]["content"] == content
+    restored = RpcServer(stdout=io.StringIO(), llm=FakeLLM())
+    reinit = await restored.handle_request({"id": 6, "method": "initialize", "params": {"workspace": str(tmp_path), "resume": session_id}})
+    assert reinit["result"]["messages"][0]["content"] == content
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method,behavior", [
+    ("prompt", "steer"), ("prompt", "followUp"), ("prompt", "followup"),
+    ("steer", None), ("followup", None),
+])
+@pytest.mark.parametrize("image_only", [False, True])
+async def test_rpc_queued_content_preserves_image_order(tmp_path: Path, method, behavior, image_only):
+    image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
+    content = [image] if image_only else [{"type": "text", "text": "before"}, image, {"type": "text", "text": "after"}]
+    captured = []
+
+    class CapturingLLM(FakeLLM):
+        async def achat_stream(self, *args, **kwargs):
+            captured.append(kwargs["messages"][-1].content)
+            if len(captured) == 1:
+                assert server.is_prompt_running is True
+                params = {"content": content, "streamingBehavior": behavior} if method == "prompt" else {"message": content}
+                response = await server.handle_request({"id": 2, "method": method, "params": params})
+                assert response["result"]["status"] == "ok"
+                if method == "prompt":
+                    assert response["result"]["action"] == ("steered" if behavior == "steer" else "queued")
+            async for chunk in super().achat_stream(*args, **kwargs):
+                yield chunk
+
+    agent = CodingAgent(workspace=tmp_path, llm=CapturingLLM(), session=tmp_path / "s.jsonl", auto_load_mcp=False)
+    output = io.StringIO()
+    server = RpcServer(stdout=output, agent=agent)
+    response = await server.handle_request({"id": 1, "method": "prompt", "params": {"text": "initial"}})
+    assert response["result"]["status"] == "completed"
+    assert captured == ["initial", content]
+    assert not agent.agent.message_queue
+    assert server.is_prompt_running is False
+
+    events = [line["params"] for line in map(json.loads, output.getvalue().splitlines()) if line.get("method") == "event"]
+    user_events = [event for event in events if event.get("message", {}).get("role") == "user"]
+    assert [event["message"]["content"] for event in user_events] == ["initial", "initial", content, content]
+    users = [message for message in agent.agent.session.get_full_history_messages() if message.role == "user"]
+    assert [message.content for message in users] == ["initial", content]
+
+
+@pytest.mark.anyio
 async def test_rpc_server_steer_abort_and_shutdown(tmp_path: Path):
     in_buf = io.StringIO()
     out_buf = io.StringIO()

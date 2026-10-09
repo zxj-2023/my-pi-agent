@@ -342,16 +342,17 @@ class RpcServer:
                 },
             )
 
-        text = params.get("text", "")
+        # content 支持有序内容块；旧客户端仍可使用 text。
+        content = params.get("content", params.get("text", ""))
         streaming_behavior = params.get("streamingBehavior") or params.get("streaming_behavior")
 
         # 运行期并发分流保护：若已有活跃 prompt 正在执行，根据契约转为 steer 或 followup，杜绝任务穿透竞态
         if self._is_prompt_running:
             if streaming_behavior == "steer":
-                self.agent.steer(text)
+                self.agent.steer(content)
                 return self.send_response(req_id, result={"status": "ok", "action": "steered"})
             elif streaming_behavior in {"followUp", "followup"}:
-                self.agent.follow_up(text)
+                self.agent.follow_up(content)
                 return self.send_response(req_id, result={"status": "ok", "action": "queued"})
 
         current_task = asyncio.current_task()
@@ -360,7 +361,7 @@ class RpcServer:
             async with self._prompt_lock:
                 self._is_prompt_running = True
                 try:
-                    async for event in self.agent.run_stream(text):
+                    async for event in self.agent.run_stream(content):
                         if isinstance(event, MessageEnd) and event.message and event.message.role == "assistant":
                             meta = event.message.metadata or {}
                             usage = meta.get("usage")

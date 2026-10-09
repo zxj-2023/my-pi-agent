@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import pytest
+from my_agent_llm import Response
 
 from my_agent_core.session import Session
 from my_coding_agent.paths import AgentPaths
@@ -24,6 +25,40 @@ def test_compute_session_usage_empty(tmp_path: Path) -> None:
     assert usage["output"] == 0
     assert usage["total"] == 0
     assert usage["cost"] == 0.0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("image_only", [False, True])
+async def test_ordered_content_session_views_and_fork(tmp_path: Path, image_only):
+    paths = AgentPaths(home=tmp_path / "home")
+    session = Session(path=paths.project_session_dir(tmp_path) / "source.jsonl", cwd=str(tmp_path))
+    image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
+    content = [image] if image_only else [{"type": "text", "text": "before"}, image, {"type": "text", "text": "after"}]
+    user = session.add_message("user", content)
+    text = "" if image_only else "beforeafter"
+    assert build_tree_nodes(session)[0][0]["preview"] == text
+    assert compute_session_usage(session, "fake")["contextTokens"] == max(1, len(text) // 4)
+    session_list = list_project_sessions(paths, tmp_path)
+    assert session_list[0]["first_message"] == (text or None)
+
+    forked, prompt, _ = fork_session_tree(session, user.id, paths, tmp_path)
+    assert prompt == content
+    if text:
+        assert forked.metadata["title"] == text
+    cloned, _, clone_path = clone_session_tree(session, paths, tmp_path)
+    assert Session.load(clone_path).get_full_history_messages()[0].content == content
+    assert cloned.get_full_history_messages()[0].content == content
+    summary_prompts = []
+
+    class SummaryLLM:
+        async def achat(self, messages):
+            summary_prompts.append(messages[0].content)
+            return Response(content="summary", model="fake")
+
+    _, editor_content, summary, _ = await branch_session_tree(session, user.id, summarize=True, llm=SummaryLLM())
+    assert editor_content == content
+    assert summary == "summary"
+    assert "aGVsbG8=" not in summary_prompts[0]
 
 
 def test_compute_session_usage_non_empty(tmp_path: Path) -> None:

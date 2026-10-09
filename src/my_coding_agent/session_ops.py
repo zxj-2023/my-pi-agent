@@ -23,7 +23,7 @@ from my_agent_core.session.entries import (
 )
 from my_agent_core.session.tree import lowest_common_ancestor
 from my_agent_core.tool_history import repair_tool_history
-from my_agent_llm import Message
+from my_agent_llm import Message, MessageContent
 from my_coding_agent.paths import AgentPaths
 from my_coding_agent.serialization import uuid7_str
 
@@ -95,7 +95,7 @@ def compute_session_usage(session: Session, model_name: str) -> dict[str, Any]:
                     break
 
     if not last_context_tokens and history_msgs:
-        total_chars = sum(len(m.content or "") for m in history_msgs)
+        total_chars = sum(len(m.text_content) for m in history_msgs)
         last_context_tokens = max(1, total_chars // 4)
 
     totals["contextTokens"] = last_context_tokens
@@ -295,6 +295,8 @@ def list_project_sessions(
                                 msg_count += 1
                                 if first_msg_text is None and entry_data.get("message", {}).get("role") == "user":
                                     content = entry_data.get("message", {}).get("content", "")
+                                    if isinstance(content, list):
+                                        content = Message(role="user", content=content).text_content
                                     if isinstance(content, str) and content.strip():
                                         first_msg_text = content.strip().splitlines()[0][:60]
                             elif etype in ("session_info", "sessionInfo"):
@@ -422,7 +424,7 @@ def build_tree_nodes(session: Session) -> tuple[list[dict[str, Any]], str | None
         preview = ""
         if isinstance(entry, MessageEntry):
             msg = entry.message
-            content = msg.content or ""
+            content = msg.text_content
             if msg.metadata and msg.metadata.get("tool_calls"):
                 tc_names = [
                     tc.get("function", {}).get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
@@ -498,7 +500,7 @@ def fork_session_tree(
     entry_id: str,
     paths: AgentPaths,
     workspace_path: Path,
-) -> tuple[Session, str, Path]:
+) -> tuple[Session, MessageContent, Path]:
     """从指定 entry_id 分叉开辟新会话，复制截止至该 entry_id 父节点的历史路径。
 
     返回 (new_session, prompt_text, new_session_file)。
@@ -527,8 +529,9 @@ def fork_session_tree(
     new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
     new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
     new_session.metadata["forked_from_entry_id"] = entry_id
-    if prompt_text:
-        fork_title = prompt_text.strip().splitlines()[0][:60]
+    title_text = target_entry.message.text_content if isinstance(target_entry, MessageEntry) else prompt_text
+    if title_text.strip():
+        fork_title = title_text.strip().splitlines()[0][:60]
         new_session.metadata["name"] = fork_title
         new_session.metadata["title"] = fork_title
 
@@ -579,7 +582,7 @@ async def branch_session_tree(
     summarize: bool = False,
     llm: Any = None,
     system_messages: list[Any] | None = None,
-) -> tuple[str | None, str, str | None, list[Any]]:
+) -> tuple[str | None, MessageContent, str | None, list[Any]]:
     """在现有 SessionTree 中切换分支点，可选生成废弃分支摘要，并修复重放消息。
 
     返回 (new_leaf_id, editor_text, branch_summary_text, repaired_messages)。
@@ -630,7 +633,7 @@ async def branch_session_tree(
             summary_prompt = (
                 "Please concisely summarize the key decisions, code changes, and exploration from this abandoned conversation branch in 1-2 sentences:\n"
                 + "\n".join(
-                    f"{getattr(e, 'role', 'entry')}: {getattr(e, 'content', '')}"
+                    f"{getattr(e, 'role', 'entry')}: {e.message.text_content if isinstance(e, MessageEntry) else getattr(e, 'content', '')}"
                     for e in abandoned_entries
                     if hasattr(e, "content") or hasattr(e, "message")
                 )

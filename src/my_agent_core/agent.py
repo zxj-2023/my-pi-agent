@@ -270,11 +270,11 @@ class Agent:
 
         return unsubscribe
 
-    def steer(self, message: str) -> None:
+    def steer(self, message: MessageContent) -> None:
         """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
         self.message_queue.add_steering(message)
 
-    def follow_up(self, message: str) -> None:
+    def follow_up(self, message: MessageContent) -> None:
         """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
         self.message_queue.add_followup(message)
 
@@ -282,13 +282,13 @@ class Agent:
         """清空当前排队的干预消息（包含 Steering 与 Follow-up），并返回被清除的消息列表。"""
         return self.message_queue.clear()
 
-    def _get_steering_messages(self) -> Sequence[str]:
+    def _get_steering_messages(self) -> Sequence[MessageContent]:
         """为底层循环提取当前排队的 steer 消息。"""
         if self.message_queue.has_steering():
             return [m.content for m in self.message_queue.get_steering_messages()]
         return []
 
-    def _get_follow_up_messages(self) -> Sequence[str]:
+    def _get_follow_up_messages(self) -> Sequence[MessageContent]:
         """为底层循环提取当前排队的 follow-up 消息。"""
         if self.message_queue.has_followup():
             return [m.content for m in self.message_queue.get_followup_messages()]

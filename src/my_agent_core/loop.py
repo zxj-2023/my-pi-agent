@@ -45,7 +45,7 @@ from my_agent_core.tool_history import (
     clean_provider_context,
 )
 from my_agent_core.tools import ToolResult
-from my_agent_llm import Message, StreamChunk, ToolCall
+from my_agent_llm import Message, MessageContent, StreamChunk, ToolCall
 from my_agent_llm.events import (  # pyright: ignore[reportMissingImports]
     StreamDoneEvent,
     StreamErrorEvent,
@@ -238,7 +238,7 @@ async def _assistant_turn(
             return
 
 
-def _as_messages(items: Sequence[Message | str]) -> list[Message]:
+def _as_messages(items: Sequence[Message | MessageContent]) -> list[Message]:
     """安全归一化字符串或消息序列为标准 Message 列表。"""
     return [m if isinstance(m, Message) else Message(role="user", content=m) for m in items]
 
@@ -508,10 +508,10 @@ async def run_agent_loop(
     context_manager: Any | None = None,
     model: str | None = None,
     system: str = "",
-    prompts: Sequence[Message | str] = (),
+    prompts: Sequence[Message | MessageContent] = (),
     signal: CancellationToken | None = None,
-    get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
-    get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
+    get_steering_messages: Callable[[], Sequence[Message | MessageContent]] | None = None,
+    get_follow_up_messages: Callable[[], Sequence[Message | MessageContent]] | None = None,
     before_model_call: (
         Callable[[BeforeModelCallHook], Awaitable[HookResult | None] | HookResult | None] | None
     ) = None,
