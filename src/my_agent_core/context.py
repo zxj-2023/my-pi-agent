@@ -246,9 +246,7 @@ class ContextManager:
     ):
         self.llm = llm
         self.keep_recent_tokens = (
-            keep_recent_tokens
-            if keep_recent_tokens is not None
-            else min(20_000, max(1_000, budget // 4))
+            keep_recent_tokens if keep_recent_tokens is not None else min(20_000, max(1_000, budget // 4))
         )
         self.results_dir = Path(results_dir) if results_dir else None
         self.set_budget(budget)
