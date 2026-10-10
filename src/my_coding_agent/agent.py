@@ -51,6 +51,7 @@ class CodingAgent:
         self._mcp_manager: MCPClientManager | None = None
         self._mcp_loaded: bool = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self.thinking_level = "off"
 
         if isinstance(session, (str, Path)):
             session = Session(path=Path(session), cwd=str(self.workspace))

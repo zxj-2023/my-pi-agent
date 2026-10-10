@@ -42,7 +42,7 @@ class SessionRpcMixin:
             cwd=str(self.agent.workspace),
             parent_id=self.agent.session.tree.current_id,
         )
-        self.agent.session.store.append_entry(entry)
+        self.agent.session.append_entry(entry)
 
         return self.send_response(
             req_id,

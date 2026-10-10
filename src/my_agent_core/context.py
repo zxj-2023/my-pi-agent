@@ -138,8 +138,8 @@ def extract_file_operations(
     for m in messages:
         if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
             for tc in m.metadata["tool_calls"]:
-                name = tc.get("function", {}).get("name", "")
-                raw_args = tc.get("function", {}).get("arguments", "{}")
+                name = tc.get("name") or tc.get("function", {}).get("name", "")
+                raw_args = tc.get("args") or tc.get("function", {}).get("arguments", "{}")
                 try:
                     args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
                 except (json.JSONDecodeError, TypeError):

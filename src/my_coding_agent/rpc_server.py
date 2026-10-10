@@ -275,7 +275,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
                     cwd=str(workspace_path),
                     parent_id=self.agent.session.tree.current_id,
                 )
-                self.agent.session.store.append_entry(info_entry)
+                self.agent.session.append_entry(info_entry)
 
         if initial_thinking := params.get("thinking"):
             thinking_str = str(initial_thinking).strip().lower()

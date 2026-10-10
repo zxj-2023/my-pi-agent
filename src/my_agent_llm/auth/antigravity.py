@@ -55,7 +55,7 @@ class AntigravityAuthResolver:
         else:
             self.credentials_path = home / ".my_agent" / "credentials.json"
 
-    def resolve_credentials_raw(self) -> AntigravityCredentials | None:
+    def resolve_credentials(self) -> AntigravityCredentials | None:
         """从工作区/项目凭据或环境变量动态获取凭据，零硬编码，隔离外部环境。"""
         # 1. 环境变量优先
         env_token = os.environ.get("ANTIGRAVITY_ACCESS_TOKEN") or os.environ.get("ANTIGRAVITY_API_KEY")
@@ -110,9 +110,6 @@ class AntigravityAuthResolver:
 
         return None
 
-    def resolve_credentials(self) -> AntigravityCredentials | None:
-        """获取凭据别名，对齐规范。"""
-        return self.resolve_credentials_raw()
 
     def is_expired(self, creds: AntigravityCredentials | None) -> bool:
         """检查凭据是否已过期或即将过期（剩余不足 5 分钟）。"""
@@ -190,13 +187,10 @@ class AntigravityAuthResolver:
 
         return updated_creds
 
-    def refresh_token(self, creds: AntigravityCredentials) -> AntigravityCredentials:
-        """refresh 的别名方法。"""
-        return self.refresh(creds)
 
     def get_valid_credentials(self) -> AntigravityCredentials:
         """获取有效凭据。优先直接使用 auth.json 凭据；若过期且配置了密钥则自动刷新。"""
-        creds = self.resolve_credentials_raw()
+        creds = self.resolve_credentials()
         if not creds:
             raise RuntimeError(
                 f"No Antigravity credentials found. Please ensure {self.pi_auth_path} exists or set ANTIGRAVITY_ACCESS_TOKEN."

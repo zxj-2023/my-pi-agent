@@ -345,18 +345,6 @@ class Session:
         self.tree.current_id = entry.id
         self.save()
 
-    @property
-    def store(self):
-        """兼容层：暴露包含 append_entry 的 storage/store 接口。"""
-
-        class _SessionStoreProxy:
-            def __init__(self, session: Session):
-                self._session = session
-
-            def append_entry(self, entry: SessionEntry) -> None:
-                self._session.append_entry(entry)
-
-        return _SessionStoreProxy(self)
 
     def reset(self) -> None:
         """清空树 + 原子重写（纯对话，不含 system）。唯一破坏性操作。"""

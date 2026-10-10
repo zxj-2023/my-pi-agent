@@ -112,7 +112,7 @@ def test_resolve_credentials_detects_expiration(tmp_path: Path):
     auth_file.write_text(json.dumps(auth_data), encoding="utf-8")
 
     resolver = AntigravityAuthResolver(pi_auth_path=auth_file)
-    raw = resolver.resolve_credentials_raw()
+    raw = resolver.resolve_credentials()
     assert raw is not None
     assert resolver.is_expired(raw) is True
 

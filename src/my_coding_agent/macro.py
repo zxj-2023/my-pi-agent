@@ -143,7 +143,7 @@ class MacroEngine:
             展开后的 XML + 参数字符串，若技能不存在则返回 None
         """
         name = skill_name.strip()
-        if not name:
+        if not name or ".." in name or "/" in name or "\\" in name:
             return None
 
         file_path: Path | None = None
@@ -224,7 +224,7 @@ class MacroEngine:
             替换后的 Prompt 文本，若模板不存在则返回 None
         """
         name = template_name.strip()
-        if not name:
+        if not name or ".." in name or "/" in name or "\\" in name:
             return None
 
         file_path: Path | None = None

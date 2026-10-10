@@ -76,5 +76,3 @@ class FileReferenceParser:
 
         return text + "\n\n<referenced_files>\n" + "\n\n".join(injected_blocks) + "\n</referenced_files>"
 
-    # 别名支持
-    expand = expand_references

@@ -72,6 +72,7 @@ class BackgroundRunner:
         self.jobs[job_id] = job
 
         async def _worker() -> None:
+            proc = None
             try:
                 proc = await asyncio.create_subprocess_shell(
                     command,
@@ -86,10 +87,20 @@ class BackgroundRunner:
                 job.exit_code = proc.returncode
                 job.result = output[:20000] if output else "(no output)"
                 job.status = "completed" if proc.returncode == 0 else "failed"
+            except asyncio.CancelledError:
+                job.status = "cancelled"
+                job.result = "Background task cancelled"
+                job.exit_code = -1
+                if proc is not None:
+                    _kill_process_tree(proc)
+                return
             except Exception as e:
                 job.status = "failed"
                 job.result = str(e)
                 job.exit_code = 1
+            finally:
+                if job.status == "cancelled" and proc is not None:
+                    _kill_process_tree(proc)
 
             notification = (
                 f'<task_notification id="{job.id}">\n'
