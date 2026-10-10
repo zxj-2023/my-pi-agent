@@ -17,7 +17,9 @@ packages/
 .superpowers/
 .pi/
 .pi-glla/
+.agents/
 .mcp.json
+skills-lock.json
 
 # 本地私有文档（不上传远程 GitHub）
 CLAUDE.md
