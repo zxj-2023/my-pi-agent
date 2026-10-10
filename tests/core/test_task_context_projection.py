@@ -31,6 +31,7 @@ def test_agent_prefix_cache_protection_and_zero_system_prompt_mutation(tmp_path:
             memory_dir=False,
             plugin_dirs=[],
             subagent_dirs=[],
+            skill_dirs=[],
         )
 
         assert agent.registry.get("todo") is not None
@@ -65,6 +66,7 @@ def test_agent_task_store_disabled(tmp_path: Path):
             memory_dir=False,
             plugin_dirs=[],
             subagent_dirs=[],
+            skill_dirs=[],
         )
 
         assert agent.task_store is None

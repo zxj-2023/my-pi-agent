@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as process from "node:process";
-import { spawn } from "node:child_process";
 import {
   CombinedAutocompleteProvider,
   type Component,
@@ -36,7 +35,6 @@ import {
 } from "../components/session-selector.js";
 import { SettingsSelectorComponent } from "../components/settings-selector.js";
 import {
-  CompactionStatusIndicator,
   StatusIndicator,
   WorkingStatusIndicator,
 } from "../components/status-indicator.js";
@@ -81,77 +79,12 @@ export interface InteractiveModeOptions extends InteractiveTuiOptions {
   debug?: boolean;
 }
 
-export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
-  { name: "help", description: "查看所有可用命令与快捷键说明" },
-  { name: "clear", description: "清空当前终端屏幕会话" },
-  { name: "new", description: "结束当前会话，开启全新的空白会话" },
-  {
-    name: "resume",
-    description: "列出、搜索或恢复指定历史会话",
-    argumentHint: "[session_id]",
-  },
-  {
-    name: "session",
-    description: "列出、搜索或恢复指定历史会话",
-    argumentHint: "[session_id]",
-  },
-  {
-    name: "name",
-    description: "查看或设置当前会话的显示名称",
-    argumentHint: "[title]",
-  },
-  {
-    name: "compact",
-    description: "立即对当前上下文执行压缩，释放 Token 空间",
-    argumentHint: "[instructions]",
-  },
-  { name: "tree", description: "以可视化 DAG 树状图展现会话分支拓扑" },
-  {
-    name: "fork",
-    description: "基于当前节点创建全新分支",
-    argumentHint: "[node_id]",
-  },
-  { name: "clone", description: "深度克隆当前分支，开辟全新探索副本" },
-  {
-    name: "model",
-    description: "交互式查看与切换当前使用的语言模型",
-    argumentHint: "[model_id]",
-  },
-  {
-    name: "thinking",
-    description:
-      "调整模型思考预算深度等级 (off/minimal/low/medium/high/xhigh/max)",
-    argumentHint: "[level]",
-  },
-  { name: "login", description: "两阶段交互式绑定 Provider API Key" },
-  {
-    name: "logout",
-    description: "清除指定 Provider 的已存 API 密钥凭据",
-    argumentHint: "[provider]",
-  },
-  { name: "theme", description: "实时预览并切换终端 TrueColor 主题方案" },
-  { name: "settings", description: "交互式管理模型与运行时核心参数" },
-  {
-    name: "steer",
-    description: "向运行中的智能体插话或修正方向",
-    argumentHint: "<instruction>",
-  },
-  {
-    name: "followup",
-    description: "添加后续任务指令，在当前任务结束后执行",
-    argumentHint: "<instruction>",
-  },
-  { name: "reload", description: "重新载入所有动态 Skills 与 Prompt 模板" },
-  {
-    name: "trust",
-    description: "查看或更新当前工作区的代码执行信任安全策略",
-    argumentHint: "[true|false]",
-  },
-  { name: "copy", description: "复制最后一条智能体消息到剪贴板" },
-  { name: "hotkeys", description: "查看所有键盘快捷键说明清单" },
-  { name: "debug", description: "导出当前 Agent 瞬时运行态快照 (debug-dump.json)" },
-  { name: "quit", description: "优雅退出当前智能体终端" },
-];
+import {
+  BUILTIN_SLASH_COMMANDS,
+  executeSlashCommand,
+} from "./slash-commands.js";
+
+export { BUILTIN_SLASH_COMMANDS };
 
 function findFdPath(): string | undefined {
   const envPath = process.env.PATH || "";
@@ -377,7 +310,7 @@ export class InteractiveMode {
     }
   }
 
-  public async restoreQueuedMessagesToEditor(options: { abort?: boolean } = {}): Promise<void> {
+  public async restoreQueuedMessagesToEditor(_options: { abort?: boolean } = {}): Promise<void> {
     const allPending = [...this.pendingSteeringList, ...this.pendingFollowupList];
     if (allPending.length === 0) return;
 
@@ -835,6 +768,7 @@ export class InteractiveMode {
       const content = editor.getMessageContent(text);
       editor.addToHistory?.(trimmed);
       editor.setText("");
+      editor.clearImageAttachments?.();
       await this.handleUserInput(trimmed, typeof content === "string" ? undefined : content);
     };
 
@@ -1043,6 +977,7 @@ export class InteractiveMode {
         }
         if (this.defaultEditor.getText().length > 0) {
           this.defaultEditor.setText("");
+          this.defaultEditor.clearImageAttachments?.();
           this.ui.requestRender();
           return { consume: true };
         }
@@ -1671,486 +1606,7 @@ export class InteractiveMode {
   // --------------------------------------------------------------------------
 
   public async handleSlashCommand(input: string): Promise<void> {
-    const parts = input.slice(1).split(" ");
-    const cmd = (parts[0] || "").toLowerCase();
-    const args = parts.slice(1).join(" ").trim();
-
-    if (
-      this.isStreaming &&
-      [
-        "clear",
-        "new",
-        "resume",
-        "session",
-        "compact",
-        "clone",
-        "fork",
-      ].includes(cmd)
-    ) {
-      this.appendErrorMessage(`当前智能体正在执行中，无法执行 /${cmd} 操作。`);
-      return;
-    }
-
-    try {
-      switch (cmd) {
-        case "clear": {
-          if (this.isStreaming) {
-            this.appendErrorMessage("当前智能体正在执行中，无法清空屏幕会话。");
-            return;
-          }
-          this.chatContainer.clear();
-          this.ui.requestRender();
-          break;
-        }
-        case "help": {
-          this.appendSystemNotice(
-            "可用命令列表：\n" +
-              BUILTIN_SLASH_COMMANDS.map(
-                (c) => `  /${c.name.padEnd(12)} - ${c.description}`,
-              ).join("\n"),
-          );
-          break;
-        }
-        case "model": {
-          if (args) {
-            // 检查是否为已知模型的完全匹配 (对齐 Pi 原厂 handleModelCommand)
-            const allModelsRes: any = await this.bridge.listModels({
-              scope: "all",
-            });
-            const models: ModelItem[] = (
-              (allModelsRes as any)?.models || []
-            ).map((m: any) => ({
-              id: m.id || m.name,
-              provider: m.provider || "default",
-              contextWindow: m.contextWindow || m.context_window,
-            }));
-            const matched = models.find(
-              (m) =>
-                m.id.toLowerCase() === args.toLowerCase() ||
-                `${m.provider}/${m.id}`.toLowerCase() === args.toLowerCase(),
-            );
-            if (matched) {
-              this.currentModelName = matched.id;
-              const ctxWin =
-                matched.contextWindow ||
-                (matched.id.startsWith("gemini-") ? 1048576 : 128000);
-              this.footer.update({
-                modelName: matched.id,
-                providerName: matched.provider,
-                contextWindow: ctxWin,
-              });
-              const switchRes: any = await this.bridge.switchModel(
-                matched.id,
-                matched.provider,
-              );
-              if (switchRes?.context_window || switchRes?.contextWindow) {
-                this.footer.update({
-                  contextWindow:
-                    switchRes.context_window || switchRes.contextWindow,
-                });
-              }
-              this.appendSystemNotice(
-                `✓ 已成功切换至模型: ${matched.id} (${matched.provider})`,
-              );
-            } else {
-              // 未精确匹配时，将参数作为初始搜索词呼出模型选择器 (对齐 Pi 原厂行为)
-              this.showModelSelector(args);
-            }
-          } else {
-            this.showModelSelector();
-          }
-          break;
-        }
-        case "session": {
-          if (args) {
-            const res: any = await this.bridge.resumeSession(args);
-            if (res?.session_name || res?.session_id) {
-              this.footer.update({
-                sessionName: res.session_name || res.session_id,
-              });
-            }
-            this.renderSessionHistory(
-              res?.messages || [],
-              `✓ 已成功恢复历史会话 [${args}]`,
-            );
-          } else {
-            try {
-              const res: any = await this.bridge.getSessionStats();
-              if (res?.stats) {
-                this.renderPiSessionStats(res.stats);
-              } else {
-                this.renderFallbackSessionStats();
-              }
-            } catch {
-              this.renderFallbackSessionStats();
-            }
-          }
-          break;
-        }
-        case "resume": {
-          if (args) {
-            try {
-              const res: any = await this.bridge.resumeSession(args);
-              if (res?.session_name || res?.session_id) {
-                this.footer.update({
-                  sessionName: res.session_name || res.session_id,
-                });
-              }
-              if (res?.usage) {
-                this.updateFooterUsage(res.usage, res.context_window);
-              }
-              this.renderSessionHistory(
-                res?.messages || [],
-                `✓ 已成功恢复历史会话 [${args}]`,
-              );
-            } catch (err: any) {
-              this.appendErrorMessage(
-                `恢复会话失败: ${err.message || String(err)}`,
-              );
-            }
-          } else {
-            this.showSessionSelector();
-          }
-          break;
-        }
-        case "thinking": {
-          const validLevels = [
-            "off",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max",
-          ];
-          if (args) {
-            const normalized = args.trim().toLowerCase();
-            if (validLevels.includes(normalized)) {
-              this.currentThinkingLevel = normalized;
-              this.footer.update({ thinkingLevel: normalized });
-              this.updateEditorBorderColor();
-              await this.bridge.setThinking(normalized);
-              this.appendSystemNotice(`✓ 思考预算已更新为: ${normalized}`);
-            } else {
-              this.appendErrorMessage(
-                `未知思考等级 "${args}"。可用等级: ${validLevels.join(", ")}。`,
-              );
-            }
-          } else {
-            this.showThinkingSelector();
-          }
-          break;
-        }
-        case "login": {
-          if (args) {
-            const parts = args.split(" ");
-            const provider = parts[0] || "";
-            const key = parts.slice(1).join(" ");
-            const client = (this.bridge as any).client;
-            const res =
-              (await client?.sendRequest?.("login", { provider, key })) ||
-              (await client?.request?.("login", { provider, key })) ||
-              (await this.bridge.login(provider, key));
-            this.appendSystemNotice(
-              res?.message || `✓ 成功保存 ${provider.toUpperCase()}_API_KEY`,
-            );
-          } else {
-            this.showLoginSelector();
-          }
-          break;
-        }
-        case "logout": {
-          if (args) {
-            const client = (this.bridge as any).client;
-            const res: any =
-              (await client?.sendRequest?.("auth_logout", {
-                provider: args,
-              })) || (await this.bridge.logout(args));
-            this.appendSystemNotice(
-              `✓ 已成功清除 ${res?.provider || args} 的认证凭据。`,
-            );
-          } else {
-            this.showLogoutSelector();
-          }
-          break;
-        }
-        case "theme": {
-          this.showThemeSelector();
-          break;
-        }
-        case "tree": {
-          this.showTreeSelector();
-          break;
-        }
-        case "settings": {
-          await this.showSettingsSelector();
-          break;
-        }
-        case "new": {
-          const client = (this.bridge as any).client;
-          const res: any =
-            (await client?.sendRequest?.("session_new", {})) ||
-            (await client?.request?.("session_new", {})) ||
-            (await this.bridge.newSession());
-          this.chatContainer.clear();
-          const sid = res?.session_id || res?.new_session_id || res?.id || "";
-          const sname = res?.session_name || sid;
-          if (res?.usage) {
-            this.updateFooterUsage(
-              res.usage,
-              res.context_window || res.contextWindow,
-            );
-          } else {
-            this.footer.update({
-              inputTokens: 0,
-              outputTokens: 0,
-              cacheReadTokens: 0,
-              cacheWriteTokens: 0,
-              totalTokens: 0,
-              contextTokens: 0,
-              costUsd: 0,
-              cacheHitRate: undefined,
-            });
-          }
-          this.footer.update({
-            sessionName: sname,
-            contextWindow:
-              res?.context_window ||
-              res?.contextWindow ||
-              this.footer.getContextWindow(),
-          });
-          this.appendSystemNotice(`✓ 已成功结束旧会话并开启新会话: ${sid}`);
-          break;
-        }
-        case "name": {
-          if (!args) {
-            const currentName =
-              (this.footer as any)?.data?.sessionName || "未命名会话 (default)";
-            this.appendSystemNotice(
-              `当前会话名称: ${currentName}\n修改名称用法: /name <新名称>`,
-            );
-            break;
-          }
-          const res: any =
-            (await (this.bridge as any).sessionName?.(args)) ??
-            (await (this.bridge.client as any).sendRequest?.("session_name", {
-              name: args,
-            }));
-          const newName = res?.name || args;
-          this.footer.update({ sessionName: newName });
-          this.appendSystemNotice(`✓ 会话名称已更新: ${newName}`);
-          break;
-        }
-        case "compact": {
-          this.isStreaming = true;
-          this.clearStatusDisplay();
-          const compIndicator = new CompactionStatusIndicator(
-            this.ui,
-            "manual",
-          );
-          compIndicator.start();
-          this.activeStatusIndicator = compIndicator;
-          this.defaultEditor.setWorkingStatusIndicator(compIndicator);
-          this.footer.update({ isBusy: true });
-          this.ui.requestRender();
-          try {
-            const client = (this.bridge as any).client;
-            const res: any =
-              (await client?.sendRequest?.("session_compact", {
-                instructions: args,
-              })) ||
-              (await client?.request?.("session_compact", {
-                instructions: args,
-              })) ||
-              (await (this.bridge as any).compact?.(args));
-
-            if (res?.tokens_after !== undefined) {
-              this.footer.update({ contextTokens: res.tokens_after });
-            }
-
-            if (res?.summary) {
-              const compComponent = new CompactionSummaryMessageComponent({
-                summary: res.summary,
-                tokensBefore: res.tokens_before ?? 0,
-              });
-              this.chatContainer.addChild(new Spacer(1));
-              this.chatContainer.addChild(compComponent);
-            }
-          } catch (err: any) {
-            this.appendErrorMessage(`压缩失败: ${err.message || String(err)}`);
-          } finally {
-            this.isStreaming = false;
-            this.clearStatusDisplay();
-            this.footer.update({ isBusy: false });
-            this.ui.requestRender();
-          }
-          break;
-        }
-        case "clone": {
-          const res: any = await ((this.bridge as any).cloneSession?.() ??
-            (this.bridge.client as any).sendRequest?.("session_clone"));
-          const newId = res?.new_session_id || "";
-          if (newId) {
-            this.footer.update({ sessionName: newId });
-          }
-          this.appendSystemNotice(`✓ 已克隆当前会话开辟全新探索副本: ${newId}`);
-          break;
-        }
-        case "fork": {
-          if (args) {
-            const client = (this.bridge as any).client;
-            const res: any =
-              (await client?.sendRequest?.("session_fork", {
-                node_id: args,
-              })) || (await (this.bridge as any).forkSession?.(args));
-            this.appendSystemNotice(
-              `✓ 已成功从节点 ${args} 分叉开辟新会话: ${res?.new_session_id || ""}`,
-            );
-          } else {
-            await this.showForkSelector();
-          }
-          break;
-        }
-        case "reload": {
-          const res: any =
-            (await (this.bridge as any).reloadResources?.()) ??
-            (await (this.bridge.client as any).sendRequest?.(
-              "resource_reload",
-            ));
-          if (res?.resources) {
-            this.updateResources(res.resources);
-          }
-          this.appendSystemNotice(`✓ 资源重载完成: ${res?.summary || ""}`);
-          break;
-        }
-        case "trust": {
-          const res: any =
-            (await (this.bridge as any).setTrust?.(args === "true")) ??
-            (await (this.bridge.client as any).sendRequest?.("trust_set", {
-              trusted: args === "true",
-            }));
-          this.appendSystemNotice(
-            `✓ 项目信任状态已设置为: ${res?.decision || (args === "true" ? "trusted" : "untrusted")} (${res?.path || this.workspace})`,
-          );
-          break;
-        }
-        case "quota": {
-          this.appendSystemNotice("当前配额状态：正常");
-          break;
-        }
-        case "debug": {
-          try {
-            const client = (this.bridge as any).client;
-            const res: any =
-              (await client?.request?.("debug_dump", {})) ||
-              (await client?.sendRequest?.("debug_dump", {}));
-            if (res?.dump_file) {
-              const lines = [`✓ 调试快照已导出至: ${res.dump_file}`];
-              if (res?.log_file) {
-                lines.push(`  会话调试日志: ${res.log_file}`);
-              }
-              if (res?.events_file) {
-                lines.push(`  会话事件流: ${res.events_file}`);
-              }
-              this.appendSystemNotice(lines.join("\n"));
-            } else {
-              this.appendErrorMessage("导出调试快照失败。");
-            }
-          } catch (err: any) {
-            this.appendErrorMessage(
-              `导出调试快照异常: ${err.message || String(err)}`,
-            );
-          }
-          break;
-        }
-        case "steer": {
-          if (args) {
-            await this.bridge.steer(args);
-            this.appendSystemNotice(`[Steer 提示已注入]: ${args}`);
-          }
-          break;
-        }
-        case "followup": {
-          if (args) {
-            await this.bridge.followUp(args);
-            this.appendSystemNotice(`[Followup 任务已排队]: ${args}`);
-          }
-          break;
-        }
-        case "copy": {
-          const target =
-            this.currentStreamingAssistant || this.latestAssistantMessage;
-          const text = target?.getContentText();
-          if (!text) {
-            this.appendErrorMessage("当前暂无智能体消息可供复制。");
-            break;
-          }
-          const isWindows = process.platform === "win32";
-          const isMac = process.platform === "darwin";
-          try {
-            let proc;
-            if (isWindows) {
-              proc = spawn("clip");
-            } else if (isMac) {
-              proc = spawn("pbcopy");
-            } else {
-              proc = spawn("xclip", ["-selection", "clipboard"]);
-            }
-            proc.on("error", () => {});
-            proc.stdin?.write(text);
-            proc.stdin?.end();
-          } catch {
-            // ignore clipboard error
-          }
-          this.appendSystemNotice(
-            "✓ 已将最后一条智能体回答内容复制到系统剪贴板。",
-          );
-          break;
-        }
-        case "hotkeys": {
-          const list = [
-            theme.bold("常用键盘快捷键说明清单 (Hotkeys):"),
-            "",
-            `  ${theme.bold("导航与视口 (Navigation):")}`,
-            `    ↑ / ↓         在选择器列表中上下选择条目`,
-            `    Tab           切换选择器范围 (all vs scoped)`,
-            `    Ctrl+O        展开 / 折叠思考过程 (Thinking) 与工具执行卡片`,
-            "",
-            `  ${theme.bold("编辑与会话 (Editing):")}`,
-            `    Enter         提交提问 (在输入框) 或确认当前所选条目 (在选择器)`,
-            `    Ctrl+V        粘贴剪贴板图片（也支持 Ctrl+Shift+V）`,
-            `    Ctrl+Q        排队追问 (Follow-up) 当前任务完成后自动顺延执行`,
-            `    Alt+Q/Alt+Up  召回并编辑全部待发排队消息 (Steering & Follow-up)`,
-            `    Ctrl+C        清空当前输入文字 (输入框有文字时) / 关闭弹窗 (选择器中)`,
-            `    Ctrl+D        快速退出终端 (仅当输入框为空时生效)`,
-            `    Ctrl+L        快速唤起模型选择器 (Model Catalog)`,
-            "",
-            `  ${theme.bold("流程与控制 (Control):")}`,
-            `    Esc           中断当前正在执行的流式回答 (Abort) / 取消并关闭弹窗`,
-            `    Shift+Tab     轮转切换思考预算深度 (off -> low -> high -> max)`,
-            `    /             呼出全部斜杠命令菜单与自动补全`,
-            `    !cmd          执行本地 Shell 命令并将输出加入上下文`,
-            `    !!cmd         静默执行本地 Shell 命令 (不加入对话上下文)`,
-          ].join("\n");
-          this.appendSystemNotice(list);
-          break;
-        }
-        case "quit":
-        case "exit": {
-          void this.handleExit();
-          break;
-        }
-        default: {
-          this.appendErrorMessage(
-            `未知命令 /${cmd}，输入 /help 查看可用命令。`,
-          );
-        }
-      }
-    } catch (err: any) {
-      this.appendErrorMessage(
-        `执行命令 /${cmd} 失败: ${err.message || String(err)}`,
-      );
-    }
+    await executeSlashCommand(this, input);
   }
 
   private async handleShellMacro(input: string): Promise<void> {
@@ -2328,7 +1784,7 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
-  private renderPiSessionStats(stats: any): void {
+  public renderPiSessionStats(stats: any): void {
     let info = `${theme.bold("Session Info")}\n\n`;
     const sessionName =
       stats.sessionName || (this.footer as any)?.data?.sessionName;
@@ -2398,7 +1854,7 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
-  private renderFallbackSessionStats(): void {
+  public renderFallbackSessionStats(): void {
     const sessionName = (this.footer as any)?.data?.sessionName || "default";
     const model = this.currentModelName;
     const thinking = this.currentThinkingLevel;

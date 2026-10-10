@@ -311,7 +311,9 @@ class Agent:
             if isinstance(prompt.content, str)
             else [part for part in prompt.content if part["type"] == "text"]
         )
-        for part in text_parts or [{"type": "text", "text": ""}]:
+        fallback_part: TextContent = {"type": "text", "text": ""}
+        parts_to_inspect = text_parts if text_parts else [fallback_part]
+        for part in parts_to_inspect:
             user_input_decision = await self.hooks.emit(UserInputHook(input_text=part["text"]))
             if isinstance(user_input_decision, HookResult):
                 if user_input_decision.block:
@@ -328,9 +330,9 @@ class Agent:
                 if user_input_decision.updated_input is not None:
                     part["text"] = user_input_decision.updated_input
         if isinstance(prompt.content, str):
-            prompt.content = text_parts[0]["text"]
-        elif not text_parts and part["text"]:
-            prompt.content.insert(0, part)
+            prompt.content = text_parts[0]["text"] if text_parts else fallback_part["text"]
+        elif not text_parts and fallback_part["text"]:
+            prompt.content.insert(0, fallback_part)
 
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]

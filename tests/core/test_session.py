@@ -81,6 +81,11 @@ def test_load_tolerates_torn_last_line(tmp_path):
     assert [e.content for e in loaded.tree.get_current_path()] == ["q1", "a1"]
 
 
+def _agent(*args, **kwargs) -> Agent:
+    kwargs.setdefault("skill_dirs", [])
+    return Agent(*args, **kwargs)
+
+
 @pytest.mark.anyio
 async def test_agent_persists_file_line_order(tmp_path):
     """Agent + Session 跑一轮 → 文件行序：header, user, assistant(tool_calls), tool, assistant（#7）。"""
@@ -93,7 +98,7 @@ async def test_agent_persists_file_line_order(tmp_path):
     ]
     llm = FakeLLM([_response(tool_calls=tc), _response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
-    agent = Agent(llm=llm, tools=[multiply], session=session)
+    agent = _agent(llm=llm, tools=[multiply], session=session)
     await agent.run("compute")
     lines = session.path.read_text(encoding="utf-8").strip().splitlines()
     from my_agent_core.session import entry_from_json_line
@@ -117,11 +122,11 @@ async def test_second_agent_resumes_history(tmp_path):
     ]
     llm1 = FakeLLM([_response(tool_calls=tc), _response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
-    await Agent(llm=llm1, tools=[multiply], session=session).run("compute")
+    await _agent(llm=llm1, tools=[multiply], session=session).run("compute")
     # “进程 2”：从文件恢复，而不是复用内存对象
     restored = Session.load(session.path)
     llm2 = FakeLLM([_response(content="ok")])
-    agent2 = Agent(llm=llm2, tools=[multiply], session=restored)
+    agent2 = _agent(llm=llm2, tools=[multiply], session=restored)
     await agent2.run("再乘2呢")
     first = llm2.calls[0]["messages"]
     assert [m.role for m in first] == ["user", "assistant", "tool", "assistant", "user"]
@@ -133,12 +138,12 @@ async def test_rewind_then_run_grows_new_branch(tmp_path):
     """session.rewind 后 agent.run → 新消息从回退点长新枝（parent 正确）（#9）。"""
     llm1 = FakeLLM([_response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
-    agent = Agent(llm=llm1, tools=[multiply], session=session)
+    agent = _agent(llm=llm1, tools=[multiply], session=session)
     await agent.run("q1")
     q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
     session.rewind(q1_entry.id)
     llm2 = FakeLLM([_response(content="另答")])
-    agent2 = Agent(llm=llm2, tools=[multiply], session=session)
+    agent2 = _agent(llm=llm2, tools=[multiply], session=session)
     await agent2.run("换个问法")
     new_user = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "换个问法")
     assert new_user.parent_id == q1_entry.id  # 从回退点长新枝
@@ -156,7 +161,7 @@ async def test_persistent_agent_reset(tmp_path):
     """持久化 Agent reset → 树清空、文件重写为 header（纯对话）（#10）。"""
     llm = FakeLLM([_response(content="hi")])
     session = Session(path=tmp_path / "s.jsonl")
-    agent = Agent(llm=llm, tools=[multiply], session=session)
+    agent = _agent(llm=llm, tools=[multiply], session=session)
     await agent.run("q1")
     agent.reset()
     lines = session.path.read_text(encoding="utf-8").strip().splitlines()
@@ -170,10 +175,10 @@ async def test_resume_uses_new_system_prompt(tmp_path):
     """session 不含 system：恢复后 Agent 用传入的 system_prompt 拼 system。"""
     llm1 = FakeLLM([_response(content="hi")])
     session = Session(path=tmp_path / "s.jsonl")
-    await Agent(llm=llm1, tools=[multiply], session=session, system_prompt="旧system").run("q1")
+    await _agent(llm=llm1, tools=[multiply], session=session, system_prompt="旧system").run("q1")
     restored = Session.load(session.path)
     llm2 = FakeLLM([_response(content="ok")])
-    agent2 = Agent(llm=llm2, tools=[multiply], session=restored, system_prompt="新system")
+    agent2 = _agent(llm=llm2, tools=[multiply], session=restored, system_prompt="新system")
     await agent2.run("q2")
     first = llm2.calls[0]["messages"]
     sys_msgs = [m for m in first if m.role == "system"]
@@ -186,7 +191,7 @@ async def test_rewind_then_same_agent_run_syncs_context(tmp_path):
     """同一 Agent：session.rewind 后 run → LLM 收到的 messages 从回退点开始（不含旧分支尾）。"""
     llm1 = FakeLLM([_response(content="42")])
     session = Session(path=tmp_path / "s.jsonl")
-    agent = Agent(llm=llm1, tools=[multiply], session=session, system_prompt="sys")
+    agent = _agent(llm=llm1, tools=[multiply], session=session, system_prompt="sys")
     await agent.run("q1")
     q1_entry = next(e for e in session.tree.entries.values() if e.role == "user" and e.content == "q1")
     session.rewind(q1_entry.id)

@@ -177,7 +177,22 @@ export class CustomEditor extends Editor {
     return blocks;
   }
 
+  public clearImageAttachments(): void {
+    this.imageAttachments.clear();
+    this.imageCounter = 0;
+  }
+
+  public cleanUnusedImageAttachments(text = this.getExpandedText()): void {
+    const activeMarkers = new Set(Array.from(text.matchAll(/\[image \d+\]/g)).map((m) => m[0]));
+    for (const key of this.imageAttachments.keys()) {
+      if (!activeMarkers.has(key)) {
+        this.imageAttachments.delete(key);
+      }
+    }
+  }
+
   public setMessageContent(content: MessageContent): void {
+    this.clearImageAttachments();
     this.setText("");
     if (typeof content === "string") {
       this.setText(content);

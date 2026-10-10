@@ -41,6 +41,7 @@ def _response(content: str = "", tool_calls=None) -> Response:
 def _agent(llm, *, tools=(multiply,), session=None, **kwargs) -> Agent:
     if session is None:
         session = Session(path=Path(tempfile.mkdtemp()) / "s.jsonl")
+    kwargs.setdefault("skill_dirs", [])
     return Agent(llm=llm, tools=list(tools), session=session, **kwargs)
 
 
@@ -52,8 +53,16 @@ async def test_ordered_content_survives_hook_and_session_reload(tmp_path, image_
     agent = _agent(llm, session=Session(path=path))
     agent.hooks.register(UserInputHook, lambda hook: HookResult(updated_input=hook.input_text.replace("foo", "bar")))
     image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
-    content = [image] if image_only else [{"type": "text", "text": "foo before"}, image, {"type": "text", "text": "foo after"}]
-    expected = [image] if image_only else [{"type": "text", "text": "bar before"}, image, {"type": "text", "text": "bar after"}]
+    content = (
+        [image]
+        if image_only
+        else [{"type": "text", "text": "foo before"}, image, {"type": "text", "text": "foo after"}]
+    )
+    expected = (
+        [image]
+        if image_only
+        else [{"type": "text", "text": "bar before"}, image, {"type": "text", "text": "bar after"}]
+    )
     original = deepcopy(content)
     events = []
     agent.subscribe(events.append)
@@ -77,10 +86,17 @@ async def test_ordered_content_survives_hook_and_session_reload(tmp_path, image_
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("content", [
-    [{"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}],
-    [{"type": "text", "text": "safe"}, {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}, {"type": "text", "text": "blocked"}],
-])
+@pytest.mark.parametrize(
+    "content",
+    [
+        [{"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}],
+        [
+            {"type": "text", "text": "safe"},
+            {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"},
+            {"type": "text", "text": "blocked"},
+        ],
+    ],
+)
 async def test_ordered_input_can_be_blocked_before_persistence(tmp_path, content):
     llm = FakeLLM()
     agent = _agent(llm, session=Session(path=tmp_path / "s.jsonl"))

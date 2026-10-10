@@ -220,8 +220,10 @@ def _serialize_messages(messages: list[Message]) -> str:
     """逐条 'role: content'（tool_calls 只列名称）——摘要器好读，省 token。"""
     lines = []
     for m in messages:
-        content = m.content if isinstance(m.content, str) else "".join(
-            part["text"] if part["type"] == "text" else "[image]" for part in m.content
+        content = (
+            m.content
+            if isinstance(m.content, str)
+            else "".join(part["text"] if part["type"] == "text" else "[image]" for part in m.content)
         )
         if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
             names = [tc.get("function", {}).get("name", "?") for tc in m.metadata["tool_calls"]]

@@ -45,6 +45,7 @@ from my_agent_core.tool_history import (
     clean_provider_context,
 )
 from my_agent_core.tools import ToolResult
+from my_agent_core.types import ContextManagerProtocol, LLMProtocol
 from my_agent_llm import Message, MessageContent, StreamChunk, ToolCall
 from my_agent_llm.events import (  # pyright: ignore[reportMissingImports]
     StreamDoneEvent,
@@ -108,12 +109,12 @@ _provider_context = clean_provider_context
 
 async def _assistant_turn(
     *,
-    llm: Any,
+    llm: LLMProtocol | Any,
     view: list[Message],
     tool_schemas: list[dict[str, Any]],
     model: str | None = None,
     signal: CancellationToken | None = None,
-    context_manager: Any | None = None,
+    context_manager: ContextManagerProtocol | Any | None = None,
     retry_policy: AutoRetryPolicy | None = None,
 ) -> AsyncIterator[Event]:
     """专职大模型推理车间：纯粹转译模型层产出的高阶 StreamEvent（对标 Tau 并支持智能重试退避）。"""
@@ -124,8 +125,10 @@ async def _assistant_turn(
         attempt += 1
         is_retry = attempt > 1
 
-        if hasattr(llm, "astream_events"):
-            event_stream = llm.astream_events(messages=view, tools=tool_schemas, model=model, signal=signal)
+        event_stream: Any
+        astream_fn = getattr(llm, "astream_events", None)
+        if callable(astream_fn):
+            event_stream = astream_fn(messages=view, tools=tool_schemas, model=model, signal=signal)
         else:
             acc = StreamAccumulator()
             event_stream = acc.stream(
@@ -163,9 +166,11 @@ async def _assistant_turn(
             elif isinstance(ev, StreamDoneEvent):
                 while events_yielded:
                     yield events_yielded.pop(0)
-                if ev.usage and context_manager is not None and hasattr(context_manager, "record_usage"):
-                    with contextlib.suppress(Exception):
-                        context_manager.record_usage(ev.usage)
+                if ev.usage and context_manager is not None:
+                    rec_fn = getattr(context_manager, "record_usage", None)
+                    if callable(rec_fn):
+                        with contextlib.suppress(Exception):
+                            rec_fn(ev.usage)
                 yield MessageEnd(ev.message)
 
         if error_event is not None:
@@ -502,10 +507,10 @@ async def _execute_tools_turn(
 
 async def run_agent_loop(
     *,
-    llm: Any,
+    llm: LLMProtocol | Any,
     messages: list[Message],
     tools: ToolRegistry | Sequence[Any] | None = None,
-    context_manager: Any | None = None,
+    context_manager: ContextManagerProtocol | Any | None = None,
     model: str | None = None,
     system: str = "",
     prompts: Sequence[Message | MessageContent] = (),
@@ -595,12 +600,12 @@ async def run_agent_loop(
             view = _provider_context(view)
 
             # 派发上下文压缩事件（若触发了 L4/L2 压缩）
-            if context_manager is not None and getattr(context_manager, "pending_compaction", None) is not None:
-                info = context_manager.pending_compaction
+            comp_info = getattr(context_manager, "pending_compaction", None) if context_manager is not None else None
+            if comp_info is not None:
                 yield ContextCompacted(
-                    tokens_before=info.tokens_before,
-                    tokens_after=info.tokens_after,
-                    summarized_count=info.summarized_count,
+                    tokens_before=comp_info.tokens_before,
+                    tokens_after=comp_info.tokens_after,
+                    summarized_count=comp_info.summarized_count,
                 )
 
             # Hook 3: BeforeModelCallHook (context 审查)
