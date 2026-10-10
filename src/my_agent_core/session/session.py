@@ -36,7 +36,9 @@ class SessionTree:
         self.current_id: str | None = None
         self.root_id: str | None = None
 
-    def add_entry(self, role: str, content: MessageContent, parent_id: str | None = None, **metadata: Any) -> MessageEntry:
+    def add_entry(
+        self, role: str, content: MessageContent, parent_id: str | None = None, **metadata: Any
+    ) -> MessageEntry:
         """追加到 current 下（或指定 parent）。首个 entry 成为根。"""
         if parent_id is None:
             parent_id = self.current_id
@@ -176,7 +178,9 @@ class Session:
         session.metadata = {k: v for k, v in meta.items() if k not in ("current_id", "root_id", "compaction_floor")}
         return session
 
-    def add_message(self, role: str, content: MessageContent, parent_id: str | None = None, **metadata: Any) -> MessageEntry:
+    def add_message(
+        self, role: str, content: MessageContent, parent_id: str | None = None, **metadata: Any
+    ) -> MessageEntry:
         """加到树 + save()。"""
         entry = self.tree.add_entry(role, content, parent_id, **metadata)
         self.save()
@@ -344,7 +348,6 @@ class Session:
             self.tree.root_id = entry.id
         self.tree.current_id = entry.id
         self.save()
-
 
     def reset(self) -> None:
         """清空树 + 原子重写（纯对话，不含 system）。唯一破坏性操作。"""

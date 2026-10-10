@@ -110,7 +110,6 @@ class AntigravityAuthResolver:
 
         return None
 
-
     def is_expired(self, creds: AntigravityCredentials | None) -> bool:
         """检查凭据是否已过期或即将过期（剩余不足 5 分钟）。"""
         if not creds:
@@ -186,7 +185,6 @@ class AntigravityAuthResolver:
                 logger.debug("Failed to write back refreshed credentials: %s", exc)
 
         return updated_creds
-
 
     def get_valid_credentials(self) -> AntigravityCredentials:
         """获取有效凭据。优先直接使用 auth.json 凭据；若过期且配置了密钥则自动刷新。"""
