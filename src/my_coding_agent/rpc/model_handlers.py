@@ -114,12 +114,12 @@ class ModelRpcMixin:
         auth_mgr.set_api_key(provider=provider, key=key)
 
         # 3. 若当前模型正在使用该提供商，立刻原地热更新当前活跃模型实例
-        if self.agent and getattr(self.agent.agent, "llm", None):
-            current_prov = getattr(getattr(self.agent.agent.llm, "config", None), "provider", None)
+        if self.agent and getattr(self.agent, "llm", None):
+            current_prov = getattr(getattr(self.agent.llm, "config", None), "provider", None)
             if current_prov == provider:
                 current_model = self._get_current_model_name()
                 new_llm, _, _, _ = switch_llm_model(
-                    current_llm=self.agent.agent.llm,
+                    current_llm=self.agent.llm,
                     raw_model=current_model,
                     provider=current_prov,
                     paths=paths,
@@ -127,7 +127,7 @@ class ModelRpcMixin:
                     default_provider=self.settings.default_provider if self.settings else "openai",
                 )
                 if new_llm is not None:
-                    self.agent.agent.llm = new_llm
+                    self.agent.llm = new_llm
 
         return self.send_response(
             req_id,
@@ -152,7 +152,7 @@ class ModelRpcMixin:
         default_prov = (self.settings.default_provider if self.settings else "openai") or "openai"
 
         new_llm, model_name, resolved_prov, err = switch_llm_model(
-            current_llm=self.agent.agent.llm,
+            current_llm=self.agent.llm,
             raw_model=raw_model,
             provider=provider,
             paths=paths,
@@ -164,10 +164,10 @@ class ModelRpcMixin:
             code = -32602 if "Missing" in err_msg else (-32002 if "未检测到" in err_msg else -32000)
             return self.send_response(req_id, error={"code": code, "message": err_msg})
 
-        self.agent.agent.model = model_name
-        self.agent.agent.llm = new_llm
+        self.agent.model = model_name
+        self.agent.llm = new_llm
         # 压缩预算跟随模型窗口（阀值 = 80%×窗口）
-        self.agent.agent.context_manager.set_budget(resolve_model_context_window(model_name))
+        self.agent.context_manager.set_budget(resolve_model_context_window(model_name))
 
         # 向 Session 追加 ModelChangeEntry
         entry = ModelChangeEntry(

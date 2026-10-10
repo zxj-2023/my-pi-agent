@@ -187,17 +187,8 @@ class Session:
         return entry
 
     def get_current_path_messages(self) -> list[Message]:
-        """当前路径 → list[Message]（Agent 上下文用）。"""
-        return [
-            e.message
-            if isinstance(e, MessageEntry)
-            else Message(
-                role=cast(Any, getattr(e, "role", "system")),
-                content=getattr(e, "content", ""),
-                metadata=getattr(e, "metadata", None),
-            )
-            for e in self.tree.get_current_path()
-        ]
+        """当前路径上的纯对话消息列表（自动排除非 MessageEntry 节点）。"""
+        return [e.message for e in self.tree.get_current_path() if isinstance(e, MessageEntry)]
 
     def add_summary_cache(
         self,
@@ -230,18 +221,8 @@ class Session:
         self.save()
 
     def get_full_history_messages(self) -> list[Message]:
-        """完整对话历史（排除 CompactionEntry 节点）——宿主看历史、Agent 恢复上下文用。"""
-        return [
-            e.message
-            if isinstance(e, MessageEntry)
-            else Message(
-                role=cast(Any, getattr(e, "role", "system")),
-                content=getattr(e, "content", ""),
-                metadata=getattr(e, "metadata", None),
-            )
-            for e in self.tree.get_current_path()
-            if getattr(e, "type", "message") == "message"
-        ]
+        """完整对话历史（等同于 get_current_path_messages，排除非 MessageEntry 节点）。"""
+        return self.get_current_path_messages()
 
     def get_latest_compaction_cache(self) -> dict | None:
         """最新一条 CompactionEntry → {summary, covered_count, retained_tail}；无则 None。"""
@@ -258,8 +239,9 @@ class Session:
             covered_count = int(md.get("covered_count", 0))
         except (ValueError, TypeError):
             covered_count = 0
+        summary_text = latest.summary if isinstance(latest, CompactionEntry) else getattr(latest, "summary", "")
         return {
-            "summary": getattr(latest, "summary", getattr(latest, "content", "")),
+            "summary": summary_text,
             "covered_count": covered_count,
             "retained_tail": list(md.get("retained_tail", [])),
         }

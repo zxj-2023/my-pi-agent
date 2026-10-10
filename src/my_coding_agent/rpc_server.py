@@ -17,7 +17,6 @@ from my_agent_core.session import Session, SessionInfoEntry
 from my_agent_core.session.entries import (
     ThinkingLevelChangeEntry,
 )
-from my_agent_llm import LLM
 from my_agent_llm.auth.manager import AuthManager
 from my_coding_agent.agent import CodingAgent
 from my_coding_agent.macro import MacroEngine
@@ -41,6 +40,7 @@ from my_coding_agent.session_ops import (
     clone_session_tree,
     compute_session_stats,
     compute_session_usage,
+    estimate_model_cost,
     fork_session_tree,
     list_project_sessions,
     resolve_session_file,
@@ -178,10 +178,10 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
     def _get_current_model_name(self) -> str:
         if not self.agent:
             return "default"
-        cur = getattr(self.agent.agent, "model", None)
+        cur = getattr(self.agent, "model", None)
         if cur:
             return str(cur)
-        llm = getattr(self.agent.agent, "llm", None)
+        llm = getattr(self.agent, "llm", None)
         if llm is not None:
             cfg = getattr(llm, "config", None)
             if cfg is not None and getattr(cfg, "model", None):
@@ -190,20 +190,6 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
             if mod:
                 return str(mod)
         return "default"
-
-    def _compute_session_usage(self, session: Session, model_name: str) -> dict[str, Any]:
-        """对标 Pi 规范，从会话历史中提取所有 Assistant 消息的 usage 累加统计。"""
-        return compute_session_usage(session, model_name)
-
-    def _resolve_initial_llm(
-        self,
-        workspace_path: Path,
-        explicit_model: str | None,
-        settings: Settings,
-        auth_mgr: AuthManager,
-    ) -> LLM | None:
-        """根据启动参数、工作区配置与凭证中心探测构造底层 LLM 客户端。"""
-        return resolve_initial_llm(workspace_path, explicit_model, settings, auth_mgr)
 
     async def _handle_initialize(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         workspace_path = Path(params.get("workspace", ".")).resolve()
@@ -220,7 +206,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
 
         llm = self.llm
         if llm is None:
-            llm = self._resolve_initial_llm(workspace_path, explicit_model, settings, auth_mgr)
+            llm = resolve_initial_llm(workspace_path, explicit_model, settings, auth_mgr)
 
         target_session: Session | None = None
         should_continue = bool(params.get("continue_session", False) or params.get("continue", False))
@@ -295,12 +281,12 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, target_session.id)
 
-        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        messages_repr = [serialize_message(m) for m in self.agent.messages if m.role != "system"]
 
-        actual_model = getattr(getattr(self.agent.agent.llm, "config", None), "model", "default")
-        actual_provider = getattr(getattr(self.agent.agent.llm, "config", None), "provider", "default")
+        actual_model = getattr(getattr(self.agent.llm, "config", None), "model", "default")
+        actual_provider = getattr(getattr(self.agent.llm, "config", None), "provider", "default")
         ctx_win = resolve_model_context_window(actual_model)
-        self.session_usage = self._compute_session_usage(target_session, actual_model)
+        self.session_usage = compute_session_usage(target_session, actual_model)
         resources = scan_loaded_resources(workspace_path, paths)
 
         return self.send_response(
@@ -331,7 +317,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
                 req_id,
                 error={"code": -32001, "message": "Agent not initialized"},
             )
-        if getattr(self.agent.agent, "llm", None) is None:
+        if getattr(self.agent, "llm", None) is None:
             return self.send_response(
                 req_id,
                 error={
@@ -394,33 +380,14 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
                                     self.session_usage["cacheHitRate"] = hit_rate
 
                                 model_id = self._get_current_model_name()
-                                model_lower = model_id.lower()
-                                if "gemini" in model_lower:
-                                    self.session_usage["cost"] += (
-                                        prompt_tok * 0.1 + comp_tok * 0.4 + cache_read * 0.025
-                                    ) / 1000000.0
-                                elif "claude" in model_lower:
-                                    if "opus" in model_lower:
-                                        self.session_usage["cost"] += (
-                                            prompt_tok * 15.0 + comp_tok * 75.0 + cache_read * 1.5
-                                        ) / 1000000.0
-                                    else:
-                                        self.session_usage["cost"] += (
-                                            prompt_tok * 3.0 + comp_tok * 15.0 + cache_read * 0.3
-                                        ) / 1000000.0
-                                elif "deepseek" in model_lower:
-                                    self.session_usage["cost"] += (
-                                        prompt_tok * 0.14 + comp_tok * 0.28 + cache_read * 0.014
-                                    ) / 1000000.0
-                                elif "gpt-4o" in model_lower:
-                                    self.session_usage["cost"] += (
-                                        prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25
-                                    ) / 1000000.0
+                                self.session_usage["cost"] += estimate_model_cost(
+                                    model_id, prompt_tok, comp_tok, cache_read
+                                )
 
                         model_name = self._get_current_model_name()
                         ctx_win = resolve_model_context_window(model_name)
                         # 上下文占用 = 本次视图的锚定估算（与压缩门控同源）；无视图时回落最近一次单次调用规模
-                        ctx_inst = getattr(getattr(self.agent, "agent", None), "context_manager", None)
+                        ctx_inst = getattr(self.agent, "context_manager", None)
                         context_tok = getattr(ctx_inst, "context_tokens", 0) if ctx_inst is not None else 0
                         if not context_tok:
                             context_tok = self.session_usage.get("contextTokens", 0)

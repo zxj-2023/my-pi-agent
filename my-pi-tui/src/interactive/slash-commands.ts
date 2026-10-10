@@ -252,7 +252,10 @@ export async function executeSlashCommand(mode: SlashCommandContext, input: stri
               });
             }
             if (res?.usage) {
-              mode.updateFooterUsage(res.usage, res.context_window);
+              mode.updateFooterUsage(
+                res.usage,
+                res.contextWindow ?? res.context_window,
+              );
             }
             mode.renderSessionHistory(
               res?.messages || [],
