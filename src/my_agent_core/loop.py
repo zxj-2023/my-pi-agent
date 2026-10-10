@@ -65,7 +65,6 @@ __all__ = [
     "CancellationToken",
     "_assistant_turn",
     "_execute_tools_turn",
-    "_provider_context",
     "_synthesize_interrupted_tool_calls",
     "run_agent_loop",
 ]
@@ -102,9 +101,6 @@ class CancellationToken:
         """取消状态属性访问捷径。"""
         return self._cancelled
 
-
-# 别名保留以支持老调用方与外部测试
-_provider_context = clean_provider_context
 
 
 async def _assistant_turn(
@@ -252,14 +248,17 @@ def _synthesize_interrupted_tool_calls(
     tool_calls: Sequence[Any],
 ) -> list[Message]:
     """统一生成标准的中断工具结果，彻底消除多处代码重复。"""
-    return [
-        Message(
-            role="tool",
-            content=_INTERRUPTED_TOOL_RESULT,
-            metadata={"tool_call_id": _coerce_tool_call(tc).id, "is_error": True},
+    res = []
+    for tc in tool_calls:
+        c = _coerce_tool_call(tc)
+        res.append(
+            Message(
+                role="tool",
+                content=_INTERRUPTED_TOOL_RESULT,
+                metadata={"tool_call_id": c.id, "tool_name": c.name, "is_error": True},
+            )
         )
-        for tc in tool_calls
-    ]
+    return res
 
 
 def _coerce_tool_call(tc: Any) -> ToolCall:
@@ -312,7 +311,7 @@ async def _fail_tool_calls_from_truncated_message(
         tool_msg = Message(
             role="tool",
             content=err_msg,
-            metadata={"tool_call_id": call.id, "is_error": True},
+            metadata={"tool_call_id": call.id, "tool_name": call.name, "is_error": True},
         )
         yield MessageStart(tool_msg)
         yield MessageEnd(tool_msg)
@@ -492,6 +491,7 @@ async def _execute_tools_turn(
             content=obs,
             metadata={
                 "tool_call_id": call.id,
+                "tool_name": call.name,
                 "is_error": is_err,
                 "terminate": effective_terminate,
             },
@@ -595,9 +595,9 @@ async def run_agent_loop(
             yield TurnStart(iteration)
 
             # 前置清洗与上下文准备
-            clean_messages = _provider_context(messages)
+            clean_messages = clean_provider_context(messages)
             view = await context_manager.prepare(clean_messages) if context_manager else clean_messages
-            view = _provider_context(view)
+            view = clean_provider_context(view)
 
             # 派发上下文压缩事件（若触发了 L4/L2 压缩）
             comp_info = getattr(context_manager, "pending_compaction", None) if context_manager is not None else None

@@ -33,7 +33,6 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.loop import (
     CancellationToken,
-    _provider_context,
     run_agent_loop,
 )
 from my_agent_core.memory import MemoryStore, make_memory_tool
@@ -125,7 +124,6 @@ __all__ = [
     "ContextCompacted",
     "ToolsChanged",
     "CancellationToken",
-    "_provider_context",
     "clean_provider_context",
     "run_agent_loop",
 ]

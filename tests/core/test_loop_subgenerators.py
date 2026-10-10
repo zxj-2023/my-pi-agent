@@ -179,11 +179,11 @@ def test_synthesize_interrupted_tool_calls():
 
     assert messages[0].role == "tool"
     assert messages[0].content == _INTERRUPTED_TOOL_RESULT
-    assert messages[0].metadata == {"tool_call_id": "call_1", "is_error": True}
+    assert messages[0].metadata == {"tool_call_id": "call_1", "tool_name": "bash", "is_error": True}
 
     assert messages[1].role == "tool"
     assert messages[1].content == _INTERRUPTED_TOOL_RESULT
-    assert messages[1].metadata == {"tool_call_id": "call_2", "is_error": True}
+    assert messages[1].metadata == {"tool_call_id": "call_2", "tool_name": "read", "is_error": True}
 
 
 # ─────────────────────────────────────────────────────────────

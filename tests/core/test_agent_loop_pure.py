@@ -33,9 +33,9 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 )
 from my_agent_core.loop import (
     CancellationToken,
-    _provider_context,
     run_agent_loop,
 )
+from my_agent_core.tool_history import clean_provider_context as _provider_context
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import ToolResult, tool
 from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
@@ -245,6 +245,9 @@ async def test_run_agent_loop_tool_execution_flow():
     roles = [m.role for m in messages]
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert messages[2].content == "21"
+    assert messages[2].metadata is not None
+    assert messages[2].metadata["tool_name"] == "multiply"
+    assert messages[2].metadata["tool_call_id"] == "call_mult"
     assert messages[3].content == "Result is 21"
 
 

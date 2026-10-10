@@ -668,6 +668,26 @@ async def test_extract_and_accumulate_file_operations():
 
 
 @pytest.mark.anyio
+async def test_extract_file_operations_from_standard_tool_call_entities():
+    """验证从标准 ToolCall (name/args) 结构中正确提取读写文件足迹。"""
+    from my_agent_core.context import extract_file_operations
+
+    tc_standard = [
+        {"id": "call_1", "name": "read_symbol", "args": {"path": "src/models.py"}},
+        {"id": "call_2", "name": "patch", "args": {"path": "src/app.py"}},
+    ]
+    msgs = [
+        _msg("user", "refactor"),
+        _msg("assistant", "patching", tool_calls=tc_standard),
+        _msg("tool", "ok", tool_call_id="call_1"),
+        _msg("tool", "ok", tool_call_id="call_2"),
+    ]
+    read_files, mod_files = extract_file_operations(msgs)
+    assert read_files == ["src/models.py"]
+    assert mod_files == ["src/app.py"]
+
+
+@pytest.mark.anyio
 async def test_discrete_epoch_compaction_establishes_stable_prefix():
     """验证离散块压缩触发后，确立全新的稳定前缀 Epoch，后续轮次完全保持只读追加。
 
