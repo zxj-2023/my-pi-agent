@@ -101,28 +101,28 @@
       "finished_at": "2026-10-09T00:00:05.306866"
     },
     "bn-fit-modify": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 1093,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 896,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 11168,
-      "cache_read_tokens": 96128,
+      "tokens": 11572,
+      "cache_read_tokens": 113664,
       "cost_usd": 0.0,
-      "summary": "",
-      "finished_at": "2026-10-09T17:28:13.899586"
+      "summary": "PASSED via Strict Rerun",
+      "finished_at": "2026-10-10T14:12:04.713314"
     },
     "adaptive-rejection-sampler": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 3242,
+      "duration_sec": 986,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 70148,
-      "cache_read_tokens": 2677504,
-      "cost_usd": 0.0,
+      "tokens": 35820,
+      "cache_read_tokens": 558848,
+      "cost_usd": 0.016473,
       "summary": "",
-      "finished_at": "2026-10-09T18:04:00.907311"
+      "finished_at": "2026-10-10T13:43:04.195685"
     },
     "constraints-scheduling": {
       "status": "PASSED",
@@ -216,14 +216,14 @@
     "dna-assembly": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 264,
+      "duration_sec": 295,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 43648,
-      "cache_read_tokens": 1037312,
+      "tokens": 38218,
+      "cache_read_tokens": 770944,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T17:14:45.105449"
+      "finished_at": "2026-10-10T13:32:40.546410"
     },
     "extract-elf": {
       "status": "PASSED",
@@ -307,14 +307,14 @@
     "filter-js-from-html": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 468,
+      "duration_sec": 298,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 62501,
-      "cache_read_tokens": 2104320,
+      "tokens": 25986,
+      "cache_read_tokens": 315264,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T17:18:28.452739"
+      "finished_at": "2026-10-10T13:02:57.195207"
     },
     "git-leak-recovery": {
       "status": "PASSED",
@@ -341,14 +341,14 @@
     "gcode-to-text": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 301,
+      "duration_sec": 1078,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 38774,
-      "cache_read_tokens": 747264,
-      "cost_usd": 0.0,
+      "tokens": 59652,
+      "cache_read_tokens": 1679360,
+      "cost_usd": 0.035412,
       "summary": "",
-      "finished_at": "2026-10-09T17:20:03.038376"
+      "finished_at": "2026-10-10T13:26:37.833785"
     },
     "headless-terminal": {
       "status": "PASSED",
@@ -408,14 +408,14 @@
     "large-scale-text-editing": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 211,
+      "duration_sec": 259,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 7933,
-      "cache_read_tokens": 64128,
+      "tokens": 5573,
+      "cache_read_tokens": 35584,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T17:23:40.763175"
+      "finished_at": "2026-10-10T12:57:56.399259"
     },
     "llm-inference-batching-scheduler": {
       "status": "PASSED",
@@ -578,14 +578,14 @@
     "install-windows-3.11": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 1845,
+      "duration_sec": 1956,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 256912,
-      "cache_read_tokens": 6090112,
+      "tokens": 1207493,
+      "cache_read_tokens": 6521984,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T17:49:32.554378"
+      "finished_at": "2026-10-10T14:31:55.587129"
     },
     "password-recovery": {
       "status": "PASSED",
@@ -624,14 +624,14 @@
     "polyglot-rust-c": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 138,
+      "duration_sec": 949,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 8585,
-      "cache_read_tokens": 1024,
+      "tokens": 179533,
+      "cache_read_tokens": 1768448,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T17:44:47.313363"
+      "finished_at": "2026-10-10T13:09:27.631540"
     },
     "portfolio-optimization": {
       "status": "PASSED",
@@ -735,16 +735,16 @@
       "finished_at": "2026-10-09T02:23:21.100951"
     },
     "regex-chess": {
-      "status": "FAILED",
-      "reward": 0.0,
-      "duration_sec": 166,
-      "tests_passed": 0,
+      "status": "PASSED",
+      "reward": 1.0,
+      "duration_sec": 3939,
+      "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 19193,
-      "cache_read_tokens": 24064,
+      "tokens": 152095,
+      "cache_read_tokens": 4585728,
       "cost_usd": 0.0,
-      "summary": "",
-      "finished_at": "2026-10-09T18:06:49.200799"
+      "summary": "PASSED via Strict Rerun",
+      "finished_at": "2026-10-10T13:59:19.406839"
     },
     "regex-log": {
       "status": "PASSED",
@@ -760,26 +760,26 @@
     "query-optimize": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 604,
+      "duration_sec": 706,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 20697,
-      "cache_read_tokens": 112896,
+      "tokens": 7279,
+      "cache_read_tokens": 61312,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T17:59:47.508770"
+      "finished_at": "2026-10-10T13:21:15.905417"
     },
     "raman-fitting": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 838,
+      "duration_sec": 665,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 68374,
-      "cache_read_tokens": 1299200,
+      "tokens": 256080,
+      "cache_read_tokens": 1557888,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T18:13:46.355119"
+      "finished_at": "2026-10-10T13:43:50.022816"
     },
     "reshard-c4-data": {
       "status": "PASSED",
@@ -808,14 +808,14 @@
     "sanitize-git-repo": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 175,
+      "duration_sec": 382,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 43343,
-      "cache_read_tokens": 657408,
+      "tokens": 86650,
+      "cache_read_tokens": 718848,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T18:09:56.863510"
+      "finished_at": "2026-10-10T13:27:42.906823"
     },
     "schemelike-metacircular-eval": {
       "status": "PASSED",
@@ -856,14 +856,14 @@
     "qemu-alpine-ssh": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 1356,
+      "duration_sec": 792,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 86593,
-      "cache_read_tokens": 4557568,
+      "tokens": 26030,
+      "cache_read_tokens": 415104,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T18:07:43.793189"
+      "finished_at": "2026-10-10T13:57:04.306265"
     },
     "sqlite-with-gcov": {
       "status": "PASSED",
@@ -880,14 +880,14 @@
     "train-fasttext": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 18236,
+      "duration_sec": 3767,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 0,
-      "cache_read_tokens": 0,
+      "tokens": 23372,
+      "cache_read_tokens": 600448,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T23:17:49.022145"
+      "finished_at": "2026-10-10T15:07:58.080876"
     },
     "tune-mjcf": {
       "status": "PASSED",
@@ -916,14 +916,14 @@
     "video-processing": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 586,
+      "duration_sec": 337,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 1937812,
-      "cache_read_tokens": 5839744,
+      "tokens": 54413,
+      "cache_read_tokens": 1270400,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T18:27:45.806819"
+      "finished_at": "2026-10-10T13:08:39.163541"
     },
     "winning-avg-corewars": {
       "status": "PASSED",
@@ -952,14 +952,14 @@
     "torch-pipeline-parallelism": {
       "status": "FAILED",
       "reward": 0.0,
-      "duration_sec": 464,
+      "duration_sec": 1324,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 42914,
-      "cache_read_tokens": 409984,
+      "tokens": 21682,
+      "cache_read_tokens": 223232,
       "cost_usd": 0.0,
       "summary": "",
-      "finished_at": "2026-10-09T18:17:53.369675"
+      "finished_at": "2026-10-10T14:05:08.549223"
     },
     "torch-tensor-parallelism": {
       "status": "PASSED",
@@ -972,6 +972,54 @@
       "cost_usd": 0.0,
       "summary": "PASSED via MyPiAgent",
       "finished_at": "2026-10-09T15:02:18.065745"
+    },
+    "make-doom-for-mips": {
+      "status": "FAILED",
+      "reward": 0.0,
+      "duration_sec": 1047,
+      "tests_passed": 0,
+      "tests_total": 1,
+      "tokens": 245767,
+      "cache_read_tokens": 3257600,
+      "cost_usd": 0.0,
+      "summary": "",
+      "finished_at": "2026-10-10T14:29:36.591429"
+    },
+    "caffe-cifar-10": {
+      "status": "FAILED",
+      "reward": 0.0,
+      "duration_sec": 1277,
+      "tests_passed": 0,
+      "tests_total": 1,
+      "tokens": 3730,
+      "cache_read_tokens": 20736,
+      "cost_usd": 0.0,
+      "summary": "",
+      "finished_at": "2026-10-10T14:50:54.501730"
+    },
+    "extract-moves-from-video": {
+      "status": "FAILED",
+      "reward": 0.0,
+      "duration_sec": 1856,
+      "tests_passed": 0,
+      "tests_total": 1,
+      "tokens": 3890,
+      "cache_read_tokens": 20992,
+      "cost_usd": 0.0,
+      "summary": "",
+      "finished_at": "2026-10-10T15:02:54.162430"
+    },
+    "sam-cell-seg": {
+      "status": "FAILED",
+      "reward": 0.0,
+      "duration_sec": 2469,
+      "tests_passed": 0,
+      "tests_total": 1,
+      "tokens": 117716,
+      "cache_read_tokens": 2358016,
+      "cost_usd": 0.0,
+      "summary": "",
+      "finished_at": "2026-10-10T15:32:08.368806"
     }
   }
 }

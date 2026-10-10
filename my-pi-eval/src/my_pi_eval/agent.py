@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
@@ -237,56 +238,60 @@ class MyPiAgent(BaseAgent):
             await coding_agent.run(instruction)
         except Exception as exc:
             error_msg = str(exc)
-        duration_sec = time.perf_counter() - start_time
+        except asyncio.CancelledError as exc:
+            error_msg = f"Task cancelled / timeout: {exc}"
+            raise
+        finally:
+            duration_sec = time.perf_counter() - start_time
 
-        # Extract token usage directly from session file (most reliable and complete)
-        prompt_tokens = 0
-        completion_tokens = 0
-        cache_read_tokens = 0
+            # Extract token usage directly from session file (most reliable and complete)
+            prompt_tokens = 0
+            completion_tokens = 0
+            cache_read_tokens = 0
 
-        session = getattr(coding_agent, "session", None) or getattr(
-            getattr(coding_agent, "agent", None), "session", None
-        )
-        session_file = Path(session.path) if session and getattr(session, "path", None) else None
-        if session_file and session_file.exists():
-            try:
-                for line in session_file.read_text(encoding="utf-8", errors="replace").splitlines():
-                    if not line.strip():
-                        continue
-                    d_entry = json.loads(line)
-                    msg = d_entry.get("message") or {}
-                    meta = msg.get("metadata") or {}
-                    usage = meta.get("usage") or msg.get("usage") or {}
-                    if isinstance(usage, dict):
-                        prompt_tokens += usage.get("prompt_tokens") or usage.get("input") or 0
-                        completion_tokens += usage.get("completion_tokens") or usage.get("output") or 0
-                        cache_read_tokens += (
-                            usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
-                        )
-            except (json.JSONDecodeError, OSError) as exc:
-                _ = exc
+            session = getattr(coding_agent, "session", None) or getattr(
+                getattr(coding_agent, "agent", None), "session", None
+            )
+            session_file = Path(session.path) if session and getattr(session, "path", None) else None
+            if session_file and session_file.exists():
+                try:
+                    for line in session_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                        if not line.strip():
+                            continue
+                        d_entry = json.loads(line)
+                        msg = d_entry.get("message") or {}
+                        meta = msg.get("metadata") or {}
+                        usage = meta.get("usage") or msg.get("usage") or {}
+                        if isinstance(usage, dict):
+                            prompt_tokens += usage.get("prompt_tokens") or usage.get("input") or 0
+                            completion_tokens += usage.get("completion_tokens") or usage.get("output") or 0
+                            cache_read_tokens += (
+                                usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                            )
+                except (json.JSONDecodeError, OSError) as exc:
+                    _ = exc
 
-        logs_dir = getattr(context, "logs_dir", None) or getattr(self, "logs_dir", None)
-        if logs_dir:
-            metrics_path = Path(logs_dir) / "metrics.json"
-            raw_task_id = getattr(context, "task_id", None)
-            task_id_str = raw_task_id if isinstance(raw_task_id, str) else "unknown"
-            task_metric = {
-                "task_id": task_id_str,
-                "duration_sec": round(duration_sec, 3),
-                "prompt_tokens": prompt_tokens if isinstance(prompt_tokens, int) else 0,
-                "completion_tokens": completion_tokens if isinstance(completion_tokens, int) else 0,
-                "cache_read_tokens": cache_read_tokens if isinstance(cache_read_tokens, int) else 0,
-                "error": error_msg,
+            logs_dir = getattr(context, "logs_dir", None) or getattr(self, "logs_dir", None)
+            if logs_dir:
+                metrics_path = Path(logs_dir) / "metrics.json"
+                raw_task_id = getattr(context, "task_id", None)
+                task_id_str = raw_task_id if isinstance(raw_task_id, str) else "unknown"
+                task_metric = {
+                    "task_id": task_id_str,
+                    "duration_sec": round(duration_sec, 3),
+                    "prompt_tokens": prompt_tokens if isinstance(prompt_tokens, int) else 0,
+                    "completion_tokens": completion_tokens if isinstance(completion_tokens, int) else 0,
+                    "cache_read_tokens": cache_read_tokens if isinstance(cache_read_tokens, int) else 0,
+                    "error": error_msg,
+                }
+                metrics_path.write_text(json.dumps(task_metric, indent=2), encoding="utf-8")
+
+            self._last_metrics = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "duration_sec": duration_sec,
             }
-            metrics_path.write_text(json.dumps(task_metric, indent=2), encoding="utf-8")
-
-        self._last_metrics = {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "cache_read_tokens": cache_read_tokens,
-            "duration_sec": duration_sec,
-        }
 
     def populate_context_post_run(self, context: Any) -> None:
         """Backfill token metrics into Harbor's AgentContext post execution."""
