@@ -1,4 +1,4 @@
-"""统一待办任务工具：基于 TaskStore 的单一标准 todo 工具与 discrete 工具族。"""
+"""统一待办任务工具：基于 TaskStore 的单一标准 todo 工具。"""
 
 from __future__ import annotations
 
@@ -180,11 +180,6 @@ def make_todo_tool(store: TaskStore) -> Tool:
             return ToolResult(ok=False, error=str(e))
 
     return todo
-
-
-def make_task_tools(store: TaskStore) -> list[Tool]:
-    """导出单一 todo 标准工具（对标 Pi & Hermes）。"""
-    return [make_todo_tool(store)]
 
 
 class TaskGuardHook:

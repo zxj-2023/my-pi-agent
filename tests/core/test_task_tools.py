@@ -3,7 +3,6 @@ from pathlib import Path
 
 from my_agent_core.task_store import TaskStore  # pyright: ignore
 from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore
-    make_task_tools,
     make_todo_tool,
 )
 
@@ -107,8 +106,8 @@ def test_todo_tool_never_throw_on_error(tmp_path: Path):
     asyncio.run(_test())
 
 
-def test_make_task_tools_wrapper(tmp_path: Path):
+def test_make_todo_tool(tmp_path: Path):
     store = TaskStore(tmp_path)
-    tools = make_task_tools(store)
-    assert len(tools) == 1
-    assert tools[0].name == "todo"
+    tool = make_todo_tool(store)
+    assert tool.name == "todo"
+    assert not tool.is_parallel_safe

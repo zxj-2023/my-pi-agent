@@ -66,7 +66,6 @@ from my_agent_core.tool_history import (  # pyright: ignore[reportMissingImports
 )
 from my_agent_core.tools import Tool, ToolResult, tool
 from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
-    make_task_tools,
     make_todo_tool,
 )
 
@@ -108,7 +107,6 @@ __all__ = [
     "TaskStore",
     "ToolHistoryRepair",
     "repair_tool_history",
-    "make_task_tools",
     "make_todo_tool",
     "SubagentTask",
     "SubagentTaskManager",

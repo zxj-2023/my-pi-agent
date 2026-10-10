@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import os
@@ -62,6 +63,7 @@ class AuthManager:
         else:
             self.lock_path = self.auth_path.with_name(f"{self.auth_path.name}.lock")
         self.lock_timeout = lock_timeout
+        self._refresh_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
     def load_store(self) -> AuthStore:
         """从 auth.json 加载并自动归一化格式。
@@ -216,47 +218,65 @@ class AuthManager:
             if not cred.is_expired():
                 return cred.access
 
-            # 在锁外执行网络刷新，避免阻塞跨进程并发
-            client_id = cred.client_id or DEFAULT_ANTIGRAVITY_CLIENT_ID
-            client_secret = cred.client_secret or DEFAULT_ANTIGRAVITY_CLIENT_SECRET
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.post(
-                        GOOGLE_TOKEN_URL,
-                        data={
-                            "client_id": client_id,
-                            "client_secret": client_secret,
-                            "refresh_token": cred.refresh,
-                            "grant_type": "refresh_token",
-                        },
-                    )
-                    if resp.status_code != 200:
-                        raise RuntimeError(f"OAuth Token 自动刷新失败 ({resp.status_code}): {resp.text}")
-                    data = resp.json()
-            except httpx.RequestError as exc:
-                raise RuntimeError(f"OAuth Token 自动刷新网络连接失败: {exc}") from exc
+            # 进程内防重并发锁，避免多协程同时发起重复刷新
+            lock_key = (provider, profile_name)
+            if lock_key not in self._refresh_locks:
+                self._refresh_locks[lock_key] = asyncio.Lock()
 
-            new_access = data["access_token"]
-            expires_in = data.get("expires_in", 3600)
-            try:
-                exp_seconds = int(expires_in)
-                now_ms = int(time.time() * 1000)
-            except (ValueError, TypeError):
-                exp_seconds = 3600
-                now_ms = 0
-            update_kwargs: dict[str, Any] = {
-                "access": new_access,
-                "expires": now_ms + (exp_seconds - 300) * 1000,
-            }
-            if "refresh_token" in data and data["refresh_token"]:
-                update_kwargs["refresh"] = data["refresh_token"]
+            async with self._refresh_locks[lock_key]:
+                # 二次检查（Double-Checked Locking）：前序协程可能已刷新完成
+                with FileLock(str(self.lock_path), timeout=max(self.lock_timeout, 10.0)):
+                    current_store = self.load_store()
+                    check_cred = current_store.providers.get(provider, {}).get(profile_name)
+                    if isinstance(check_cred, OAuthCredential) and not check_cred.is_expired():
+                        return check_cred.access
+                    if isinstance(check_cred, OAuthCredential):
+                        cred = check_cred
 
-            with FileLock(str(self.lock_path), timeout=max(self.lock_timeout, 10.0)):
-                current_store = self.load_store()
-                target_cred = current_store.providers.get(provider, {}).get(profile_name)
-                if isinstance(target_cred, OAuthCredential):
-                    current_store.providers[provider][profile_name] = target_cred.model_copy(update=update_kwargs)
-                    self.save_store(current_store)
-            return new_access
+                # 在锁外执行网络刷新，避免阻塞跨进程并发
+                client_id = cred.client_id or DEFAULT_ANTIGRAVITY_CLIENT_ID
+                client_secret = cred.client_secret or DEFAULT_ANTIGRAVITY_CLIENT_SECRET
+                try:
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        resp = await client.post(
+                            GOOGLE_TOKEN_URL,
+                            data={
+                                "client_id": client_id,
+                                "client_secret": client_secret,
+                                "refresh_token": cred.refresh,
+                                "grant_type": "refresh_token",
+                            },
+                        )
+                        if resp.status_code != 200:
+                            raise RuntimeError(f"OAuth Token 自动刷新失败 ({resp.status_code}): {resp.text}")
+                        data = resp.json()
+                except httpx.RequestError as exc:
+                    raise RuntimeError(f"OAuth Token 自动刷新网络连接失败: {exc}") from exc
+
+                new_access = data["access_token"]
+                expires_in = data.get("expires_in", 3600)
+                try:
+                    exp_seconds = int(expires_in)
+                    now_ms = int(time.time() * 1000)
+                except (ValueError, TypeError):
+                    exp_seconds = 3600
+                    now_ms = 0
+                update_kwargs: dict[str, Any] = {
+                    "access": new_access,
+                    "expires": now_ms + (exp_seconds - 300) * 1000,
+                }
+                if "refresh_token" in data and data["refresh_token"]:
+                    update_kwargs["refresh"] = data["refresh_token"]
+
+                with FileLock(str(self.lock_path), timeout=max(self.lock_timeout, 10.0)):
+                    current_store = self.load_store()
+                    target_cred = current_store.providers.get(provider, {}).get(profile_name)
+                    if isinstance(target_cred, OAuthCredential):
+                        # 若已有跨进程刷新先一步写入了有效 Token，则直接采用
+                        if not target_cred.is_expired():
+                            return target_cred.access
+                        current_store.providers[provider][profile_name] = target_cred.model_copy(update=update_kwargs)
+                        self.save_store(current_store)
+                return new_access
 
         raise RuntimeError(f"未知的凭据类型: {type(cred)}")

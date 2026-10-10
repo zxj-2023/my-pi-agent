@@ -2,7 +2,7 @@
 
 - **定位**：声明式多智能体发现与受控任务委派调度引擎 (`packages/my-agent-core/src/my_agent_core/subagents.py`, `subagent_tasks.py`)
 - **核心类**：`Subagent`, `SubagentManager`, `SubagentTask`, `SubagentTaskManager`, `make_task_tool`
-- **主要实现**：`subagents.py`, `subagent_tasks.py`（保留 `tasks.py` 别名兼容）, `tools/builtin/task.py`
+- **主要实现**：`subagents.py`, `subagent_tasks.py`, `tools/builtin/task.py`
 
 ---
 

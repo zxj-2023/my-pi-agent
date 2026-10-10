@@ -17,7 +17,7 @@ SAFE_BASH_PREFIXES = (
     "git log",
     "pytest",
     "python -m pytest",
-    "uv run",
+    "uv run pytest",
 )
 
 
@@ -53,10 +53,10 @@ class PermissionGate:
         if self.mode != "strict" and tool_name in READONLY_TOOLS:
             return HookResult()
 
-        # 2. 安全 Shell 命令放行（防范链式命令与管道注入绕过）
+        # 2. 安全 Shell 命令放行（防范链式命令、管道注入与子 shell 绕过）
         if tool_name == "bash" and self.mode == "review":
             cmd = str(args.get("command", "")).strip()
-            has_chaining = any(sep in cmd for sep in (";", "&&", "||", "|", "&", "\n"))
+            has_chaining = any(sep in cmd for sep in (";", "&&", "||", "|", "&", "\n", "$(", "`"))
             if not has_chaining and any(cmd.startswith(p) for p in SAFE_BASH_PREFIXES):
                 return HookResult()
 
