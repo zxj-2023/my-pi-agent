@@ -225,7 +225,7 @@ class ModelRpcMixin:
         )
         self.agent.session.append_entry(entry)
 
-        setattr(self.agent, "thinking_level", level)
+        self.agent.thinking_level = level
 
         persist = bool(params.get("persist", False))
         if persist:

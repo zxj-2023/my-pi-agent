@@ -90,6 +90,7 @@ class Tool:
     is_parallel_safe: bool
     is_async: bool
     params_model: type[BaseModel] | None
+    is_mcp: bool = False
 
     def __init__(
         self,
@@ -103,6 +104,7 @@ class Tool:
         raw_schema: dict[str, Any] | None = None,
         timeout: float | None = None,
         is_parallel_safe: bool = False,
+        is_mcp: bool = False,
     ):
         self.func = func
         self.name = name or func.__name__
@@ -112,6 +114,7 @@ class Tool:
         self.raw_schema = raw_schema
         self.timeout = timeout
         self.is_parallel_safe = is_parallel_safe
+        self.is_mcp = is_mcp
         self.is_async = inspect.iscoroutinefunction(func)
         sig = inspect.signature(func)
         self._accepts_on_update = "on_update" in sig.parameters

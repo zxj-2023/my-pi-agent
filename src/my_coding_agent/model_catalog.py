@@ -664,7 +664,7 @@ def switch_llm_model(
                     provider = default_provider
 
     if current_llm is not None and not hasattr(current_llm, "config") and hasattr(current_llm, "model"):
-        setattr(current_llm, "model", model_name)
+        current_llm.model = model_name
         return current_llm, model_name, provider, None
 
     api_key = None

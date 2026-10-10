@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 class CodingAgent:
     """生产级编码智能体门面 (Dual API 架构)"""
 
+    thinking_level: str = "off"
+
     def __init__(
         self,
         *,
@@ -160,7 +162,6 @@ class CodingAgent:
             await self._mcp_manager.connect_all()
             tools = self._mcp_manager.get_all_tools()
             for t in tools:
-                setattr(t, "is_mcp", True)
                 self.agent.registry.register(t)
         except Exception as exc:
             logger.warning("加载工作区 .mcp.json 失败: %s", exc)

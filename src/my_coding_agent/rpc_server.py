@@ -185,7 +185,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
         if llm is not None:
             cfg = getattr(llm, "config", None)
             if cfg is not None and getattr(cfg, "model", None):
-                return str(getattr(cfg, "model"))
+                return str(cfg.model)
             mod = getattr(llm, "model", None)
             if mod:
                 return str(mod)
@@ -281,7 +281,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
             thinking_str = str(initial_thinking).strip().lower()
             valid_levels = {"off", "minimal", "low", "medium", "high", "xhigh", "max"}
             if thinking_str in valid_levels:
-                setattr(self.agent, "thinking_level", thinking_str)
+                self.agent.thinking_level = thinking_str
                 t_entry = ThinkingLevelChangeEntry(
                     thinking_level=thinking_str,
                     parent_id=self.agent.session.tree.current_id,

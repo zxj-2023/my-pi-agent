@@ -203,8 +203,8 @@ class MCPClientManager:
                 raw_schema=schema,
                 timeout=120.0,
                 is_parallel_safe=False,
+                is_mcp=True,
             )
-            setattr(wrapped, "is_mcp", True)
             wrapped_tools.append(wrapped)
         self._tools.extend(wrapped_tools)
         return wrapped_tools
