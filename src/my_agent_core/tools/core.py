@@ -11,6 +11,53 @@ from typing import Any, get_type_hints, overload
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 
+DEFAULT_TOOL_MAX_BYTES = 50 * 1024  # 51,200 bytes (50KB)
+DEFAULT_TOOL_MAX_LINES = 2000
+
+
+def truncate_tool_output(
+    content: str,
+    max_bytes: int = DEFAULT_TOOL_MAX_BYTES,
+    max_lines: int = DEFAULT_TOOL_MAX_LINES,
+) -> str:
+    """对齐 Pi 原厂 truncate.ts：在工具执行期对超长输出进行不可变截断（50KB 或 2000行）。
+
+    保证工具输出进入会话消息历史时即已定型，永不随后续轮次发生就地篡改。
+    """
+    if not content:
+        return ""
+
+    encoded = content.encode("utf-8", errors="replace")
+    total_bytes = len(encoded)
+    lines = content.splitlines(keepends=True)
+    total_lines = len(lines)
+
+    truncated_by_bytes = total_bytes > max_bytes
+    truncated_by_lines = total_lines > max_lines
+
+    if not truncated_by_bytes and not truncated_by_lines:
+        return content
+
+    # 1. 先按行截断（保留前 max_lines 行）
+    if truncated_by_lines:
+        lines = lines[:max_lines]
+        content = "".join(lines)
+        encoded = content.encode("utf-8", errors="replace")
+
+    # 2. 再按字节截断（确保不超过 max_bytes）
+    if len(encoded) > max_bytes:
+        cut_bytes = encoded[:max_bytes]
+        content = cut_bytes.decode("utf-8", errors="ignore")
+        last_nl = content.rfind("\n")
+        if last_nl > 0:
+            content = content[: last_nl + 1]
+
+    orig_kb = total_bytes / 1024
+    trunc_kb = len(content.encode("utf-8")) / 1024
+    notice = f"\n[Output truncated: showing {len(content.splitlines())} of {total_lines} lines ({trunc_kb:.1f}KB of {orig_kb:.1f}KB)]"
+    return content.rstrip() + notice
+
+
 @dataclass
 class ToolResult:
     """工具执行结果：成功/失败 + 数据或错误消息 + 结构化元数据。"""
@@ -23,9 +70,8 @@ class ToolResult:
 
     def serialize(self) -> str:
         """转成写入 messages 的字符串。失败时返回错误文本。"""
-        if self.ok:
-            return str(self.data)
-        return self.error or "Unknown error"
+        raw = str(self.data) if self.ok else (self.error or "Unknown error")
+        return truncate_tool_output(raw)
 
 
 _FRAMEWORK_RESERVED_PARAMS: frozenset[str] = frozenset({"on_update", "signal", "tool_call_id"})

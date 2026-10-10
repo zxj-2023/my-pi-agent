@@ -30,7 +30,13 @@ from my_agent_llm.config import Config
 
 from my_pi_eval.tools import HarborToolRegistry
 
+try:
+    from my_coding_agent.tracer import DebugEventTracer
+except ImportError:
+    DebugEventTracer = None
+
 if TYPE_CHECKING:
+
     class BaseAgent:
         """Harbor BaseAgent stub for static type checking."""
 
@@ -50,6 +56,7 @@ else:
     try:
         from harbor.agents.base import BaseAgent
     except ImportError:
+
         class BaseAgent:
             def __init__(
                 self,
@@ -161,17 +168,29 @@ class MyPiAgent(BaseAgent):
 
         session = Session(path=session_path)
 
-        tool_descriptions = "\n".join([f"- {t.name}: {t.description}" for t in registry.list()])
         system_prompt = (
-            "You are an expert terminal problem-solving and software engineering agent operating in a Linux sandbox.\n\n"
-            f"<tools>\n{tool_descriptions}\n</tools>\n\n"
+            "You are an expert coding assistant operating inside pi, a coding agent harness. "
+            "You help users by reading files, executing commands, editing code, and writing new files.\n\n"
+            "<tools>\n"
+            "- read: Read file contents\n"
+            "- bash: Execute bash commands (ls, grep, find, etc.)\n"
+            "- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call\n"
+            "- write: Create or overwrite files\n"
+            "- grep: Grep file contents\n"
+            "- find: Fuzzy path search and glob search\n"
+            "- ls: List directory contents\n\n"
+            "In addition to the tools above, you may have access to other custom tools depending on the project.\n"
+            "</tools>\n\n"
             "<rules>\n"
-            "- Always inspect the current workspace and read files before modifying code.\n"
-            "- Use bash to execute shell commands (inspecting directories, running compilers, tests, or scripts).\n"
-            "- Use read/write/edit to examine and manipulate files surgically.\n"
-            "- When editing files, ensure edits[].oldText matches exactly once in the target file.\n"
-            "- Never assume; verify your changes by executing tests or checking outputs before concluding.\n"
-            "- Solve the user task directly, autonomously, and efficiently. When done, output a concise conclusion.\n"
+            "- Use read to examine files instead of cat or sed.\n"
+            "- You can inspect PI_* environment variables for current model and session details.\n"
+            "- Use edit for precise changes (edits[].oldText must match exactly)\n"
+            "- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n"
+            "- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.\n"
+            "- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.\n"
+            "- Use write only for new files or complete rewrites.\n"
+            "- Be concise in your responses\n"
+            "- Show file paths clearly when working with files\n"
             "</rules>\n\n"
             f"<cwd>\n{registry.cwd}\n</cwd>\n"
         )
@@ -181,8 +200,22 @@ class MyPiAgent(BaseAgent):
             tools=registry.list(),
             session=session,
             system_prompt=system_prompt,
-            context_budget=64_000,
+            context_budget=100_000,
+            keep_recent_tokens=20_000,
         )
+
+        if logs_dir and DebugEventTracer is not None:
+            try:
+                debug_log_path = Path(logs_dir) / "debug.log"
+                events_log_path = Path(logs_dir) / "events.jsonl"
+                tracer = DebugEventTracer(
+                    log_path=debug_log_path,
+                    events_path=events_log_path,
+                    console_output=False,
+                )
+                inner_agent.subscribe(tracer)
+            except (OSError, RuntimeError) as exc:
+                _ = exc
 
         class AgentFacade:
             def __init__(self, agent_instance: Agent):
@@ -206,35 +239,32 @@ class MyPiAgent(BaseAgent):
             error_msg = str(exc)
         duration_sec = time.perf_counter() - start_time
 
-        # Extract token usage from session entries or tracker
+        # Extract token usage directly from session file (most reliable and complete)
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
 
-        session = getattr(coding_agent, "session", None) or getattr(getattr(coding_agent, "agent", None), "session", None)
-        if session and hasattr(session, "get_entries"):
+        session = getattr(coding_agent, "session", None) or getattr(
+            getattr(coding_agent, "agent", None), "session", None
+        )
+        session_file = Path(session.path) if session and getattr(session, "path", None) else None
+        if session_file and session_file.exists():
             try:
-                for entry in session.get_entries():
-                    msg = getattr(entry, "message", None)
-                    if not msg:
+                for line in session_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if not line.strip():
                         continue
-                    meta = getattr(msg, "metadata", {}) or {}
-                    usage = meta.get("usage") or getattr(msg, "usage", {}) or {}
+                    d_entry = json.loads(line)
+                    msg = d_entry.get("message") or {}
+                    meta = msg.get("metadata") or {}
+                    usage = meta.get("usage") or msg.get("usage") or {}
                     if isinstance(usage, dict):
                         prompt_tokens += usage.get("prompt_tokens") or usage.get("input") or 0
                         completion_tokens += usage.get("completion_tokens") or usage.get("output") or 0
-                        cache_read_tokens += usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
-            except (AttributeError, KeyError, TypeError):
-                pass
-
-        if prompt_tokens == 0:
-            inner_agent = getattr(coding_agent, "agent", None)
-            if inner_agent and getattr(inner_agent, "context_manager", None):
-                tracker = getattr(inner_agent.context_manager, "token_tracker", None)
-                if tracker:
-                    prompt_tokens = getattr(tracker, "prompt_tokens", 0)
-                    completion_tokens = getattr(tracker, "completion_tokens", 0)
-                    cache_read_tokens = getattr(tracker, "cache_read_tokens", 0)
+                        cache_read_tokens += (
+                            usage.get("cache_read_tokens") or usage.get("cache_read") or usage.get("cacheRead") or 0
+                        )
+            except (json.JSONDecodeError, OSError) as exc:
+                _ = exc
 
         logs_dir = getattr(context, "logs_dir", None) or getattr(self, "logs_dir", None)
         if logs_dir:

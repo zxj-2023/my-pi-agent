@@ -1,18 +1,45 @@
 # pyright: reportMissingImports=false
+import shlex
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 
 @pytest.fixture
 def fake_env():
-    env = MagicMock()
-    exec_result = MagicMock()
-    exec_result.return_code = 0
-    exec_result.stdout = "hello container\n"
-    exec_result.stderr = ""
-    env.exec = AsyncMock(return_value=exec_result)
-    env.read_file = AsyncMock(return_value="line1\nline2\n")
-    env.write_file = AsyncMock()
+    import base64
+    import re
+
+    env = MagicMock(spec=["exec", "is_file", "is_dir"])
+    filesystem = {
+        "/app/main.py": "line1\nline2\n",
+        "/app/run.sh": "echo old\n",
+        "/app/edit_test.py": "def foo():\n    return 41\n",
+        "/app/dup.py": "x = 1\nx = 1\n",
+    }
+
+    async def fake_exec(command: str):
+        res = MagicMock()
+        res.return_code = 0
+        res.stderr = ""
+        res.stdout = ""
+        if command.startswith("cat "):
+            target = command.split("cat ", 1)[1].strip().strip("'\"")
+            if target in filesystem:
+                res.stdout = filesystem[target]
+            else:
+                res.return_code = 1
+                res.stderr = f"cat: {target}: No such file or directory"
+        elif "base64 -d >" in command:
+            m = re.search(r"echo\s+['\"]?([A-Za-z0-9+/=]+)['\"]?\s+\|\s+base64 -d >\s+['\"]?(.+?)['\"]?$", command)
+            if m:
+                b64_content, path = m.group(1), m.group(2).strip().strip("'\"")
+                filesystem[path] = base64.b64decode(b64_content).decode("utf-8")
+        else:
+            res.stdout = "hello container\n"
+        return res
+
+    env.exec = AsyncMock(side_effect=fake_exec)
+    env.filesystem = filesystem
     return env
 
 
@@ -46,31 +73,30 @@ async def test_harbor_write_tool_normalizes_crlf(fake_env):
     registry = HarborToolRegistry(fake_env)
     res = await registry.execute("write", {"path": "/app/run.sh", "content": "echo 1\r\necho 2\r\n"})
     assert res.ok is True
-    fake_env.write_file.assert_awaited_once_with("/app/run.sh", "echo 1\necho 2\n")
+    assert fake_env.filesystem["/app/run.sh"] == "echo 1\necho 2\n"
 
 
 @pytest.mark.anyio
 async def test_harbor_edit_tool_surgical_replacement(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
 
-    fake_env.read_file.return_value = "def foo():\n    return 41\n"
     registry = HarborToolRegistry(fake_env)
     res = await registry.execute(
-        "edit", {"path": "/app/main.py", "edits": [{"oldText": "return 41", "newText": "return 42"}]}
+        "edit", {"path": "/app/edit_test.py", "edits": [{"oldText": "return 41", "newText": "return 42"}]}
     )
     assert res.ok is True
-    fake_env.write_file.assert_awaited_once_with("/app/main.py", "def foo():\n    return 42\n")
+    assert fake_env.filesystem["/app/edit_test.py"] == "def foo():\n    return 42\n"
 
 
 @pytest.mark.anyio
 async def test_harbor_edit_tool_uniqueness_check(fake_env):
     from my_pi_eval.tools import HarborToolRegistry
 
-    fake_env.read_file.return_value = "x = 1\nx = 1\n"
     registry = HarborToolRegistry(fake_env)
-    res = await registry.execute("edit", {"path": "/app/main.py", "edits": [{"oldText": "x = 1", "newText": "x = 2"}]})
+    res = await registry.execute("edit", {"path": "/app/dup.py", "edits": [{"oldText": "x = 1", "newText": "x = 2"}]})
     assert res.ok is False
     assert "2 times" in str(res.error)
+    assert "Must be uniquely matching" in str(res.error)
 
 
 @pytest.mark.anyio
@@ -92,6 +118,7 @@ async def test_harbor_cwd_tracking_and_relative_path(fake_env):
     exec_result.return_code = 0
     exec_result.stdout = "changed directory\n__MY_PI_CWD__:/app/subfolder\n"
     exec_result.stderr = ""
+    fake_env.exec.side_effect = None
     fake_env.exec.return_value = exec_result
 
     registry = HarborToolRegistry(fake_env)
@@ -101,8 +128,12 @@ async def test_harbor_cwd_tracking_and_relative_path(fake_env):
     assert "__MY_PI_CWD__" not in str(res.data)
 
     # Now read relative path "foo.py", should resolve to "/app/subfolder/foo.py"
-    fake_env.read_file.return_value = "hello from foo\n"
+    read_exec = MagicMock()
+    read_exec.return_code = 0
+    read_exec.stdout = "hello from foo\n"
+    read_exec.stderr = ""
+    fake_env.exec.return_value = read_exec
     res_read = await registry.execute("read", {"path": "foo.py"})
     assert res_read.ok is True
-    fake_env.read_file.assert_awaited_with("/app/subfolder/foo.py")
-
+    assert "1 | hello from foo" in str(res_read.data)
+    assert fake_env.exec.await_args[0][0] == f"cat {shlex.quote('/app/subfolder/foo.py')}"

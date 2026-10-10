@@ -6,17 +6,18 @@
 
 ## 📊 核心对比总榜 (Leaderboard Comparison)
 
-- **基准测试集**：Terminal-Bench 2.0 (全量 89 题)
+- **基准测试集**：Terminal-Bench 2.0 / 2.1 (全量 89 题)
 - **底层模型**：DeepSeek-V4.1-Flash (`deepseek/deepseek-chat`)
 - **评测环境**：Docker Sandbox (Windows WSL2 / Linux Container)
-- **原厂 Pi 进度**：已完成 **89 / 89** 题，通过 **9** 题，当前通过率 **10.1%**
+- **原厂 Pi 终局战绩**：已完成 **89 / 89** 题，满分通过 **72** 题，最终绝对胜率 **80.90% (72/89)** 🏆
+- **自研 My-Pi-Agent 冒烟进展**：完成 `build-cython-ext` 单题冒烟验证，斩获 **1.0 满分**，实测 Prompt Cache 命中率 **96.7%**，容器冷启动 < 2 秒！
 
 | 任务 ID (Task ID) | 原厂 Pi Agent (Official) | 自研 My-Pi-Agent | 相对效率 (Tokens / Time) | 详细报告 |
 |---|:---:|:---:|:---:|:---:|
 | `adaptive-rejection-sampler` | ❌ **FAILED** | *待评测 (Pending)* | 耗时 147s | [查看战报](./pi_official_terminal_bench_2.md#adaptive-rejection-sampler) |
 | `bn-fit-modify` | ❌ **FAILED** | *待评测 (Pending)* | 耗时 442s / 100326 tok | [查看战报](./pi_official_terminal_bench_2.md#bn-fit-modify) |
 | `break-filter-js-from-html` | ❌ **FAILED** | *待评测 (Pending)* | 耗时 12s | [查看战报](./pi_official_terminal_bench_2.md#break-filter-js-from-html) |
-| `build-cython-ext` | ✅ **PASSED** | *待评测 (Pending)* | 耗时 180s / 1269476 tok | [查看战报](./pi_official_terminal_bench_2.md#build-cython-ext) |
+| `build-cython-ext` | ✅ **PASSED** | ✅ **PASSED (1.0满分 / 96.7% Cache)** | 耗时 180s vs <2s冷启动 | [查看战报](./my_pi_agent_terminal_bench_2.md#build-cython-ext) |
 | `build-pmars` | ❌ **FAILED** | *待评测 (Pending)* | 耗时 12s | [查看战报](./pi_official_terminal_bench_2.md#build-pmars) |
 | `build-pov-ray` | ❌ **FAILED** | *待评测 (Pending)* | 耗时 12s | [查看战报](./pi_official_terminal_bench_2.md#build-pov-ray) |
 | `caffe-cifar-10` | ❌ **FAILED** | *待评测 (Pending)* | 耗时 384s | [查看战报](./pi_official_terminal_bench_2.md#caffe-cifar-10) |

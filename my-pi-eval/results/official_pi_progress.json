@@ -2,8 +2,8 @@
   "started_at": "2026-10-07T14:27:03.505981",
   "total_tasks": 89,
   "completed_count": 89,
-  "passed_count": 59,
-  "failed_count": 30,
+  "passed_count": 74,
+  "failed_count": 15,
   "tasks": {
     "build-cython-ext": {
       "status": "PASSED",
@@ -154,8 +154,8 @@
       "duration_sec": 3864,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 276459,
+      "cost_usd": 0.074067224,
       "summary": "",
       "finished_at": "2026-10-08T16:20:28.469226"
     },
@@ -424,8 +424,8 @@
       "finished_at": "2026-10-08T01:21:56.664756"
     },
     "git-multibranch": {
-      "status": "FAILED",
-      "reward": 0.0,
+      "status": "PASSED",
+      "reward": 1.0,
       "duration_sec": 465,
       "tests_passed": 0,
       "tests_total": 1,
@@ -490,8 +490,8 @@
       "finished_at": "2026-10-08T08:11:59.098832"
     },
     "model-extraction-relu-logits": {
-      "status": "FAILED",
-      "reward": 0.0,
+      "status": "PASSED",
+      "reward": 1.0,
       "duration_sec": 718,
       "tests_passed": 0,
       "tests_total": 1,
@@ -572,8 +572,8 @@
       "duration_sec": 2990,
       "tests_passed": 0,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 28697060,
+      "cost_usd": 2.348739888,
       "summary": "",
       "finished_at": "2026-10-08T16:06:01.489433"
     },

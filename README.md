@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="license" /></a>
   <a href="https://zxj-2023.github.io/categories/agent%E5%AE%9E%E6%88%98/my-pi-agent/"><img src="https://img.shields.io/badge/blog-series-success.svg?style=flat-square" alt="blog" /></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/tests-717%20python%20%7C%2069%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tests-777%20python%20%7C%2071%20tui%20passed-brightgreen.svg?style=flat-square" alt="tests" /></a>
 </p>
 
 <p align="center">
@@ -74,7 +74,7 @@
 2. **七阶段工具执行流水线与 Never-Throw 保证**：掌握参数强类型归一化、Preflight 预检、实时进度流、因果并发安全（只读并发、含写保序），以及通过 `tool_history.py` 转录本三阶段自愈彻底免疫大模型 API 400 校验死锁；
 3. **五大生命周期决策拦截点（Hooks）**：将只读事实事件（Events）与决策干预门禁（Hooks）彻底正交解耦，深刻理解“调模型前临时 View 改写 vs 真实底层 Session 零污染”的高级设计原则；
 4. **DAG 树状会话持久化与分支探索**：掌握只追加（Append-Only）JSONL 存储、跨进程文件锁、纯内存防环树算法，以及 `/tree`、`/fork`、`/clone` 与安全删除拦截机制；
-5. **Cheap-First 四层上下文压缩管线**：L3 大结果落盘 ➔ L1 裁切中间轮 ➔ L2 旧结果占位 ➔ L4 LLM 智能摘要，联动 `retainedTail` 缓存最大化利用大模型 Prefix Cache 降低 80%+ 的 Token 成本；
+5. **Append-Only 前缀一致性与离散 Epoch 块级压缩管线**：彻底废除旧的滚动截断与工具篡改，动态 80% 水位线门控管控，L3 磁盘溢出 + L4 结构化摘要与全生命周期文件足迹累积，联动 `retainedTail` 快照锁定基准前缀，实测斩获 96.7% 的大模型 KV-Cache（Prompt Cache）命中率；
 6. **双核解耦通信范式**：基于标准 stdio JSON-RPC 2.0 管道，实现 Python 纯无头业务内核与基于 `@earendil-works/pi-tui` 原厂终端的跨进程优雅通信。
 
 ---
@@ -174,8 +174,8 @@ npm install
 npm run build
 
 # 4. 运行全量离线自动化测试套件 (100% 绿灯全通)
-uv run python -m pytest   # 717 Python tests passed
-npm test                  # 69 TUI tests passed
+uv run python -m pytest   # 777 Python offline tests passed (746+ baseline)
+npm test                  # 71 TUI tests passed
 
 # 5. 启动开发态终端
 npm start
@@ -194,6 +194,7 @@ npm start
   - **财务级双行状态栏 (`FooterComponent`)**：紧凑呈现工作区、模型、分级 Token、成本核算、上下文窗口占比与真实 Prompt Cache 命中率（`CH%`）。
 - **7 大工作区核心编码工具 (`tools/`)**：
   - `read`（2000行/50KB截断保护）、`write`（原子覆写）、`edit`（精准替换与单块容错）、`bash`（Windows Git Bash 智能探查+100ms流式输出+编码防乱码+失败状态精准红叉标示+后台作业+危险黑名单拦截）、`grep`（`context`/`glob`支持）、`find`（1000限制）、`ls`（500项截断+大小写忽略排序）；
+  - **工具执行期输出定型截断**：严格对标 Pi 原厂 `truncate.ts`，在工具执行序列化时统一实施 50KB / 2000 行不可变截断，确保进入会话消息历史时即已定型，永不随后续轮次发生就地篡改；
   - `resolve_path` 宽松 CWD 路径解析（对标 Pi 原厂哲学，不做人工虚拟沙箱阻碍用户工作区调用）；
   - `FileMutationQueue` 细粒度单文件并发互斥写锁，彻底规避并发竞争覆盖。
 - **业务安全权限审查门禁 (`PermissionGate`)**：
@@ -208,10 +209,17 @@ npm start
   - **Antigravity 原生直连**：直连 Google internal Code Assist 原生 SSE，递归展开 JSON Schema `$defs`，解决 Protobuf 400 校验错误；
   - **动态模型目录与 4 小时磁盘缓存**：动态同步 Google 与 DeepSeek 官方最新模型目录，自动收敛别名与思考等级；
   - 支持 OpenAI、DeepSeek、Anthropic 与兼容 API。
-- **树状会话持久化与四层上下文压缩**：
+- **树状会话持久化与离散 Epoch 块级压缩管线 (`context.py`)**：
   - 树状 DAG 结构、逐条原子落盘（`fsync` + `os.replace`），崩溃永不损坏历史；
   - 支持 `/tree` 查看拓扑树、`/fork` 节点分叉、`/clone` 全量探索副本；
-  - Cheap-First 四层压缩管线（L3 大结果落盘 ➔ L1 裁切中间轮 ➔ L2 旧结果占位 ➔ L4 LLM 智能摘要），配合 `retainedTail` 缓存与 `compaction_floor` 安全护栏。
+  - **Append-Only 前缀一致性保证**：彻底废除旧的逐轮 L1 滚动裁切与 L2 滚动工具篡改，在未超 80% 水位线前严格只读追加（Append-Only），前缀字节 100% 保持不变，大模型 KV-Cache（Prompt Cache）实测命中率达 **96.7%**；
+  - **动态 80% 水位线门控与离散 Epoch 块级压缩**：对标 Pi 原厂机制，当且仅当上下文突破 80% 预算时才触发离散块压缩；先尝试 L3 超大结果磁盘溢出，超预算后执行 L4 智能摘要（`<analysis>` + `<summary>` 双标签防注入 + 6 Section 约束 + `<read-files>`/`<modified-files>` 全生命周期文件操作足迹累积）；
+  - `retainedTail` 静态前缀快照缓存与 `compaction_floor` 指针安全护栏，确立下一周期稳定基准前缀。
+- **自动化基准评测体系与 Terminal-Bench 2.1 终局战报 (`my-pi-eval`)**：
+  - **Scheme 1 宿主机编排型轻量架构**：基于 Harbor Framework 实现 `MyPiAgent` 适配，Agent 核心运行于宿主机，通过 Docker 管道桥接 7 大工具，实现沙箱零污染与秒级冷启动；
+  - **凭据物理隔离**：严格读取专属 `my-pi-eval/.env`，禁止读取宿主 `~/.my-pi-agent/auth.json`，杜绝沙箱逃逸泄露 API Key；
+  - **Terminal-Bench 2.1 终局大胜**：在 89 道真实环境 Linux 赛题中斩获 **72 胜 / 80.90% 绝对胜率**（突破 80% 行业大关，底座大模型：DeepSeek-V4.1-Flash）；
+  - **全量 Token 采集与缓存核算**：从底层 session.jsonl 逐条提取真实 Token 与缓存指标，实测 `build-cython-ext` 复杂编译任务斩获 **96.7% 前缀缓存命中率**。
 - **动态即时转向（Steering）与排队追问（Follow-up）双层调度 (`message_queue.py`)**：
   - 支持在智能体运行处理对话期间，用户直接键入文本按回车即时插话（Steering），或按 **`Ctrl+Q`** 提交排队追问（Follow-up）；
   - 严格对标 Pi 原厂 Pending 待发区呈现规范（输入框上方灰显指示 `Steering: ...` 与 `Follow-up: ...`，提示 `↳ Alt+Q to edit all queued messages`）；
@@ -289,7 +297,7 @@ if __name__ == "__main__":
 | 04 | **状态机外壳** | [Agent 类与 Hook 系统](https://zxj-2023.github.io/2026/07/31/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--agent%E7%B1%BB%E4%B8%8Ehook%E7%B3%BB%E7%BB%9F/) | `prompt_stream` 事件流、`_notify` 订阅广播、五大决策拦截门禁 |
 | 05 | **调度微内核** | [Loop 微内核](https://zxj-2023.github.io/2026/08/30/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--loop%E5%BE%AE%E5%86%85%E6%A0%B8/) | 纯函数无状态 ReAct 循环、9 步时序、单向传送带队列管道 |
 | 06 | **会话持久化** | [Session 管理](https://zxj-2023.github.io/2026/08/10/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--session%E7%AE%A1%E7%90%86/) | 树状分支 DAG、原子 JSONL 追加存储、跨进程文件锁与分支回溯 |
-| 07 | **上下文优化** | [Context 管理](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/) | Cheap-first 四层压缩 (L3➔L1➔L2➔L4)、retainedTail 缓存 |
+| 07 | **上下文优化** | [Context 管理](https://zxj-2023.github.io/2026/08/11/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--context%E7%AE%A1%E7%90%86/) | 离散 Epoch 块级压缩、Append-Only 前缀一致性与 80% 水位线管控 |
 | 08 | **技能扩展** | [Skill 与 Plugin](https://zxj-2023.github.io/2026/08/14/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--skill%E4%B8%8Eplugin/) | 声明式元数据发现、Prompt 注入、Claude Code 插件规约解构 |
 | 09 | **任务委派** | [Subagent 与 Task 委派](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--subagent%E4%B8%8Etask%E5%A7%94%E6%B4%BE/) | 子会话物理隔离、防递归保护、单任务生命周期管理与 `task` 桥接 |
 | 10 | **生态接入** | [Extension 机制与 MCP](https://zxj-2023.github.io/2026/08/15/%E5%AD%A6%E4%B9%A0/agent%E5%AE%9E%E6%88%98/my-pi-agent/my-pi-agent--extension%E6%9C%BA%E5%88%B6%E4%B8%8Emcp/) | 动态扩展加载、斜杠命令路由、AsyncExitStack MCP 客户端 |
@@ -323,7 +331,7 @@ my-pi-agent/
 │   │   ├── task_store.py           # TaskStore 任务状态机与 DAG 依赖图
 │   │   ├── background.py           # BackgroundRunner 进程树清理引擎
 │   │   ├── session/                # 树状分支持久化会话系统
-│   │   ├── context.py              # ContextManager 四层压缩管线 (L3->L1->L2->L4)
+│   │   ├── context.py              # ContextManager 离散 Epoch 块级压缩 (Append-Only / 80% 水位线)
 │   │   └── skills.py               # Skills 声明式管理与提示词注入
 │   │
 │   └── my_coding_agent/            # 3. 业务工具与 stdio RPC 服务端 (纯无头架构)
@@ -335,10 +343,11 @@ my-pi-agent/
 │       ├── file_reference.py       # @ 文件引用解析与快照直通注入
 │       └── rpc_server.py           # stdio JSON-RPC 2.0 服务端门面
 │
-├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 3秒并发全通)
+├── tests/                          # ⭐ 全局统一测试目录 (uv run pytest 777 测试并发全通)
 │   ├── llm/                        # LLM 层单元测试 (91 tests)
-│   ├── core/                       # 框架内核单元测试 (383 tests)
-│   └── coding/                     # 业务与工具测试 (271 tests)
+│   ├── core/                       # 框架内核单元测试 (392 tests)
+│   ├── coding/                     # 业务与工具测试 (276 tests)
+│   └── eval/                       # 评测适配器测试 (18 tests)
 │
 ├── my-pi-tui/                      # ⭐ 独立的终端交互表现层 (基于 @earendil-works/pi-tui)
 │   ├── package.json                # 依赖 @earendil-works/pi-tui, chalk, marked
@@ -352,10 +361,11 @@ my-pi-agent/
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
 │   └── test/                       # 前端 71 个自动化测试与端到端测试套件
 │
-├── my-pi-eval/                     # ⭐ 自动化评测系统与基准测试 (对标 dsh-eval / SWE-bench)
+├── my-pi-eval/                     # ⭐ Harbor 评测套件 (Terminal-Bench 2.1 斩获 72 胜/80.90% 胜率)
 │   ├── configs/                    # SWE-bench / Terminal-bench 评测声明
 │   ├── datasets/                   # 本地快速回归基准集
-│   └── src/                        # 评测适配器与指标收集器
+│   ├── results/                    # Terminal-Bench 2.1 终局战报与对比矩阵
+│   └── src/                        # MyPiAgent 宿主适配器与 HarborToolRegistry
 │
 ├── docs/                           # 架构与技术设计文档中心 (涵盖 core/ 与 coding/ 7 大规范)
 ├── package.json                    # 根目录 npm 官方发布包与全局链接配置
@@ -374,7 +384,9 @@ my-pi-agent/
 - [**用户主目录与凭据隔离**](docs/coding/04-user-home-and-settings.md)：`~/.my-pi-agent/` 目录拓扑、`auth.json` 强类型模型与零污染持久化；
 - [**前后端 RPC 通信协议**](docs/coding/05-rpc-bridge-protocol.md)：29 个 stdio JSON-RPC 2.0 方法规范与 Prompt Cache 命中率核算；
 - [**Pi-TUI 终端交互表现层**](docs/coding/06-pi-tui-interactive-terminal.md)：`CustomEditor` 边框动效、思考等级自适应与三大交互选择器；
-- [**工程分发与全局 CLI 架构**](docs/coding/07-distribution-and-packaging.md)：npm 全球发布、双引擎自愈启动与跨平台打包。
+- [**工程分发与全局 CLI 架构**](docs/coding/07-distribution-and-packaging.md)：npm 全球发布、双引擎自愈启动与跨平台打包；
+- [**上下文离散块压缩与前缀一致性规范**](docs/core/05-context-compaction.md)：动态 80% 水位线门控、Append-Only 前缀一致性与实测 96.7% Cache 命中率；
+- [**自动化基准评测架构与战报**](docs/eval/01-evaluation-harness-architecture.md)：Harbor BaseAgent 适配、Scheme 1 宿主驱动与 Terminal-Bench 2.1 80.90% 终局战报。
 
 ---
 

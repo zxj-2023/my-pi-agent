@@ -32,7 +32,8 @@
 | **Grep 工具参数** | 支持 `glob`, `context`, `ignoreCase`, `literal`, `limit` | 之前为自定义 `glob_filter`, `case_sensitive`, `regex` 等 | **已修复** | **参数对齐**：全面支持 Pi 官方参数名与上下文行 (`context`) 回显 |
 | **Edit 模型容错** | `prepareEditArguments` 兼容 JSON 字符串及单 dict | 之前若模型输出字符串或单 dict 会报验证类型错误 | **已修复** | **容错对齐**：自动反序列化 JSON 字符串与单 dict，对标官方容错 |
 | **Bash 流式回显** | 进程执行期间通过 `onUpdate` 实时回传输出流片段 | 之前直接使用 `proc.communicate()` 一次性缓冲等待 | **已修复** | **流式对齐**：异步逐行读取并每 100ms 触发 `on_update` 广播 |
-| **4级Context管道** | L3大工具结果落盘 $\rightarrow$ L1中间裁剪 $\rightarrow$ L2旧工具压缩 $\rightarrow$ L4 LLM摘要 | `src/my_agent_core/context.py` cheap-first 视图变换管线 | **一致** | 非破坏性视图变换，保留 `retainedTail` 缓存防二次回缩 |
+| **工具输出定型截断** | `truncate.ts` 50KB / 2000 行执行期不可变截断 | `src/my_agent_core/tools/core.py` 的 `truncate_tool_output` | **一致** | 执行期定型写入消息，永不就地篡改，保护 Prefix Cache |
+| **Context 压缩与前缀一致性** | 动态 80% 水位线管控，离散 Epoch 块级压缩，Append-Only 前缀一致性 | `src/my_agent_core/context.py` 80% 水位线门控 + L3 磁盘溢出 + L4 结构化摘要 | **一致** | 废除旧滚动篡改，保证前缀 100% 字节不变，实测 96.7% Cache 命中率 |
 | **Session JSONL 存储** | Discriminated entries (`session`, `message`, `model_change`, `compaction` 等) | `src/my_agent_core/session/entries.py` Pydantic v2 建模 | **已修复** | **互操作对齐**：补充 `SessionHeaderEntry`, `CustomMessageEntry`, `modelId` 别名 |
 | **Antigravity 传输** | Google Cloud Code Assist 原生 `v1internal:streamGenerateContent` | 抛弃无效的 404 OpenAI 伪接口，直连 Google 内部原生 SSE | **一致** | 解决 Protobuf 400（schema 递归内联），支持动态思考等级映射 |
 | **Token 与缓存计费** | 提取 `cachedTokens` / `cache_read_input_tokens` 准确核算 | `_compute_session_usage` 精确解析命中率与厂商阶梯价格 | **一致** | 精确提取缓存读取/写入并动态计算真实的节省费用 |

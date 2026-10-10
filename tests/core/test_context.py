@@ -1,5 +1,5 @@
 # pyright: reportArgumentType=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false
-"""Context 管理测试：估算 + 三层免费压缩（context 设计文档 §8 #1、#4–#6）。"""
+"""Context 管理测试：估算 + 离散 Epoch 块级压缩与 Append-Only 前缀一致性（对标 Pi/Tau 规范）。"""
 
 import tempfile
 from pathlib import Path
@@ -9,10 +9,9 @@ from my_agent_llm import Message, Response  # pyright: ignore[reportMissingImpor
 
 from my_agent_core.agent import Agent
 from my_agent_core.context import (
+    _snap_cut_to_group,
     budget_tool_results,
     estimate_tokens,
-    micro_compact,
-    snip_messages,
 )
 from my_agent_core.session import Session
 from my_agent_core.tools import tool
@@ -84,56 +83,13 @@ def test_ordered_content_summary_omits_image_data():
     assert _serialize_messages([message]) == "user: before[image]after"
 
 
-def test_snip_keeps_pairing():
-    """L1：>50 消息裁中间 + [snipped] 占位，双向配对不变式完好（#5）。"""
-    tc = [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]
-    msgs = [_msg("user", f"q{i}") for i in range(40)]
-    msgs.append(_msg("assistant", "", tool_calls=tc))  # index 40
-    msgs.append(_msg("tool", "result"))  # index 41（配对）
-    msgs += [_msg("user", f"t{i}") for i in range(15)]  # 共 57 条
-    view = snip_messages(msgs)
-    assert len(view) <= 50
-    assert any(m.content.startswith("[snipped") for m in view)
-    _assert_pairing_intact(view)
-
-
-def test_snip_head_boundary_inside_parallel_tool_group():
-    """头边界落在并行工具组内部（第 2 个结果上）→ 组不得被切成两半（回归）。"""
+def test_snap_cut_to_group_preserves_parallel_tool_groups():
+    """验证 _snap_cut_to_group 将切点安全回退到合法组边界，绝不拆分并行工具调用。"""
     msgs = [_msg("user", "q0")] + _parallel_group("a", "b")  # [1]assistant(2) [2]tool [3]tool
-    msgs += [_msg("user", f"t{i}") for i in range(49)]  # 共 53 条 → head 边界=3 落在组内
-    view = snip_messages(msgs)
-    assert any(m.content.startswith("[snipped") for m in view)
-    _assert_pairing_intact(view)
-
-
-def test_snip_tail_boundary_inside_parallel_tool_group():
-    """尾边界落在并行工具组内部 → 整组并回尾部，不留孤儿 tool（回归）。"""
-    msgs = [_msg("user", f"q{i}") for i in range(4)]  # [0..3]
-    msgs += _parallel_group("a", "b")  # [4]assistant(2) [5]tool [6]tool
-    msgs += [_msg("user", f"t{i}") for i in range(45)]  # 共 52 条 → tail 边界=6 落在组内
-    view = snip_messages(msgs)
-    assert view[-1].content == "t44"  # 尾部仍然保留
-    _assert_pairing_intact(view)
-    # 组完整保留在视图里（未被切成两半）
-    kept = [(m.metadata or {}).get("tool_call_id") for m in view if m.role == "tool"]
-    assert kept == ["a", "b"]
-
-
-def test_snip_below_limit_noop():
-    """L1：≤50 消息原样返回（#5）。"""
-    msgs = [_msg("user", f"q{i}") for i in range(10)]
-    assert snip_messages(msgs) == msgs
-
-
-def test_micro_compact_old_tool_results():
-    """L2：旧 tool 消息（>200 字符、非最近 5 条）→ 占位，metadata 保留（#6）。"""
-    msgs = [_msg("tool", "y" * 500, tool_call_id=f"c{i}") for i in range(8)]
-    view = micro_compact(msgs)
-    assert view[0].content == "[Earlier tool result compacted]"
-    assert view[0].metadata["tool_call_id"] == "c0"  # metadata 保留
-    assert view[-1].content == "y" * 500  # 最近 5 条不动
-    orig = [_msg("tool", "y" * 500, tool_call_id="c9")]
-    assert micro_compact(orig) == orig  # 不足 keep_recent 不动
+    msgs += [_msg("user", f"t{i}") for i in range(10)]
+    # 切点落在第 2 个 tool (index 3) 上 → 必须安全回退到 assistant 前面
+    cut = _snap_cut_to_group(msgs, 3)
+    assert cut <= 1
 
 
 def test_budget_tool_results_persists_large(tmp_path):
@@ -205,6 +161,35 @@ async def test_prepare_below_threshold_no_summary():
 
 
 @pytest.mark.anyio
+async def test_prepare_preserves_prefix_invariance_across_turns():
+    """验证多轮 ReAct 对话中，在未达到压缩阈值时，每一轮产生的 view 保持严格的前缀不变性 (Prefix Invariance)。
+
+    任何第 k+1 轮的前缀必须与第 k 轮 100% 字节级一致，绝不插入滚动式动态占位符。
+    """
+    ctx = _small_ctx(llm=None, budget=100_000)
+    history: list[Message] = [_msg("system", "You are a helpful coding assistant.")]
+    views: list[list[Message]] = []
+
+    # 模拟 30 轮（60 条消息：User + Assistant）
+    for turn in range(30):
+        history.append(_msg("user", f"User prompt for turn {turn}"))
+        history.append(_msg("assistant", f"Assistant response for turn {turn}"))
+        view = await ctx.prepare(history)
+        views.append(view)
+
+    # 验证前缀单调性：对任意相邻轮次，下一轮的前缀必须 100% 等于上一轮的全部消息
+    for i in range(len(views) - 1):
+        prev_view = views[i]
+        next_view = views[i + 1]
+        assert len(next_view) > len(prev_view)
+        for j in range(len(prev_view)):
+            assert prev_view[j].role == next_view[j].role
+            assert prev_view[j].content == next_view[j].content
+            assert prev_view[j].metadata == next_view[j].metadata
+
+
+
+@pytest.mark.anyio
 async def test_prepare_gate_below_threshold_leaves_everything_untouched(tmp_path):
     """门控未开：条数超 L1 阈值、单条超 L3 阈值，也一条都不动（本次新行为核心）。"""
     llm = FakeLLM()
@@ -231,15 +216,18 @@ async def test_prepare_gate_above_threshold_runs_l3_spill(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_prepare_gate_above_threshold_runs_l2_compact():
-    """门控开启：超阈 → L2 旧工具结果占位，最近 5 条保留原文。"""
-    llm = FakeLLM()
+async def test_prepare_gate_above_threshold_triggers_l4_summary():
+    """门控开启：超阈值且无法单靠 L3 规避时，触发 L4 离散摘要建立稳定前缀，绝不进行滚动中间篡改。"""
+    llm = FakeLLM([_response(content="Summary of earlier conversation")])
     ctx = _small_ctx(llm, budget=10_000)
-    msgs = [_msg("user", "q")] + [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    msgs = (
+        [_msg("user", "turn 1"), _msg("assistant", "ans 1")]
+        + [_msg("user", "q")]
+        + [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    )
     view = await ctx.prepare(msgs)
-    assert any("[Earlier tool result compacted]" in m.content for m in view)
-    assert sum(1 for m in view if m.content == "y" * 5000) == 5  # 最近 5 条保留
-    assert len(llm.calls) == 0
+    assert any("Summary of earlier conversation" in m.content for m in view)
+    assert len(llm.calls) == 1
 
 
 @pytest.mark.anyio
@@ -294,8 +282,8 @@ async def test_context_tokens_falls_back_to_measured_input():
 @pytest.mark.anyio
 async def test_context_tokens_reflects_compressed_view():
     """超阀走完整管线时，占用反映**压缩后**的最终视图。"""
-    ctx = _small_ctx(FakeLLM(), budget=10_000)
-    msgs = [_msg("tool", "y" * 5000, tool_call_id=f"c{i}") for i in range(8)]
+    ctx = _small_ctx(FakeLLM([_response(content="## Goal\nSummary")]), budget=2000, keep_recent_tokens=200)
+    msgs = [_msg("user", f"query {i} " + "x" * 500) for i in range(25)]
     view = await ctx.prepare(msgs)
     assert ctx.context_tokens == estimate_tokens(view, ctx._ratio)
     assert ctx.context_tokens < estimate_tokens(msgs, ctx._ratio)
@@ -364,23 +352,18 @@ async def test_cache_reused_no_resummary():
 
 @pytest.mark.anyio
 async def test_cache_branch_applies_free_layers_to_newly(tmp_path):
-    """缓存分支对新增段也跑免费层（L3 落盘 + L2 占位）——压缩后免费层不失效。"""
+    """缓存分支：新增内容也支持 L3 大输出落盘，保证超大输出不撑爆上下文。"""
     llm = FakeLLM([_response(content="## Goal\n...")])
     ctx = _small_ctx(llm, budget=2000, keep_recent_tokens=100, results_dir=tmp_path)
-    msgs = [_msg("user", "x" * 300) for _ in range(22)]
+    msgs = [_msg("user", "x" * 300) for _ in range(25)]
     await ctx.prepare(msgs)  # 触发压缩 → 有缓存
-    # 压缩后新增：6 条旧 tool（L2 占位）+ 1 条超大 tool（L3 落盘 → 视图变 preview → 不超阈）
-    old_tools = [_msg("tool", "y" * 500, tool_call_id=f"c{i}") for i in range(6)]
-    big_tool = _msg("tool", "z" * 30000, tool_call_id="big")
-    more = msgs + old_tools + [big_tool]
-    view = await ctx.prepare(more)
-    # 走缓存分支（未触发重摘要）：L3 落盘后视图变 preview
     assert len(llm.calls) == 1
-    # L3：大结果落盘 + 视图预览
+    big_tool = _msg("tool", "z" * 30000, tool_call_id="big")
+    more = msgs + [big_tool]
+    view = await ctx.prepare(more)
+    assert len(llm.calls) == 1  # 走缓存分支、未再次调摘要、且 L3 落盘后视图有 preview
     assert any("<persisted-output>" in m.content for m in view)
     assert (tmp_path / "big.txt").exists()
-    # L2：旧 tool 占位（非最近 5 条）
-    assert any("[Earlier tool result compacted]" in m.content for m in view)
 
 
 @pytest.mark.anyio
@@ -675,3 +658,106 @@ async def test_extract_and_accumulate_file_operations():
     acc_read, acc_mod = extract_file_operations(msgs, previous_summary=prev_summary)
     assert acc_read == ["old_read.py", "src/auth.py"]
     assert acc_mod == ["old_mod.py", "src/auth.py", "src/config.json"]
+
+
+@pytest.mark.anyio
+async def test_discrete_epoch_compaction_establishes_stable_prefix():
+    """验证离散块压缩触发后，确立全新的稳定前缀 Epoch，后续轮次完全保持只读追加。
+
+    1. 前 20 轮累计超过 80% 阈值，触发且仅触发 1 次 L4 块摘要；
+    2. 后续 10 轮交互中，LLM calls 保持为 1（无重复摘要）；
+    3. 后续 10 轮中，[System, Summary, *retained_tail] 保持 100% 字节不变，保障 KV-Cache 98%+ 命中。
+    """
+    llm = FakeLLM([_response(content="## Goal\nSolve problem\n\n## Progress\nWorking")])
+    ctx = _small_ctx(llm, budget=2_000, keep_recent_tokens=500)
+    history: list[Message] = [_msg("system", "You are an expert software engineer.")]
+
+    # 1. 模拟前 15 轮（每轮 600 chars，总计 ~9000 chars > 8000 budget_threshold）
+    for i in range(15):
+        history.append(_msg("user", f"Task step {i}: " + "u" * 300))
+        history.append(_msg("assistant", f"Result step {i}: " + "a" * 300))
+
+    # 触发首次离散块压缩
+    view1 = await ctx.prepare(history)
+    assert len(llm.calls) == 1
+    assert any("[Context summary" in m.content for m in view1)
+
+    # 记录压缩后确立的基准前缀（System + Summary + retained_tail）
+    # 找到最新追加的内容之前的固定前缀长度
+    epoch_prefix_len = len(view1)
+
+    # 2. 模拟后续 10 轮追加
+    subsequent_views: list[list[Message]] = []
+    for j in range(10):
+        history.append(_msg("user", f"Followup {j}"))
+        history.append(_msg("assistant", f"Followup ans {j}"))
+        v = await ctx.prepare(history)
+        subsequent_views.append(v)
+
+    # 验证：10 轮内未再次触发摘要
+    assert len(llm.calls) == 1
+
+    # 验证：所有后续轮次严格继承相同的 Epoch 前缀
+    for v in subsequent_views:
+        assert len(v) >= epoch_prefix_len
+        for k in range(epoch_prefix_len):
+            assert v[k].role == view1[k].role
+            assert v[k].content == view1[k].content
+            assert v[k].metadata == view1[k].metadata
+
+
+@pytest.mark.anyio
+async def test_100_turns_prefix_stability_simulation():
+    """百轮长会话前缀稳定性仿真：
+
+    模拟 100 轮交互，跟踪每一轮传给大模型的 view 相较于上一轮的前缀分叉点 (Prefix Divergence)。
+    除真正发生 Compaction 的离散 Epoch 边界点外（极少数次），
+    所有正常轮次的前缀分叉数必须为 0（100% 字节不变），证明 KV-Cache 命中率达到理论上限。
+    """
+    llm = FakeLLM([_response(content="## Goal\nContinue\n\n## Progress\nWorking") for _ in range(10)])
+    # 预算 5000 tokens，每轮约 80 tokens，在约 50 轮时触发 1 次压缩
+    ctx = _small_ctx(llm, budget=5000, keep_recent_tokens=1000)
+    history: list[Message] = [_msg("system", "You are an AI coding assistant.")]
+
+    divergence_count = 0
+    compaction_count = 0
+    prev_view: list[Message] | None = None
+
+    for turn in range(100):
+        history.append(_msg("user", f"Turn {turn} request: please inspect file {turn}.py"))
+        history.append(_msg("assistant", f"Turn {turn} response: inspection result {turn}"))
+        curr_view = await ctx.prepare(history)
+
+        if prev_view is not None:
+            # 检查上一轮全部消息是否在当前轮作为前缀 100% 保持一致
+            is_prefix_matched = True
+            if len(curr_view) < len(prev_view):
+                is_prefix_matched = False
+            else:
+                for idx in range(len(prev_view)):
+                    if (
+                        curr_view[idx].role != prev_view[idx].role
+                        or curr_view[idx].content != prev_view[idx].content
+                        or curr_view[idx].metadata != prev_view[idx].metadata
+                    ):
+                        is_prefix_matched = False
+                        break
+
+            if not is_prefix_matched:
+                divergence_count += 1
+                # 前缀不一致时，必须且只能是因为触发了新的 Compaction
+                assert any("[Context summary" in m.content for m in curr_view)
+
+        if any("[Context summary" in m.content for m in curr_view) and (
+            prev_view is None or not any("[Context summary" in m.content for m in prev_view)
+        ):
+            compaction_count += 1
+
+        prev_view = curr_view
+
+    # 100 轮中，前缀分叉次数必须严格小于等于 2 次（只在达到 80% 阈值的压缩边界发生）
+    assert divergence_count <= 2
+    # 98 轮以上的前缀匹配率为 100%
+    assert divergence_count >= 1  # 确实触发过压缩
+
+

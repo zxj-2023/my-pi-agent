@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false
 from my_pi_eval.metrics import TaskMetric, calculate_summary
 
 
@@ -40,3 +41,9 @@ def test_calculate_summary_empty():
     assert summary["resolved_tasks"] == 0
     assert summary["resolve_rate"] == 0.0
     assert summary["total_tokens"] == 0
+
+
+def test_my_pi_eval_version():
+    import my_pi_eval
+
+    assert my_pi_eval.__version__ == "0.1.0"

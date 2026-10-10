@@ -69,9 +69,23 @@ def calculate(expr: str, precision: int = 2) -> float:
 - **`timeout` 超时防护**：配置工具执行超时上限（秒），底层通过 `asyncio.wait_for` 拦截慢操作，超时自动转化为 `ToolResult(ok=False, error="Tool execution timed out after X seconds")`；
 - **`is_parallel_safe` 标记**：声明式只读并发安全标记。当大模型单轮返回多个并发工具调用时，`ToolRegistry.execute_batch` 利用 `asyncio.gather` 并行执行，将多工具串行调用的 $O(N)$ 耗时降为 $O(1)$。
 
-### 4. `ToolResult` 与 Never-Throw 保证
+### 4. `ToolResult`、Never-Throw 保证与执行期输出定型截断
 
 ```python
+DEFAULT_TOOL_MAX_BYTES = 50 * 1024  # 51,200 bytes (50KB)
+DEFAULT_TOOL_MAX_LINES = 2000
+
+def truncate_tool_output(
+    content: str,
+    max_bytes: int = DEFAULT_TOOL_MAX_BYTES,
+    max_lines: int = DEFAULT_TOOL_MAX_LINES,
+) -> str:
+    """对齐 Pi 原厂 truncate.ts：在工具执行期对超长输出进行不可变截断（50KB 或 2000行）。
+
+    保证工具输出进入会话消息历史时即已定型，永不随后续轮次发生就地篡改。
+    """
+    ...
+
 @dataclass
 class ToolResult:
     """工具执行结果：成功/失败 + 数据或错误消息 + 熔断提前退出标记 + 结构化元数据。"""
@@ -82,14 +96,15 @@ class ToolResult:
     meta: dict[str, Any] = field(default_factory=dict)
 
     def serialize(self) -> str:
-        """转成写入 messages 的字符串。失败时返回错误文本。"""
-        if self.ok:
-            return str(self.data)
-        return self.error or "Unknown error"
+        """转成写入 messages 的字符串。失败时返回错误文本，并在执行期完成定型截断。"""
+        raw = str(self.data) if self.ok else (self.error or "Unknown error")
+        return truncate_tool_output(raw)
 ```
 
-- 任何参数校验失败（`ValidationError`）、超时（`TimeoutError`）或业务执行异常，统一在 `Tool.execute()` 内部被捕获；
-- 转换为 `ToolResult(ok=False, error="...")` 并通过 `serialize()` 生成 `role="tool"` 消息喂回大模型，由模型进行下一轮自我纠错。
+- **Never-Throw 异常强隔离**：任何参数校验失败（`ValidationError`）、超时（`TimeoutError`）或业务执行异常，统一在 `Tool.execute()` 内部被捕获，转换为 `ToolResult(ok=False, error="...")`，由模型进行下一轮自我纠错；
+- **对齐 Pi `truncate.ts` 的执行期定型截断 (commit 8f01e4c)**：
+  - **截断规约**：单条输出上限为 **50KB (51,200 bytes) 或 2000 行**。超限时先按行截断（保留前 2000 行），再按字节截断并在最近的换行符处切齐，末尾附带标准 notice：`\n[Output truncated: showing X of Y lines (A KB of B KB)]`；
+  - **前缀缓存不变式（Prefix Cache Invariant）**：传统框架常在多轮滚动后去回溯修改历史工具消息（如滚动替换为占位符），但这会彻底破坏大模型的 KV-Cache 前缀。`my-pi-agent` 坚持**在工具执行期完成不可变定型截断**，输出一旦写入消息历史即成为永久确定性事实，确保全生命周期前缀一致性。
 
 ---
 
