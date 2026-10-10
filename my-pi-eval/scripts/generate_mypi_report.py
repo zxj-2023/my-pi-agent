@@ -130,8 +130,8 @@ def main():
 
 | 指标 | 自研 MyPiAgent | 官方 Pi Coding Agent | 胜出方与差距 |
 | :--- | :---: | :---: | :--- |
-| **89 题全量通过题数** | **{len(passed)} 道 ({len(passed)/89*100.0:.2f}%)** | **{pi_all_passed} 道 ({pi_all_passed/89*100.0:.2f}%)** | 工业基准高度逼近 |
-| **85 题常规有效通过题数** | **{eval_85_passed} 道 ({win_rate:.2f}%)** | **{pi_85_passed} 道 ({pi_85_passed/85*100.0:.2f}%)** | 均展现顶级自动化能力 |
+| **89 题全量通过题数** | **{len(passed)} 道 ({len(passed) / 89 * 100.0:.2f}%)** | **{pi_all_passed} 道 ({pi_all_passed / 89 * 100.0:.2f}%)** | 工业基准高度逼近 |
+| **85 题常规有效通过题数** | **{eval_85_passed} 道 ({win_rate:.2f}%)** | **{pi_85_passed} 道 ({pi_85_passed / 85 * 100.0:.2f}%)** | 均展现顶级自动化能力 |
 | **双胜题目数 (两边均通过)** | **{len(both_pass)} 道** | {len(both_pass)} 道 | 67 道高难度赛题两边均满分攻克 |
 | **MyPiAgent 独占胜出题目** | **{len(my_wins)} 道** 🌟 | - | 自研 Agent 满分（官方 Pi 彻底折戟） |
 | **官方 Pi 独占胜出题目** | - | **{len(pi_wins)} 道** | 官方 Pi 满分（自研 Agent 格式微差） |
