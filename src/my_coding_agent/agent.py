@@ -147,6 +147,80 @@ class CodingAgent:
         """底层 MCP 客户端管理器。"""
         return self._mcp_manager
 
+    @property
+    def context_manager(self) -> Any:
+        """底层上下文管理器。"""
+        return self.agent.context_manager
+
+    @property
+    def llm(self) -> Any:
+        """底层语言模型客户端。"""
+        return self.agent.llm
+
+    @llm.setter
+    def llm(self, value: Any) -> None:
+        self.agent.llm = value
+
+    @property
+    def model(self) -> str | None:
+        """底层模型名称标识。"""
+        return self.agent.model
+
+    @model.setter
+    def model(self, value: str | None) -> None:
+        self.agent.model = value
+
+    @property
+    def messages(self) -> list[Any]:
+        """底层上下文对话消息实体列表。"""
+        return self.agent.messages
+
+    @messages.setter
+    def messages(self, value: list[Any]) -> None:
+        self.agent.messages = value
+
+    @property
+    def registry(self) -> Any:
+        """底层工具注册中心。"""
+        return self.agent.registry
+
+    @property
+    def skill_manager(self) -> Any:
+        """底层技能管理器。"""
+        return self.agent.skill_manager
+
+    @skill_manager.setter
+    def skill_manager(self, value: Any) -> None:
+        self.agent.skill_manager = value
+
+    @property
+    def subagent_manager(self) -> Any:
+        """底层子代理管理器。"""
+        return self.agent.subagent_manager
+
+    @subagent_manager.setter
+    def subagent_manager(self, value: Any) -> None:
+        self.agent.subagent_manager = value
+
+    @property
+    def plugin_manager(self) -> Any:
+        """底层插件管理器。"""
+        return self.agent.plugin_manager
+
+    @property
+    def memory_store(self) -> Any:
+        """底层记忆存储仓储。"""
+        return self.agent.memory_store
+
+    @property
+    def system_prompt(self) -> str | None:
+        """底层系统提示词。"""
+        return self.agent.system_prompt
+
+    @system_prompt.setter
+    def system_prompt(self, value: str | None) -> None:
+        self.agent._system_prompt = value
+
     async def ensure_mcp_loaded(self) -> None:
         """按需自动扫描并加载工作区 .mcp.json 配置的 MCP 服务与工具。"""
         if not self.auto_load_mcp or self._mcp_loaded:

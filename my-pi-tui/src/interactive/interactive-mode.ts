@@ -1247,7 +1247,10 @@ export class InteractiveMode {
                 });
               }
               if (res?.usage) {
-                this.updateFooterUsage(res.usage, res.context_window);
+                this.updateFooterUsage(
+                  res.usage,
+                  res.contextWindow ?? res.context_window,
+                );
               }
               this.renderSessionHistory(
                 res?.messages || [],

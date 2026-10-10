@@ -461,7 +461,7 @@ def test_package_reexports_jsonl_subsystem() -> None:
 async def test_interop_legacy_session_file_read_by_jsonl_storage(
     tmp_path: Path,
 ) -> None:
-    """使用 legacy Session 保存文件后，JsonlSessionStorage 能无缝读取其全量历史。"""
+    """使用 Session 保存文件后，JsonlSessionStorage 能无缝读取其全量历史。"""
     from my_agent_core.session import Session
 
     file_path = tmp_path / "legacy_interop.jsonl"

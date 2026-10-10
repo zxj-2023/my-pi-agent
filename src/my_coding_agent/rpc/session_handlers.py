@@ -17,6 +17,7 @@ from my_coding_agent.session_ops import (
     build_tree_nodes,
     clone_session_tree,
     compute_session_stats,
+    compute_session_usage,
     fork_session_tree,
     list_project_sessions,
     resolve_session_file,
@@ -95,7 +96,7 @@ class SessionRpcMixin:
         new_session = Session.load(target_file)
         mode = getattr(self.settings, "default_permission_mode", None)
         gate = self.agent.permission_gate if self.agent else (PermissionGate(mode=mode) if mode else None)
-        llm = self.agent.agent.llm if self.agent else self.llm
+        llm = self.agent.llm if self.agent else self.llm
         skill_dirs = get_all_skill_dirs(workspace_path, paths)
         self.agent = CodingAgent(
             workspace=workspace_path,
@@ -107,11 +108,11 @@ class SessionRpcMixin:
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, new_session.id)
 
-        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        messages_repr = [serialize_message(m) for m in self.agent.messages if m.role != "system"]
 
         actual_model = self._get_current_model_name()
         ctx_win = resolve_model_context_window(actual_model)
-        self.session_usage = self._compute_session_usage(new_session, actual_model)
+        self.session_usage = compute_session_usage(new_session, actual_model)
 
         return self.send_response(
             req_id,
@@ -123,6 +124,7 @@ class SessionRpcMixin:
                 "cwd": new_session.cwd,
                 "model": actual_model,
                 "context_window": ctx_win,
+                "contextWindow": ctx_win,
                 "usage": self.session_usage,
                 "messages": messages_repr,
             },
@@ -181,7 +183,7 @@ class SessionRpcMixin:
 
     @require_agent
     def _handle_session_history(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
-        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        messages_repr = [serialize_message(m) for m in self.agent.messages if m.role != "system"]
         return self.send_response(
             req_id,
             result={
@@ -195,8 +197,8 @@ class SessionRpcMixin:
     @require_agent
     def _handle_session_stats(self, req_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         """对标 Pi 官方 getSessionStats()，汇总会话全局 Message/Token/Cost 统计。"""
-        default_model = self.agent.agent.model or "default"
-        default_provider = getattr(self.agent.agent.llm, "provider", "model")
+        default_model = self.agent.model or "default"
+        default_provider = getattr(self.agent.llm, "provider", "model")
         stats = compute_session_stats(
             self.agent.session,
             default_model=default_model,
@@ -210,7 +212,7 @@ class SessionRpcMixin:
         instructions = params.get("instructions")
         await self.agent.compact(instructions=instructions)
 
-        info = self.agent.agent.context_manager.pending_compaction
+        info = self.agent.context_manager.pending_compaction
         tokens_before = info.tokens_before if info else 0
         tokens_after = info.tokens_after if info else 0
         summary = info.summary if info else ""
@@ -243,7 +245,7 @@ class SessionRpcMixin:
 
         self.agent = CodingAgent(
             workspace=workspace_path,
-            llm=self.agent.agent.llm,
+            llm=self.agent.llm,
             session=new_session,
             permission_gate=gate,
             skill_dirs=skill_dirs,
@@ -314,12 +316,12 @@ class SessionRpcMixin:
         summarize = bool(params.get("summarize", False))
 
         try:
-            system_msgs = [m for m in self.agent.agent.messages if m.role == "system"]
+            system_msgs = [m for m in self.agent.messages if m.role == "system"]
             new_leaf_id, editor_text, branch_summary_text, repaired_messages = await branch_session_tree(
                 session=session,
                 target_id=target_id,
                 summarize=summarize,
-                llm=self.agent.agent.llm,
+                llm=self.agent.llm,
                 system_messages=system_msgs,
             )
         except ValueError as exc:
@@ -328,12 +330,12 @@ class SessionRpcMixin:
                 error={"code": -32005, "message": str(exc)},
             )
 
-        self.agent.agent.messages = repaired_messages
-        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        self.agent.messages = repaired_messages
+        messages_repr = [serialize_message(m) for m in self.agent.messages if m.role != "system"]
 
         actual_model = self._get_current_model_name()
         ctx_win = resolve_model_context_window(actual_model)
-        self.session_usage = self._compute_session_usage(session, actual_model)
+        self.session_usage = compute_session_usage(session, actual_model)
 
         res_payload: dict[str, Any] = {
             "status": "ok",
@@ -381,18 +383,18 @@ class SessionRpcMixin:
         gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
         self.agent = CodingAgent(
             workspace=workspace_path,
-            llm=self.agent.agent.llm,
+            llm=self.agent.llm,
             session=new_session,
             permission_gate=gate,
         )
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, new_session.id)
 
-        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        messages_repr = [serialize_message(m) for m in self.agent.messages if m.role != "system"]
 
         actual_model = self._get_current_model_name()
         ctx_win = resolve_model_context_window(actual_model)
-        self.session_usage = self._compute_session_usage(new_session, actual_model)
+        self.session_usage = compute_session_usage(new_session, actual_model)
 
         return self.send_response(
             req_id,
@@ -426,18 +428,18 @@ class SessionRpcMixin:
         gate = self.agent.permission_gate or (PermissionGate(mode=mode) if mode else None)
         self.agent = CodingAgent(
             workspace=workspace_path,
-            llm=self.agent.agent.llm,
+            llm=self.agent.llm,
             session=new_session,
             permission_gate=gate,
         )
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, new_session.id)
 
-        messages_repr = [serialize_message(m) for m in self.agent.agent.messages if m.role != "system"]
+        messages_repr = [serialize_message(m) for m in self.agent.messages if m.role != "system"]
 
         actual_model = self._get_current_model_name()
         ctx_win = resolve_model_context_window(actual_model)
-        self.session_usage = self._compute_session_usage(new_session, actual_model)
+        self.session_usage = compute_session_usage(new_session, actual_model)
 
         return self.send_response(
             req_id,

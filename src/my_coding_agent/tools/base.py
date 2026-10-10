@@ -5,10 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from my_agent_core.tools import Tool, ToolResult
+from my_agent_core.tools import (
+    DEFAULT_TOOL_MAX_BYTES,
+    DEFAULT_TOOL_MAX_LINES,
+    Tool,
+    ToolResult,
+    truncate_tool_output,
+)
 
-DEFAULT_MAX_LINES = 2000
-DEFAULT_MAX_BYTES = 50 * 1024  # 50KB
+DEFAULT_MAX_LINES = DEFAULT_TOOL_MAX_LINES
+DEFAULT_MAX_BYTES = DEFAULT_TOOL_MAX_BYTES
 DEFAULT_IGNORE_DIRS = {
     ".git",
     ".venv",
@@ -36,17 +42,13 @@ def is_binary_file(path: Path) -> bool:
         return False
 
 
-def truncate_output(text: str, max_bytes: int = DEFAULT_MAX_BYTES) -> str:
-    """按字节限制截断输出并对齐至上一换行符（对标 Pi 规范）。"""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text
-    clipped = encoded[:max_bytes]
-    last_nl = clipped.rfind(b"\n")
-    if last_nl != -1:
-        clipped = clipped[:last_nl]
-    decoded = clipped.decode("utf-8", errors="ignore")
-    return f"{decoded}\n\n[Output truncated: exceeded {max_bytes // 1024}KB limit]"
+def truncate_output(
+    text: str,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    max_lines: int = DEFAULT_MAX_LINES,
+) -> str:
+    """按行与字节双重限制截断输出并对齐（对标 Pi 规范：50KB 或 2000行）。"""
+    return truncate_tool_output(text, max_bytes=max_bytes, max_lines=max_lines)
 
 
 @dataclass
