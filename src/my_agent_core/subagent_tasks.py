@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
+import tempfile
 from typing import TYPE_CHECKING
 from collections.abc import Sequence
 
@@ -137,8 +139,10 @@ class SubagentTaskManager:
         if sub is None:
             available = ", ".join(sorted(self._manager.subagents)) or "(none)"
             raise ValueError(f"Unknown subagent '{subagent_type}'. Available: {available}")
+        parent_path = getattr(self._parent.session, "path", None)
+        parent_dir = parent_path.parent if parent_path else Path(tempfile.gettempdir()) / "my-pi-agent"
         child_session = Session(
-            path=self._parent.session.path.parent / "subagents" / f"agent-{task_id}.jsonl",
+            path=parent_dir / "subagents" / f"agent-{task_id}.jsonl",
             cwd=self._parent.session.cwd,
             metadata={
                 "agent_type": subagent_type,

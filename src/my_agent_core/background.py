@@ -29,6 +29,7 @@ class BackgroundJob:
     result: str | None = None
     exit_code: int | None = None
     process: asyncio.subprocess.Process | None = None
+    task: asyncio.Task[None] | None = None
     started_at: float = field(default_factory=time.time)
 
 
@@ -98,7 +99,7 @@ class BackgroundRunner:
             )
             self.message_queue.add_followup(notification)
 
-        asyncio.create_task(_worker())
+        job.task = asyncio.create_task(_worker())
         return job_id
 
     async def cancel_all(self) -> None:
@@ -107,6 +108,8 @@ class BackgroundRunner:
             if job.status == "running":
                 job.status = "cancelled"
                 _kill_process_tree(job.process)
+                if job.task and not job.task.done():
+                    job.task.cancel()
                 if job.process:
                     with contextlib.suppress(Exception):
                         await job.process.wait()
