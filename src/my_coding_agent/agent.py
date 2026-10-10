@@ -13,6 +13,7 @@ from my_agent_core.events import Event  # pyright: ignore[reportMissingImports]
 from my_agent_core.hooks import HookResult, ToolCallHook, UserInputHook  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
 from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
+from my_agent_llm import MessageContent
 
 from my_coding_agent.file_reference import FileReferenceParser
 from my_coding_agent.mcp import MCPClientManager
@@ -196,7 +197,7 @@ class CodingAgent:
         """手动触发智能上下文压缩。"""
         return await self.agent.compact(instructions=instructions)
 
-    async def run(self, user_input: str) -> str:
+    async def run(self, user_input: MessageContent) -> str:
         """批处理高阶入口：聚合最终助手文本"""
         try:
             self._loop = asyncio.get_running_loop()
@@ -206,7 +207,7 @@ class CodingAgent:
         res = await self.agent.run(user_input)
         return res if res is not None else ""
 
-    async def run_stream(self, user_input: str) -> AsyncIterator[Event]:
+    async def run_stream(self, user_input: MessageContent) -> AsyncIterator[Event]:
         """流式一等公民入口：实时产出全生命周期事件"""
         try:
             self._loop = asyncio.get_running_loop()
@@ -220,11 +221,11 @@ class CodingAgent:
         """订阅底层 Agent 的全量不可变生命周期事件。"""
         return self.agent.subscribe(listener)
 
-    def steer(self, message: str) -> None:
+    def steer(self, message: MessageContent) -> None:
         """注入即时转向指令（在下一个安全点打断/干预模型执行路线）。"""
         self.agent.steer(message)
 
-    def follow_up(self, message: str) -> None:
+    def follow_up(self, message: MessageContent) -> None:
         """追加排队追问指令（在当前任务彻底完成后自动开启下一段任务）。"""
         self.agent.follow_up(message)
 

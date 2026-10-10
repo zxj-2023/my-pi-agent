@@ -13,7 +13,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 
-from my_agent_llm.models import Message
+from my_agent_llm.models import Message, MessageContent
 
 
 class BaseSessionEntry(BaseModel):
@@ -63,7 +63,7 @@ class MessageEntry(BaseSessionEntry):
         return self.message.role
 
     @property
-    def content(self) -> str:
+    def content(self) -> MessageContent:
         return self.message.content
 
     @property

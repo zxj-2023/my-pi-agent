@@ -66,6 +66,40 @@ async def test_coding_agent_file_reference_expansion(tmp_path: Path):
     assert "print('hello')" in captured_prompt[0]
 
 
+@pytest.mark.parametrize("stream", [False, True])
+async def test_coding_agent_ordered_input_with_file_references(tmp_path: Path, stream):
+    (tmp_path / "before.py").write_text("before = 1", encoding="utf-8")
+    (tmp_path / "after.py").write_text("after = 2", encoding="utf-8")
+    captured = []
+
+    class CapturingLLM(FakeCodingLLM):
+        async def achat(self, messages, tools=None, **kwargs):
+            captured.append(messages[-1].content)
+            return await super().achat(messages, tools, **kwargs)
+
+    image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
+    content = [{"type": "text", "text": "@before.py"}, image, {"type": "text", "text": "@after.py"}]
+    agent = CodingAgent(
+        workspace=tmp_path,
+        llm=CapturingLLM([Response(content="done", model="fake")]),
+        session=Session(path=tmp_path / "s.jsonl"),
+        auto_load_mcp=False,
+    )
+    if stream:
+        events = [event async for event in agent.run_stream(content)]
+        assert next(event.message for event in events if isinstance(event, MessageEnd)).content == captured[0]
+    else:
+        assert await agent.run(content) == "done"
+
+    blocks = captured[0]
+    assert [block["type"] for block in blocks] == ["text", "image", "text"]
+    assert "before = 1" in blocks[0]["text"]
+    assert blocks[1] == image
+    assert "after = 2" in blocks[2]["text"]
+    assert content[0]["text"] == "@before.py"
+    assert Session.load(agent.session.path).get_full_history_messages()[0].content == blocks
+
+
 async def test_coding_agent_dual_api_run_stream(tmp_path: Path):
     fake_llm = FakeCodingLLM([Response(content="Streaming code", model="fake")])
     session = Session(path=tmp_path / "session_stream.jsonl")

@@ -145,31 +145,39 @@ class AntigravityProvider(OpenAIProvider):
         self, messages: list[Message]
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         contents: list[dict[str, Any]] = []
-        system_parts: list[dict[str, str]] = []
+        system_parts: list[dict[str, Any]] = []
 
         for msg in messages:
+            if isinstance(msg.content, str):
+                parts = [{"text": msg.content}] if msg.content else []
+            else:
+                parts = [
+                    {"text": part["text"]} if part["type"] == "text" else {
+                        "inlineData": {"mimeType": part["mime_type"], "data": part["data"]}
+                    }
+                    for part in msg.content
+                ]
             if msg.role == "system":
-                if msg.content:
-                    system_parts.append({"text": msg.content})
+                if msg.text_content:
+                    system_parts.append({"text": msg.text_content})
                 continue
 
             if msg.role == "user":
                 contents.append(
                     {
                         "role": "user",
-                        "parts": [{"text": msg.content or ""}],
+                        "parts": parts or [{"text": ""}],
                     }
                 )
             elif msg.role == "assistant":
-                parts: list[dict[str, Any]] = []
-                if msg.content:
-                    parts.append({"text": msg.content})
+                # Gemini model 角色历史只保留 text 与 functionCall，过滤 inlineData
+                model_parts = [p for p in parts if "text" in p]
                 tool_calls = (msg.metadata or {}).get("tool_calls") or []
                 for tc in tool_calls:
                     tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
                     tc_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
                     if tc_name:
-                        parts.append(
+                        model_parts.append(
                             {
                                 "functionCall": {
                                     "name": tc_name,
@@ -177,9 +185,9 @@ class AntigravityProvider(OpenAIProvider):
                                 }
                             }
                         )
-                if not parts:
-                    parts.append({"text": ""})
-                contents.append({"role": "model", "parts": parts})
+                if not model_parts:
+                    model_parts.append({"text": ""})
+                contents.append({"role": "model", "parts": model_parts})
             elif msg.role == "tool":
                 tool_name = (msg.metadata or {}).get("tool_name", "tool")
                 contents.append(
@@ -189,7 +197,7 @@ class AntigravityProvider(OpenAIProvider):
                             {
                                 "functionResponse": {
                                     "name": tool_name,
-                                    "response": {"result": msg.content or ""},
+                                    "response": {"result": msg.text_content},
                                 }
                             }
                         ],

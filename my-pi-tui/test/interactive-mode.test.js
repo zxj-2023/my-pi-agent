@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { InteractiveMode } from "../dist/interactive/interactive-mode.js";
 import { KernelBridge } from "../dist/bridge/kernel-bridge.js";
 import { isEnterKey } from "../dist/components/keys.js";
@@ -153,6 +156,24 @@ test("InteractiveMode does not duplicate UserMessageComponent when message_start
     (c) => c.constructor.name === "UserMessageComponent",
   ).length;
   assert.equal(userMsgCount2, 1);
+});
+
+test("InteractiveMode preserves image markers and does not echo user completion as an assistant", async () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  const text = "[image 2]里面说了什么？";
+  const content = [
+    { type: "image", data: "aGVsbG8=", mime_type: "image/png" },
+    { type: "text", text: "里面说了什么？" },
+  ];
+  await mode.handleUserInput(text, content);
+  for (const type of ["message_start", "message_end"]) {
+    mode.handleAgentEvent(bridge.translator.translate({ type, message: { role: "user", content } }));
+  }
+  const userMessages = mode.chatContainer.children.filter((c) => c.constructor.name === "UserMessageComponent");
+  assert.equal(userMessages.length, 1);
+  assert.equal(userMessages[0].text, text);
+  assert.equal(mode.chatContainer.children.some((c) => c.constructor.name === "AssistantMessageComponent"), false);
 });
 
 test("InteractiveMode showSelector lifecycle handles mount and cleanup", () => {
@@ -479,6 +500,158 @@ test("InteractiveMode /new command resets footer metrics and updates sessionName
   assert.ok(!footerLines.includes("158k"));
   assert.ok(!footerLines.includes("18.7%"));
 });
+
+test("CustomEditor tracks image attachments at their current text positions", () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  const image = { data: "aGVsbG8=", mime_type: "image/png" };
+
+  mode.defaultEditor.setText("before");
+  mode.defaultEditor.insertImageAttachment(image);
+  const marker = "[image 1]";
+  assert.equal(mode.defaultEditor.getText(), `before${marker}`);
+  assert.deepEqual(mode.defaultEditor.getImageAttachments(), [
+    { marker, ...image, position: 6 },
+  ]);
+
+  mode.defaultEditor.setText(`before${marker} after`);
+  assert.equal(mode.defaultEditor.getImageAttachments()[0].position, 6);
+  mode.defaultEditor.setText("before after");
+  assert.deepEqual(mode.defaultEditor.getImageAttachments(), []);
+});
+
+test("InteractiveMode submits editor images as ordered content blocks", async () => {
+  const { bridge, calls } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  mode.defaultEditor.setText("before");
+  mode.defaultEditor.insertImageAttachment({ data: "aGVsbG8=", mime_type: "image/png" });
+  mode.defaultEditor.insertTextAtCursor(" after");
+
+  mode.defaultEditor.handleInput("\r");
+  const request = calls.at(-1);
+  assert.equal(request?.method, "prompt");
+  assert.deepEqual(request?.params?.content, [
+    { type: "text", text: "before" },
+    { type: "image", data: "aGVsbG8=", mime_type: "image/png" },
+    { type: "text", text: " after" },
+  ]);
+  assert.equal(mode.defaultEditor.getText(), "");
+  assert.deepEqual(mode.defaultEditor.getImageAttachments(), []);
+});
+
+test("Enter submits image-only and expanded mixed content after the editor clears", () => {
+  const image = { type: "image", data: "aGVsbG8=", mime_type: "image/png" };
+  for (const text of ["", "long text ".repeat(120)]) {
+    const { bridge, calls } = createMockBridge();
+    const mode = new InteractiveMode(bridge);
+    const editor = mode.defaultEditor;
+    if (text) editor.handleInput(`\x1b[200~${text}\x1b[201~`);
+    editor.insertImageAttachment(image);
+    editor.handleInput("\r");
+    assert.equal(editor.getText(), "");
+    assert.deepEqual(calls.at(-1)?.params?.content, text
+      ? [{ type: "text", text }, image]
+      : [image]);
+  }
+});
+
+test("Ctrl+V reads clipboard image bytes and submits them", { skip: process.platform !== "linux" }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "my-pi-clipboard-"));
+  const originalPath = process.env.PATH;
+  try {
+    await writeFile(join(directory, "wl-paste"), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    await writeFile(join(directory, "xclip"), '#!/bin/sh\nprintf "clipboard image bytes"\n', { mode: 0o755 });
+    process.env.PATH = directory;
+    const { bridge, calls } = createMockBridge();
+    const mode = new InteractiveMode(bridge);
+    await mode.init();
+    const paste = mode.defaultEditor.pasteImageFromClipboard.bind(mode.defaultEditor);
+    let pasted;
+    mode.defaultEditor.pasteImageFromClipboard = () => (pasted = paste());
+    mode.defaultEditor.setText("before");
+    mode.ui.handleTerminalInput("\x16");
+    assert.equal(mode.defaultEditor.disableSubmit, true);
+    mode.defaultEditor.insertTextAtCursor("after");
+    assert.equal(await pasted, true);
+    assert.equal(mode.defaultEditor.disableSubmit, false);
+    mode.defaultEditor.handleInput("\r");
+    assert.deepEqual(calls.at(-1)?.params?.content, [
+      { type: "text", text: "before" },
+      { type: "image", data: Buffer.from("clipboard image bytes").toString("base64"), mime_type: "image/png" },
+      { type: "text", text: "after" },
+    ]);
+    await writeFile(join(directory, "xclip"), '#!/bin/sh\nexit 1\n');
+    mode.defaultEditor.setText("safe");
+    assert.equal(await mode.defaultEditor.pasteImageFromClipboard(), false);
+    assert.equal(mode.defaultEditor.getMessageContent(), "safe");
+    assert.equal(mode.defaultEditor.disableSubmit, false);
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("CustomEditor preserves multiple images, repeated markers, and expanded text pastes", () => {
+  const { bridge } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  const editor = mode.defaultEditor;
+  const image = { type: "image", data: "aGVsbG8=", mime_type: "image/png" };
+  const longText = "long text ".repeat(120);
+  editor.handleInput(`\x1b[200~${longText}\x1b[201~`);
+  editor.insertImageAttachment(image);
+  editor.insertTextAtCursor("between");
+  editor.insertImageAttachment({ ...image, data: "d29ybGQ=" });
+  assert.deepEqual(editor.getMessageContent(), [
+    { type: "text", text: longText }, image,
+    { type: "text", text: "between" }, { ...image, data: "d29ybGQ=" },
+  ]);
+  editor.setText("[image 2]text[image 1][image 1]");
+  assert.deepEqual(editor.getMessageContent(), [
+    { ...image, data: "d29ybGQ=" }, { type: "text", text: "text" }, image, image,
+  ]);
+  editor.setText("");
+  editor.setText("[image 1]");
+  assert.deepEqual(editor.getMessageContent(), [image]);
+});
+
+test("InteractiveMode submits image-only input and preserves pure text submission", async () => {
+  const { bridge, calls } = createMockBridge();
+  const mode = new InteractiveMode(bridge);
+  const image = { type: "image", data: "aGVsbG8=", mime_type: "image/png" };
+  mode.defaultEditor.insertImageAttachment(image);
+  await mode.defaultEditor.onSubmit?.(mode.defaultEditor.getText());
+  assert.deepEqual(calls.at(-1)?.params?.content, [image]);
+  mode.defaultEditor.setText("  plain text  ");
+  await mode.defaultEditor.onSubmit?.(mode.defaultEditor.getText());
+  assert.deepEqual(calls.at(-1)?.params, { text: "plain text" });
+});
+
+for (const behavior of ["steer", "followup"]) {
+  test(`InteractiveMode keeps images through ${behavior} queue consumption and restoration`, async () => {
+    const { bridge, calls } = createMockBridge();
+    const mode = new InteractiveMode(bridge);
+    const content = [
+      { type: "text", text: "before" },
+      { type: "image", data: "aGVsbG8=", mime_type: "image/png" },
+      { type: "text", text: "after" },
+    ];
+    mode.isStreaming = true;
+    mode.defaultEditor.setMessageContent(content);
+    if (behavior === "steer") await mode.defaultEditor.onSubmit?.(mode.defaultEditor.getText());
+    else await mode.handleFollowUp();
+    assert.equal(calls.at(-1)?.method, behavior);
+    assert.deepEqual(calls.at(-1)?.params?.message, content);
+    const pending = behavior === "steer" ? mode.pendingSteeringList : mode.pendingFollowupList;
+    assert.deepEqual(pending, [content]);
+    mode.handleAgentEvent({ type: "message_start", message: { role: "user", content } });
+    assert.deepEqual(pending, []);
+
+    pending.push(content);
+    await mode.restoreQueuedMessagesToEditor();
+    assert.deepEqual(mode.defaultEditor.getMessageContent(), content);
+  });
+}
 
 test("InteractiveMode handles Ctrl+Q followup during streaming and idle", async () => {
   const { bridge, calls } = createMockBridge();

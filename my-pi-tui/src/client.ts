@@ -8,11 +8,12 @@ import {
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponse,
+  type MessageContent,
 } from "./protocol.js";
 
 export interface SessionMessage {
   role: string;
-  content: string;
+  content: MessageContent;
   metadata?: {
     tool_calls?: Array<{
       id: string;
@@ -313,11 +314,11 @@ export class PythonKernelClient extends EventEmitter {
     }
   }
 
-  public async steer(message: string): Promise<void> {
+  public async steer(message: MessageContent): Promise<void> {
     await this.sendRequest("steer", { message });
   }
 
-  public async followup(message: string): Promise<void> {
+  public async followup(message: MessageContent): Promise<void> {
     await this.sendRequest("followup", { message });
   }
 

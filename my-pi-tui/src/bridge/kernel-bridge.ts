@@ -2,6 +2,7 @@ import {
   EventTranslator,
   type StandardSessionEvent,
 } from "./event-translator.js";
+import type { MessageContent } from "../protocol.js";
 
 export interface PromptOptions {
   streamingBehavior?: "steer" | "followUp";
@@ -77,14 +78,14 @@ export class KernelBridge {
     return this.call<RpcResponseData>("abort", {});
   }
 
-  public async steer(text: string): Promise<RpcResponseData> {
+  public async steer(text: MessageContent): Promise<RpcResponseData> {
     if (typeof (this.client as any).steer === "function") {
       return (this.client as any).steer(text);
     }
     return this.call<RpcResponseData>("steer", { message: text });
   }
 
-  public async followUp(text: string): Promise<RpcResponseData> {
+  public async followUp(text: MessageContent): Promise<RpcResponseData> {
     if (typeof (this.client as any).followup === "function") {
       return (this.client as any).followup(text);
     }

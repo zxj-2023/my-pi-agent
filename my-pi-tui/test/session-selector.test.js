@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { stripVTControlCharacters } from "node:util";
 import { SessionSelectorComponent } from "../dist/components/session-selector.js";
 
 const TEST_SESSIONS = [
@@ -79,7 +80,7 @@ test("SessionSelectorComponent renders forked child session with tree branch pre
   await new Promise((r) => setTimeout(r, 20));
 
   const lines = selector.render(100);
-  const text = lines.join("\n");
+  const text = stripVTControlCharacters(lines.join("\n"));
 
   assert.ok(text.includes("main"));
   assert.ok(text.includes("8671"));
