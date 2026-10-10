@@ -30,6 +30,30 @@ from my_coding_agent.serialization import uuid7_str
 logger = logging.getLogger(__name__)
 
 
+def estimate_model_cost(
+    model_name: str,
+    in_t: int,
+    out_t: int,
+    cr_t: int = 0,
+    fallback: bool = False,
+) -> float:
+    """估算大模型调用成本（美元）。"""
+    m_lower = (model_name or "").lower()
+    if "gemini" in m_lower:
+        return (in_t * 0.1 + out_t * 0.4 + cr_t * 0.025) / 1_000_000.0
+    if "claude" in m_lower:
+        if "opus" in m_lower:
+            return (in_t * 15.0 + out_t * 75.0 + cr_t * 1.5) / 1_000_000.0
+        return (in_t * 3.0 + out_t * 15.0 + cr_t * 0.3) / 1_000_000.0
+    if "deepseek" in m_lower:
+        return (in_t * 0.14 + out_t * 0.28 + cr_t * 0.014) / 1_000_000.0
+    if "gpt-4o" in m_lower:
+        return (in_t * 2.5 + out_t * 10.0 + cr_t * 1.25) / 1_000_000.0
+    if fallback:
+        return (in_t * 1.0 + out_t * 3.0 + cr_t * 0.5) / 1_000_000.0
+    return 0.0
+
+
 def compute_session_usage(session: Session, model_name: str) -> dict[str, Any]:
     """对标 Pi 规范，从会话历史中提取所有 Assistant 消息的 usage 累加统计。"""
     totals: dict[str, Any] = {
@@ -63,18 +87,7 @@ def compute_session_usage(session: Session, model_name: str) -> dict[str, Any]:
                 if total_prompt > 0 and cache_read > 0:
                     totals["latestCacheHitRate"] = (cache_read / total_prompt) * 100.0
 
-                model_lower = (model_name or "").lower()
-                if "gemini" in model_lower:
-                    totals["cost"] += (prompt_tok * 0.1 + comp_tok * 0.4 + cache_read * 0.025) / 1000000.0
-                elif "claude" in model_lower:
-                    if "opus" in model_lower:
-                        totals["cost"] += (prompt_tok * 15.0 + comp_tok * 75.0 + cache_read * 1.5) / 1000000.0
-                    else:
-                        totals["cost"] += (prompt_tok * 3.0 + comp_tok * 15.0 + cache_read * 0.3) / 1000000.0
-                elif "deepseek" in model_lower:
-                    totals["cost"] += (prompt_tok * 0.14 + comp_tok * 0.28 + cache_read * 0.014) / 1000000.0
-                elif "gpt-4o" in model_lower:
-                    totals["cost"] += (prompt_tok * 2.5 + comp_tok * 10.0 + cache_read * 1.25) / 1000000.0
+                totals["cost"] += estimate_model_cost(model_name, prompt_tok, comp_tok, cache_read, fallback=False)
 
     # 对标 Pi 原厂 calculateContextTokens：提取最后一次推理生效的 Context 大小
     last_context_tokens = 0
@@ -165,21 +178,7 @@ def compute_session_stats(
                 provider_str = getattr(msg, "provider", None) or default_provider
                 breakdown_key = model_str if "/" in model_str else f"{provider_str}/{model_str}"
 
-                step_cost = 0.0
-                m_lower = breakdown_key.lower()
-                if "gemini" in m_lower:
-                    step_cost = (in_t * 0.1 + out_t * 0.4 + cr_t * 0.025) / 1000000.0
-                elif "claude" in m_lower:
-                    if "opus" in m_lower:
-                        step_cost = (in_t * 15.0 + out_t * 75.0 + cr_t * 1.5) / 1000000.0
-                    else:
-                        step_cost = (in_t * 3.0 + out_t * 15.0 + cr_t * 0.3) / 1000000.0
-                elif "deepseek" in m_lower:
-                    step_cost = (in_t * 0.14 + out_t * 0.28 + cr_t * 0.014) / 1000000.0
-                elif "gpt-4o" in m_lower:
-                    step_cost = (in_t * 2.5 + out_t * 10.0 + cr_t * 1.25) / 1000000.0
-                else:
-                    step_cost = (in_t * 1.0 + out_t * 3.0 + cr_t * 0.5) / 1000000.0
+                step_cost = estimate_model_cost(breakdown_key, in_t, out_t, cr_t, fallback=True)
 
                 total_cost += step_cost
 
@@ -495,6 +494,36 @@ def _copy_entries_to_session(entries: list[Any], target_session: Session) -> Non
             target_session.append_entry(copied)
 
 
+def _create_derived_session(
+    parent_session: Session,
+    paths: AgentPaths,
+    workspace_path: Path,
+    title: str | None,
+    entries: list[Any],
+    extra_metadata: dict[str, Any] | None = None,
+) -> tuple[Session, Path]:
+    """创建基于父会话历史的派生会话（fork 或 clone）。"""
+    session_dir = paths.project_session_dir(workspace_path)
+    session_dir.mkdir(parents=True, exist_ok=True)
+    new_session_id = uuid7_str()
+    new_session_file = session_dir / f"{new_session_id}.jsonl"
+
+    new_session = Session(path=new_session_file, cwd=str(workspace_path))
+    new_session.id = new_session_id
+    new_session.metadata["parent_session_id"] = parent_session.id
+    new_session.metadata["parent_session_path"] = str(parent_session.path) if parent_session.path else ""
+    new_session.metadata["parentSession"] = str(parent_session.path) if parent_session.path else parent_session.id
+    if title:
+        new_session.metadata["name"] = title
+        new_session.metadata["title"] = title
+    if extra_metadata:
+        new_session.metadata.update(extra_metadata)
+
+    _copy_entries_to_session(entries, new_session)
+    new_session.save()
+    return new_session, new_session_file
+
+
 def fork_session_tree(
     session: Session,
     entry_id: str,
@@ -518,25 +547,19 @@ def fork_session_tree(
     cutoff_id = target_entry.parent_id
     path_entries = session.tree.get_path_to_entry(cutoff_id) if cutoff_id and cutoff_id in session.tree.entries else []
 
-    session_dir = paths.project_session_dir(workspace_path)
-    session_dir.mkdir(parents=True, exist_ok=True)
-    new_session_id = uuid7_str()
-    new_session_file = session_dir / f"{new_session_id}.jsonl"
-
-    new_session = Session(path=new_session_file, cwd=str(workspace_path))
-    new_session.id = new_session_id
-    new_session.metadata["parent_session_id"] = session.id
-    new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
-    new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
-    new_session.metadata["forked_from_entry_id"] = entry_id
     title_text = target_entry.message.text_content if isinstance(target_entry, MessageEntry) else prompt_text
-    if title_text.strip():
+    fork_title = None
+    if isinstance(title_text, str) and title_text.strip():
         fork_title = title_text.strip().splitlines()[0][:60]
-        new_session.metadata["name"] = fork_title
-        new_session.metadata["title"] = fork_title
 
-    _copy_entries_to_session(path_entries, new_session)
-    new_session.save()
+    new_session, new_session_file = _create_derived_session(
+        parent_session=session,
+        paths=paths,
+        workspace_path=workspace_path,
+        title=fork_title,
+        entries=path_entries,
+        extra_metadata={"forked_from_entry_id": entry_id},
+    )
 
     return new_session, prompt_text, new_session_file
 
@@ -553,25 +576,18 @@ def clone_session_tree(
     active_leaf_id = session.tree.current_id
     path_entries = session.tree.get_current_path() if active_leaf_id else []
 
-    session_dir = paths.project_session_dir(workspace_path)
-    session_dir.mkdir(parents=True, exist_ok=True)
-    new_session_id = uuid7_str()
-    new_session_file = session_dir / f"{new_session_id}.jsonl"
-
-    new_session = Session(path=new_session_file, cwd=str(workspace_path))
-    new_session.id = new_session_id
-    new_session.metadata["parent_session_id"] = session.id
-    new_session.metadata["parent_session_path"] = str(session.path) if session.path else ""
-    new_session.metadata["parentSession"] = str(session.path) if session.path else session.id
     cur_name = session.metadata.get("name") or session.metadata.get("title")
     clone_title = f"{cur_name} (clone)" if cur_name else f"Clone of {session.id[:8]}"
-    new_session.metadata["name"] = clone_title
-    new_session.metadata["title"] = clone_title
-    if active_leaf_id:
-        new_session.metadata["cloned_from_leaf_id"] = active_leaf_id
+    extra = {"cloned_from_leaf_id": active_leaf_id} if active_leaf_id else {}
 
-    _copy_entries_to_session(path_entries, new_session)
-    new_session.save()
+    new_session, new_session_file = _create_derived_session(
+        parent_session=session,
+        paths=paths,
+        workspace_path=workspace_path,
+        title=clone_title,
+        entries=path_entries,
+        extra_metadata=extra,
+    )
 
     return new_session, clone_title, new_session_file
 

@@ -3,18 +3,18 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.tools.base import (
     DEFAULT_IGNORE_DIRS,
-    DEFAULT_MAX_BYTES,
+    PATH_ALIASES,
     StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
+    truncate_output,
+    wrap_tool_executor,
 )
 
 
@@ -130,59 +130,18 @@ def make_grep_tool(workspace: Path | str) -> Tool:
                     continue
 
             output = "\n".join(matches) if matches else f"No matches found for pattern '{pattern}'."
-            encoded = output.encode("utf-8")
-            if len(encoded) > DEFAULT_MAX_BYTES:
-                encoded = encoded[:DEFAULT_MAX_BYTES]
-                last_nl = encoded.rfind(b"\n")
-                if last_nl != -1:
-                    encoded = encoded[:last_nl]
-                output = encoded.decode("utf-8", errors="ignore")
-                output += f"\n\n[Output truncated: exceeded {DEFAULT_MAX_BYTES // 1024}KB limit]"
-
-            return output
+            return truncate_output(output)
         except Exception as e:
             return f"Error: {e}"
 
-    orig_execute = grep.execute
-
-    async def execute(
-        args: dict[str, Any] | None = None,
-        signal: Any | None = None,
-        on_update: Callable[[Any], None] | None = None,
-        tool_call_id: str | None = None,
-        **kwargs: Any,
-    ) -> GrepResult:
-        call_args = dict(args) if isinstance(args, dict) else {}
-        call_args.update(kwargs)
-        if "pattern" not in call_args:
-            for k in ("query", "search"):
-                if k in call_args:
-                    call_args["pattern"] = call_args.pop(k)
-                    break
-        if "path" not in call_args:
-            for k in ("directory", "dir", "folder", "filePath", "file_path"):
-                if k in call_args:
-                    call_args["path"] = call_args.pop(k)
-                    break
-        if "ignoreCase" in call_args and "ignore_case" not in call_args:
-            call_args["ignore_case"] = call_args.pop("ignoreCase")
-        if "glob_filter" in call_args and "glob" not in call_args:
-            call_args["glob"] = call_args.pop("glob_filter")
-        if "max_matches" in call_args and "limit" not in call_args:
-            call_args["limit"] = call_args.pop("max_matches")
-        res = await orig_execute(
-            call_args,
-            signal=signal,
-            on_update=on_update,
-            tool_call_id=tool_call_id,
-        )
-        return GrepResult(
-            ok=res.ok,
-            data=res.data,
-            error=res.error,
-            meta=res.meta,
-            terminate=res.terminate,
-        )
-
-    grep.execute = execute
-    return grep
+    return wrap_tool_executor(
+        grep,
+        GrepResult,
+        aliases={
+            "pattern": ("query", "search"),
+            "path": ("directory", "dir", "folder", *PATH_ALIASES),
+            "ignore_case": ("ignoreCase",),
+            "glob": ("glob_filter",),
+            "limit": ("max_matches",),
+        },
+    )

@@ -17,6 +17,14 @@ from typing import TYPE_CHECKING, Any
 
 from my_coding_agent.paths import AgentPaths
 
+
+def _strip_frontmatter(content: str) -> str:
+    """剥离 Markdown YAML Frontmatter (--- ... ---)。"""
+    normalized = content.replace("\r\n", "\n")
+    match = re.match(r"^---\n(.*?)\n---\n?", normalized, re.DOTALL)
+    return normalized[match.end() :].strip() if match else normalized.strip()
+
+
 if TYPE_CHECKING:
     from my_agent_core.skills import SkillManager
 
@@ -190,14 +198,7 @@ class MacroEngine:
         except OSError:
             return None
 
-        # 剥离 YAML Frontmatter
-        normalized = content.replace("\r\n", "\n")
-        match = re.match(r"^---\n(.*?)\n---\n?", normalized, re.DOTALL)
-        if match:
-            body = normalized[match.end() :].strip()
-        else:
-            body = normalized.strip()
-
+        body = _strip_frontmatter(content)
         location = str(file_path.resolve())
         xml_block = f'<skill name="{name}" location="{location}">\n{body}\n</skill>'
 
@@ -269,14 +270,7 @@ class MacroEngine:
         except OSError:
             return None
 
-        # 剥离 YAML Frontmatter
-        normalized = content.replace("\r\n", "\n")
-        match = re.match(r"^---\n(.*?)\n---\n?", normalized, re.DOTALL)
-        if match:
-            body = normalized[match.end() :].strip()
-        else:
-            body = normalized.strip()
-
+        body = _strip_frontmatter(content)
         return self.substitute_template_args(body, args_string)
 
     def substitute_template_args(self, template_body: str, args_string: str) -> str:

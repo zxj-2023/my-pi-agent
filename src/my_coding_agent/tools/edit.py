@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -11,10 +10,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.tools.base import (
+    PATH_ALIASES,
     StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
+    wrap_tool_executor,
 )
+
+
+def _normalize_edits_arg(raw_edits: Any) -> list[Any] | None:
+    """规范化 edits 入参（支持 JSON 字符串与单个字典容错）。"""
+    if isinstance(raw_edits, str):
+        try:
+            parsed = json.loads(raw_edits)
+            if isinstance(parsed, (list, dict)):
+                raw_edits = parsed
+        except Exception:
+            pass
+    if isinstance(raw_edits, dict):
+        return [raw_edits]
+    if isinstance(raw_edits, list):
+        return raw_edits
+    return None
 
 
 class EditBlock(BaseModel):
@@ -67,16 +84,7 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
                 return f"Error: Cannot edit binary file: {path}"
 
             # 1. 规范化 edits 入参 (对标 Pi 官方 prepareEditArguments 容错)
-            raw_edits = edits
-            if isinstance(raw_edits, str):
-                try:
-                    parsed = json.loads(raw_edits)
-                    if isinstance(parsed, (list, dict)):
-                        raw_edits = parsed
-                except Exception:
-                    pass
-            elif isinstance(raw_edits, dict):
-                raw_edits = [raw_edits]
+            raw_edits = _normalize_edits_arg(edits)
 
             edit_blocks: list[EditBlock] = []
             if raw_edits is not None and isinstance(raw_edits, list):
@@ -185,54 +193,19 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
         except Exception as e:
             return f"Error: {e}"
 
-    orig_execute = edit.execute
-
-    async def execute(
-        args: dict[str, Any] | None = None,
-        signal: Any | None = None,
-        on_update: Callable[[Any], None] | None = None,
-        tool_call_id: str | None = None,
-        **kwargs: Any,
-    ) -> EditResult:
-        call_args = dict(args) if isinstance(args, dict) else {}
-        call_args.update(kwargs)
-        if "path" not in call_args:
-            for k in ("filePath", "file_path", "file", "filename"):
-                if k in call_args:
-                    call_args["path"] = call_args.pop(k)
-                    break
-
-        # 规范化 edits 入参 (对标 Pi 官方 prepareEditArguments 容错)
-        raw_edits = call_args.get("edits")
-        if isinstance(raw_edits, str):
-            try:
-                parsed = json.loads(raw_edits)
-                if isinstance(parsed, (list, dict)):
-                    raw_edits = parsed
-            except Exception:
-                pass
-        if isinstance(raw_edits, dict):
-            raw_edits = [raw_edits]
-        if raw_edits is not None:
-            call_args["edits"] = raw_edits
-
+    def _edit_normalizer(call_args: dict[str, Any]) -> None:
+        if "edits" in call_args:
+            norm = _normalize_edits_arg(call_args["edits"])
+            if norm is not None:
+                call_args["edits"] = norm
         if "oldText" in call_args and "old_text" not in call_args:
             call_args["old_text"] = call_args.pop("oldText")
         if "newText" in call_args and "new_text" not in call_args:
             call_args["new_text"] = call_args.pop("newText")
-        res = await orig_execute(
-            call_args,
-            signal=signal,
-            on_update=on_update,
-            tool_call_id=tool_call_id,
-        )
-        return EditResult(
-            ok=res.ok,
-            data=res.data,
-            error=res.error,
-            meta=res.meta,
-            terminate=res.terminate,
-        )
 
-    edit.execute = execute
-    return edit
+    return wrap_tool_executor(
+        edit,
+        EditResult,
+        aliases={"path": PATH_ALIASES},
+        normalizer=_edit_normalizer,
+    )

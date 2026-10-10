@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import contextlib
 import os
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.tools.base import (
     DEFAULT_MAX_BYTES,
+    PATH_ALIASES,
     StringCompatibleToolResult,
     resolve_path,
+    wrap_tool_executor,
 )
 
 DEFAULT_LS_LIMIT = 500
@@ -84,35 +84,8 @@ def make_ls_tool(workspace: Path | str) -> Tool:
         except Exception as e:
             return f"Error: {e}"
 
-    orig_execute = ls.execute
-
-    async def execute(
-        args: dict[str, Any] | None = None,
-        signal: Any | None = None,
-        on_update: Callable[[Any], None] | None = None,
-        tool_call_id: str | None = None,
-        **kwargs: Any,
-    ) -> LsResult:
-        call_args = dict(args) if isinstance(args, dict) else {}
-        call_args.update(kwargs)
-        if "path" not in call_args:
-            for k in ("directory", "dir", "folder"):
-                if k in call_args:
-                    call_args["path"] = call_args.pop(k)
-                    break
-        res = await orig_execute(
-            call_args,
-            signal=signal,
-            on_update=on_update,
-            tool_call_id=tool_call_id,
-        )
-        return LsResult(
-            ok=res.ok,
-            data=res.data,
-            error=res.error,
-            meta=res.meta,
-            terminate=res.terminate,
-        )
-
-    ls.execute = execute
-    return ls
+    return wrap_tool_executor(
+        ls,
+        LsResult,
+        aliases={"path": ("directory", "dir", "folder", *PATH_ALIASES)},
+    )

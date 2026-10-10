@@ -19,6 +19,7 @@ from my_coding_agent.tools.base import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
     StringCompatibleToolResult,
+    wrap_tool_executor,
 )
 
 BLOCKED_COMMANDS = {
@@ -296,39 +297,8 @@ def make_bash_tool(
             msg = f"Error: {e}"
             return BashResult(ok=False, data=msg, error=msg)
 
-    orig_execute = bash.execute
-
-    async def execute(
-        args: dict[str, Any] | None = None,
-        signal: Any | None = None,
-        on_update: Callable[[Any], None] | None = None,
-        tool_call_id: str | None = None,
-        **kwargs: Any,
-    ) -> BashResult:
-        call_args = dict(args) if isinstance(args, dict) else {}
-        call_args.update(kwargs)
-        if "command" not in call_args:
-            for k in ("cmd", "script"):
-                if k in call_args:
-                    call_args["command"] = call_args.pop(k)
-                    break
-        res = await orig_execute(
-            call_args,
-            signal=signal,
-            on_update=on_update,
-            tool_call_id=tool_call_id,
-        )
-        if isinstance(res, BashResult):
-            return res
-        if isinstance(res.data, BashResult):
-            return res.data
-        return BashResult(
-            ok=res.ok,
-            data=res.data,
-            error=res.error,
-            meta=res.meta,
-            terminate=res.terminate,
-        )
-
-    bash.execute = execute
-    return bash
+    return wrap_tool_executor(
+        bash,
+        BashResult,
+        aliases={"command": ("cmd", "script")},
+    )

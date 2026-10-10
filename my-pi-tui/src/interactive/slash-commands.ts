@@ -93,7 +93,41 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
   { name: "exit", description: "退出当前交互终端" },
 ];
 
-export async function executeSlashCommand(mode: any, input: string): Promise<void> {
+export interface SlashCommandContext {
+  isStreaming: boolean;
+  workspace?: string;
+  currentModelName: string;
+  currentThinkingLevel?: string;
+  chatContainer: any;
+  ui: any;
+  bridge: any;
+  footer: any;
+  defaultEditor?: any;
+  activeStatusIndicator?: any;
+  latestAssistantMessage?: any;
+  currentStreamingAssistant?: any;
+  appendErrorMessage(msg: string): void;
+  appendSystemNotice(msg: string): void;
+  handleExit(): void;
+  clearStatusDisplay(): void;
+  updateResources(resources: any): void;
+  updateFooterUsage(usage: any, contextWindow?: any): void;
+  updateEditorBorderColor(): void;
+  renderSessionHistory(messages: any[], banner?: string): void;
+  renderPiSessionStats(stats: any): void;
+  renderFallbackSessionStats(): void;
+  showModelSelector(search?: string): void;
+  showSessionSelector(): void;
+  showForkSelector(): void;
+  showTreeSelector(): void;
+  showThinkingSelector(): void;
+  showLoginSelector(): void;
+  showLogoutSelector(): void;
+  showThemeSelector(): void;
+  showSettingsSelector(): void;
+}
+
+export async function executeSlashCommand(mode: SlashCommandContext, input: string): Promise<void> {
   const parts = input.slice(1).split(" ");
   const cmd = (parts[0] || "").toLowerCase();
   const args = parts.slice(1).join(" ").trim();

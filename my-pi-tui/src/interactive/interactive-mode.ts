@@ -1900,7 +1900,7 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
-  private activeStatusIndicator: StatusIndicator | null = null;
+  public activeStatusIndicator: StatusIndicator | null = null;
 
   public showWorkingStatusIndicator(message = "Working"): void {
     this.clearStatusDisplay();

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.tools.base import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
+    PATH_ALIASES,
     StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
+    wrap_tool_executor,
 )
 
 
@@ -84,35 +84,4 @@ def make_read_tool(workspace: Path) -> Tool:
         except Exception as e:
             return f"Error: {e}"
 
-    orig_execute = read.execute
-
-    async def execute(
-        args: dict[str, Any] | None = None,
-        signal: Any | None = None,
-        on_update: Callable[[Any], None] | None = None,
-        tool_call_id: str | None = None,
-        **kwargs: Any,
-    ) -> ReadResult:
-        call_args = dict(args) if isinstance(args, dict) else {}
-        call_args.update(kwargs)
-        if "path" not in call_args:
-            for k in ("filePath", "file_path", "file", "filename"):
-                if k in call_args:
-                    call_args["path"] = call_args.pop(k)
-                    break
-        res = await orig_execute(
-            call_args,
-            signal=signal,
-            on_update=on_update,
-            tool_call_id=tool_call_id,
-        )
-        return ReadResult(
-            ok=res.ok,
-            data=res.data,
-            error=res.error,
-            meta=res.meta,
-            terminate=res.terminate,
-        )
-
-    read.execute = execute
-    return read
+    return wrap_tool_executor(read, ReadResult, {"path": PATH_ALIASES})

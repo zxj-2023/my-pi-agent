@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from my_agent_core.tools import Tool, tool
 
 from my_coding_agent.mutation_queue import FileMutationQueue
-from my_coding_agent.tools.base import StringCompatibleToolResult, resolve_path
+from my_coding_agent.tools.base import (
+    PATH_ALIASES,
+    StringCompatibleToolResult,
+    resolve_path,
+    wrap_tool_executor,
+)
 
 
 class WriteResult(StringCompatibleToolResult):
@@ -45,40 +48,8 @@ def make_write_tool(workspace: Path, mutation_queue: FileMutationQueue | None = 
         except Exception as e:
             return f"Error: {e}"
 
-    orig_execute = write.execute
-
-    async def execute(
-        args: dict[str, Any] | None = None,
-        signal: Any | None = None,
-        on_update: Callable[[Any], None] | None = None,
-        tool_call_id: str | None = None,
-        **kwargs: Any,
-    ) -> WriteResult:
-        call_args = dict(args) if isinstance(args, dict) else {}
-        call_args.update(kwargs)
-        if "path" not in call_args:
-            for k in ("filePath", "file_path", "file", "filename"):
-                if k in call_args:
-                    call_args["path"] = call_args.pop(k)
-                    break
-        if "content" not in call_args:
-            for k in ("contents", "text"):
-                if k in call_args:
-                    call_args["content"] = call_args.pop(k)
-                    break
-        res = await orig_execute(
-            call_args,
-            signal=signal,
-            on_update=on_update,
-            tool_call_id=tool_call_id,
-        )
-        return WriteResult(
-            ok=res.ok,
-            data=res.data,
-            error=res.error,
-            meta=res.meta,
-            terminate=res.terminate,
-        )
-
-    write.execute = execute
-    return write
+    return wrap_tool_executor(
+        write,
+        WriteResult,
+        aliases={"path": PATH_ALIASES, "content": ("contents", "text")},
+    )

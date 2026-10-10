@@ -471,7 +471,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
         self.agent.follow_up(msg)
         return self.send_response(req_id, result={"status": "ok"})
 
-    def _handle_abort(self, req_id: Any) -> dict[str, Any]:
+    def _handle_abort(self, req_id: Any, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.agent:
             self.agent.abort()
         if self._active_prompt_task and not self._active_prompt_task.done():
@@ -479,11 +479,11 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
         return self.send_response(req_id, result={"status": "ok"})
 
     @require_agent
-    def _handle_clear_queue(self, req_id: Any) -> dict[str, Any]:
+    def _handle_clear_queue(self, req_id: Any, params: dict[str, Any] | None = None) -> dict[str, Any]:
         cleared = self.agent.clear_queue()
         return self.send_response(req_id, result={"cleared": True, "count": len(cleared)})
 
-    async def _handle_shutdown(self, req_id: Any) -> dict[str, Any]:
+    async def _handle_shutdown(self, req_id: Any, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self.is_shutting_down = True
         if self.tracer:
             self.tracer.close()
@@ -500,74 +500,51 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
         method = req.get("method", "")
         params = req.get("params", {})
 
+        dispatch = {
+            "initialize": self._handle_initialize,
+            "prompt": self._handle_prompt,
+            "login": self._handle_login,
+            "steer": self._handle_steer,
+            "followup": self._handle_followup,
+            "follow_up": self._handle_followup,
+            "abort": self._handle_abort,
+            "clear_queue": self._handle_clear_queue,
+            "session_name": self._handle_session_name,
+            "session_list": self._handle_session_list,
+            "session_resume": self._handle_session_resume,
+            "session_delete": self._handle_session_delete,
+            "session_history": self._handle_session_history,
+            "session_stats": self._handle_session_stats,
+            "session_compact": self._handle_session_compact,
+            "session_new": self._handle_session_new,
+            "session_tree": self._handle_session_tree,
+            "session_branch": self._handle_session_branch,
+            "session_fork": self._handle_session_fork,
+            "session_clone": self._handle_session_clone,
+            "shell_exec": self._handle_shell_exec,
+            "macro_expand": self._handle_macro_expand,
+            "models_list": self._handle_models_list,
+            "model_switch": self._handle_model_switch,
+            "thinking_set": self._handle_thinking_set,
+            "auth_logout": self._handle_auth_logout,
+            "resource_reload": self._handle_resource_reload,
+            "settings_get": self._handle_settings_get,
+            "settings_set": self._handle_settings_set,
+            "trust_set": self._handle_trust_set,
+            "debug_dump": self._handle_debug_dump,
+            "shutdown": self._handle_shutdown,
+        }
+
+        handler = dispatch.get(method)
+        if not handler:
+            return self.send_response(
+                req_id,
+                error={"code": -32601, "message": f"Method '{method}' not found"},
+            )
+
         try:
-            if method == "initialize":
-                return await self._handle_initialize(req_id, params)
-            elif method == "prompt":
-                return await self._handle_prompt(req_id, params)
-            elif method == "login":
-                return self._handle_login(req_id, params)
-            elif method == "steer":
-                return self._handle_steer(req_id, params)
-            elif method in ("followup", "follow_up"):
-                return self._handle_followup(req_id, params)
-            elif method == "abort":
-                return self._handle_abort(req_id)
-            elif method == "clear_queue":
-                return self._handle_clear_queue(req_id)
-            elif method == "session_name":
-                return self._handle_session_name(req_id, params)
-            elif method == "session_list":
-                return self._handle_session_list(req_id, params)
-            elif method == "session_resume":
-                return self._handle_session_resume(req_id, params)
-            elif method == "session_delete":
-                return self._handle_session_delete(req_id, params)
-            elif method == "session_history":
-                return self._handle_session_history(req_id, params)
-            elif method == "session_stats":
-                return self._handle_session_stats(req_id, params)
-            elif method == "session_compact":
-                return await self._handle_session_compact(req_id, params)
-            elif method == "session_new":
-                return self._handle_session_new(req_id, params)
-            elif method == "session_tree":
-                return self._handle_session_tree(req_id, params)
-            elif method == "session_branch":
-                return await self._handle_session_branch(req_id, params)
-            elif method == "session_fork":
-                return self._handle_session_fork(req_id, params)
-            elif method == "session_clone":
-                return self._handle_session_clone(req_id, params)
-            elif method == "shell_exec":
-                return await self._handle_shell_exec(req_id, params)
-            elif method == "macro_expand":
-                return self._handle_macro_expand(req_id, params)
-            elif method == "models_list":
-                return self._handle_models_list(req_id, params)
-            elif method == "model_switch":
-                return self._handle_model_switch(req_id, params)
-            elif method == "thinking_set":
-                return self._handle_thinking_set(req_id, params)
-            elif method == "auth_logout":
-                return self._handle_auth_logout(req_id, params)
-            elif method == "resource_reload":
-                return self._handle_resource_reload(req_id, params)
-            elif method == "settings_get":
-                return self._handle_settings_get(req_id, params)
-            elif method == "settings_set":
-                return self._handle_settings_set(req_id, params)
-            elif method == "trust_set":
-                return self._handle_trust_set(req_id, params)
-            elif method == "debug_dump":
-                return self._handle_debug_dump(req_id, params)
-            elif method == "shutdown":
-                return await self._handle_shutdown(req_id)
-            else:
-                return self.send_response(
-                    req_id,
-                    error={"code": -32601, "message": f"Method '{method}' not found"},
-                )
+            res = handler(req_id, params)
+            return await res if inspect.isawaitable(res) else res
         except Exception as e:
             return self.send_response(
                 req_id,
