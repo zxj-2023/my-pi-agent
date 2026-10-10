@@ -35,5 +35,7 @@ jobs/
 my-pi-eval/jobs/
 my-pi-eval/results/active_task_locks/
 my-pi-eval/cache/
+.worktrees/
+.worktrees
 
 
