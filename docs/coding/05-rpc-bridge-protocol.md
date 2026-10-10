@@ -44,11 +44,23 @@
 | :--- | :--- | :--- | :--- |
 | `initialize` | `{"workspace"?: string, "model"?: string, "thinking"?: string, "mode"?: string, "continue"?: boolean, "new_session"?: boolean, "name"?: string}` | `{"status": "ok", "workspace": "...", "model": "...", "provider": "...", "context_window": N, "usage": {...}, "thinking_level": "...", "session_id": "...", "session_file": "...", "session_name": "...", "messages": [...]}` | 双端协议握手，同步工作区与默认运行时上下文 |
 | `shutdown` | `{}` | `{"status": "ok"}` | 优雅终止 Python 内核，妥善释放子进程与会话文件锁 |
-| `prompt` | `{"text": string, "streamingBehavior"?: "steer" \| "followUp"}` | `{"status": "completed"}` 或 `{"status": "ok", "action": "steered"}` | 发起用户提问，微内核互斥锁保护；若已有活跃任务在执行且指定 `steer`，自动合流即时转向 |
-| `steer` | `{"message"?: string, "prompt"?: string, "text"?: string}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令（支持灵活键名） |
-| `followup` | `{"message"?: string, "prompt"?: string, "text"?: string}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
+| `prompt` | `{"text"?: string, "content"?: string \| ContentBlock[], "streamingBehavior"?: "steer" \| "followUp"}` | `{"status": "completed"}` 或 `{"status": "ok", "action": "steered"}` | 发起用户提问，微内核互斥锁保护；若已有活跃任务在执行且指定 `steer`，自动合流即时转向 |
+| `steer` | `{"message"?: string \| ContentBlock[], "prompt"?: string \| ContentBlock[], "text"?: string \| ContentBlock[]}` | `{"status": "ok"}` | 在当前 Agent 运行轮次中即时插话注入转向指令（支持灵活键名） |
+| `followup` | `{"message"?: string \| ContentBlock[], "prompt"?: string \| ContentBlock[], "text"?: string \| ContentBlock[]}` | `{"status": "ok"}` | 在当前任务排队队列末尾追加排程输入 |
 | `clear_queue` | `{}` | `{"cleared": true, "count": number}` | 清空当前会话中所有排队待发的干预消息（包含 Steering 与 Follow-up） |
 | `abort` | `{}` | `{"status": "ok"}` | 协作式中断当前正在运行的模型流式生成或工具执行进程 |
+
+`prompt.content` 存在时优先使用该字段，否则读取旧的 `text` 字段（默认空字符串）。内容块按列表顺序传递，支持文字与 base64 图片交错：
+
+```json
+{"method": "prompt", "params": {"content": [
+  {"type": "text", "text": "看看这张图"},
+  {"type": "image", "data": "<base64>", "mime_type": "image/png"},
+  {"type": "text", "text": "重点检查右上角"}
+]}}
+```
+
+图片 MIME 类型支持 `image/png`、`image/jpeg`、`image/gif` 和 `image/webp`。消息事件、历史与恢复快照保留内容列表。内容格式由 core 的 `Message` 统一校验；已有任务运行时，`steer` / `followUp` 分流同样支持有序内容列表。
 
 #### (2) 会话管理与 DAG 分支漫游
 

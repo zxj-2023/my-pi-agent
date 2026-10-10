@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
+
+from my_agent_llm import MessageContent
 
 
 class MessageType(str, Enum):
@@ -19,7 +22,7 @@ class MessageType(str, Enum):
 class QueuedMessage:
     """队列中的一条干预消息。"""
 
-    content: str
+    content: MessageContent
     type: MessageType
     created_at: float = field(default_factory=time.time)
 
@@ -36,13 +39,15 @@ class MessageQueue:
         self.steering_mode = steering_mode
         self.followup_mode = followup_mode
 
-    def add_steering(self, message: str) -> None:
+    def add_steering(self, message: MessageContent) -> None:
         """追加一条 Steering 转向消息。"""
-        self.queue.append(QueuedMessage(content=message, type=MessageType.STEERING))
+        safe_content = copy.deepcopy(message) if isinstance(message, list) else message
+        self.queue.append(QueuedMessage(content=safe_content, type=MessageType.STEERING))
 
-    def add_followup(self, message: str) -> None:
+    def add_followup(self, message: MessageContent) -> None:
         """追加一条 Follow-up 追问消息。"""
-        self.queue.append(QueuedMessage(content=message, type=MessageType.FOLLOWUP))
+        safe_content = copy.deepcopy(message) if isinstance(message, list) else message
+        self.queue.append(QueuedMessage(content=safe_content, type=MessageType.FOLLOWUP))
 
     def get_steering_messages(self) -> list[QueuedMessage]:
         """获取并弹出待消费的 steering 消息。"""

@@ -111,7 +111,7 @@ def serialize_event(event: Event, stats: dict[str, Any] | None = None) -> dict[s
             "type": "message_start",
             "message": {
                 "role": msg.role,
-                "content": msg.content or "",
+                "content": msg.content,
             },
         }
     elif isinstance(event, MessageUpdate):
@@ -130,7 +130,7 @@ def serialize_event(event: Event, stats: dict[str, Any] | None = None) -> dict[s
             "type": "message_update",
             "message": {
                 "role": msg.role,
-                "content": msg.content or "",
+                "content": msg.content,
             },
             "delta": delta_text,
             "reasoning_delta": delta_thinking,
@@ -143,7 +143,7 @@ def serialize_event(event: Event, stats: dict[str, Any] | None = None) -> dict[s
             "type": "message_end",
             "message": {
                 "role": msg.role,
-                "content": msg.content or "",
+                "content": msg.content,
                 "metadata": meta,
             },
         }

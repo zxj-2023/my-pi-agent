@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import uuid
+import json
+
+import pytest
 
 from my_agent_core.events import (
+    MessageEnd,
+    MessageStart,
     MessageUpdate,
     ToolExecutionEnd,
     ToolExecutionStart,
@@ -29,6 +34,18 @@ def test_serialize_message() -> None:
     assert data["role"] == "assistant"
     assert data["content"] == "hello"
     assert data["metadata"]["tool_calls"] == [{"name": "read"}]
+
+
+@pytest.mark.parametrize("content", [[], [
+    {"type": "text", "text": "before"},
+    {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"},
+    {"type": "text", "text": "after"},
+]])
+def test_serialize_ordered_content(content):
+    message = Message(role="user", content=content)
+    assert json.loads(json.dumps(serialize_message(message)))["content"] == content
+    for event in [MessageStart(message), MessageUpdate(message), MessageEnd(message)]:
+        assert json.loads(json.dumps(serialize_event(event)))["message"]["content"] == content
 
 
 def test_serialize_event_message_update() -> None:

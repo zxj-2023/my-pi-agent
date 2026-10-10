@@ -45,7 +45,7 @@ from my_agent_core.tool_history import (
     clean_provider_context,
 )
 from my_agent_core.tools import ToolResult
-from my_agent_llm import Message, StreamChunk, ToolCall
+from my_agent_llm import Message, MessageContent, StreamChunk, ToolCall
 from my_agent_llm.events import (  # pyright: ignore[reportMissingImports]
     StreamDoneEvent,
     StreamErrorEvent,
@@ -238,7 +238,7 @@ async def _assistant_turn(
             return
 
 
-def _as_messages(items: Sequence[Message | str]) -> list[Message]:
+def _as_messages(items: Sequence[Message | MessageContent]) -> list[Message]:
     """安全归一化字符串或消息序列为标准 Message 列表。"""
     return [m if isinstance(m, Message) else Message(role="user", content=m) for m in items]
 
@@ -508,10 +508,10 @@ async def run_agent_loop(
     context_manager: Any | None = None,
     model: str | None = None,
     system: str = "",
-    prompts: Sequence[Message | str] = (),
+    prompts: Sequence[Message | MessageContent] = (),
     signal: CancellationToken | None = None,
-    get_steering_messages: Callable[[], Sequence[Message | str]] | None = None,
-    get_follow_up_messages: Callable[[], Sequence[Message | str]] | None = None,
+    get_steering_messages: Callable[[], Sequence[Message | MessageContent]] | None = None,
+    get_follow_up_messages: Callable[[], Sequence[Message | MessageContent]] | None = None,
     before_model_call: (
         Callable[[BeforeModelCallHook], Awaitable[HookResult | None] | HookResult | None] | None
     ) = None,
@@ -542,12 +542,12 @@ async def run_agent_loop(
     if system and (not messages or messages[0].role != "system"):
         messages.insert(0, Message(role="system", content=system))
     elif not system and messages and messages[0].role == "system":
-        system = messages[0].content
+        system = messages[0].text_content
 
     # prompts 规范化
     converted_prompts = _as_messages(prompts)
 
-    user_input = converted_prompts[0].content if converted_prompts else ""
+    user_input = converted_prompts[0].text_content if converted_prompts else ""
 
     # 1. 注入初始 prompts 并发射事件
     yield AgentStart(system_prompt=system, user_input=user_input)
@@ -664,7 +664,7 @@ async def run_agent_loop(
                 yield TurnEnd(message=assistant, tool_results=synth_tools)
                 yield AgentEnd(
                     messages=list(messages),
-                    final_text=assistant.content if stop_reason == "error" else None,
+                    final_text=assistant.text_content if stop_reason == "error" else None,
                     iterations=iteration,
                     stop_reason=stop_reason,
                 )
@@ -693,15 +693,15 @@ async def run_agent_loop(
                         messages.append(ev.message)
 
                 # 阶段 7: 批量优雅熔断判定（any 语义）
-                terminating_obs = [m.content for m in tool_results if (m.metadata or {}).get("terminate")]
+                terminating_obs = [m.text_content for m in tool_results if (m.metadata or {}).get("terminate")]
                 if terminating_obs:
                     has_more_tools = False
-                    final_text = assistant.content or terminating_obs[-1]
+                    final_text = assistant.text_content or terminating_obs[-1]
                 else:
                     has_more_tools = True
             else:
                 has_more_tools = False
-                final_text = assistant.content
+                final_text = assistant.text_content
 
             # 严密闭合当前轮次
             yield TurnEnd(message=assistant, tool_results=tool_results)

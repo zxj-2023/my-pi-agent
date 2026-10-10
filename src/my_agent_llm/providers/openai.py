@@ -89,7 +89,16 @@ class OpenAIProvider(Provider):
         """Message → OpenAI wire dict。"""
         result = []
         for msg in messages:
-            if msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
+            content = msg.content if isinstance(msg.content, str) else [
+                part if part["type"] == "text" else {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{part['mime_type']};base64,{part['data']}"},
+                }
+                for part in msg.content
+            ]
+            if msg.role in ("system", "developer"):
+                result.append({"role": msg.role, "content": msg.text_content})
+            elif msg.role == "assistant" and msg.metadata and "tool_calls" in msg.metadata:
                 wire_calls = []
                 for tc in msg.metadata["tool_calls"]:
                     if isinstance(tc, ToolCall):
@@ -103,22 +112,22 @@ class OpenAIProvider(Provider):
                     result.append(
                         {
                             "role": "assistant",
-                            "content": msg.content or None,
+                            "content": content or None,
                             "tool_calls": wire_calls,
                         }
                     )
                 else:
-                    result.append({"role": "assistant", "content": msg.content or ""})
+                    result.append({"role": "assistant", "content": content or ""})
             elif msg.role == "tool" and msg.metadata:
                 result.append(
                     {
                         "role": "tool",
-                        "content": msg.content,
+                        "content": msg.text_content,
                         "tool_call_id": msg.metadata.get("tool_call_id", ""),
                     }
                 )
             else:
-                result.append({"role": msg.role, "content": msg.content})
+                result.append({"role": msg.role, "content": content})
         return result
 
     @staticmethod

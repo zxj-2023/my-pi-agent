@@ -13,10 +13,14 @@ from .events import (  # pyright: ignore[reportMissingImports]
     ToolCallDoneEvent,
 )
 from .models import (
+    ContentBlock,
+    ImageContent,
     Message,
+    MessageContent,
     Response,
     StreamChunk,
     ToolCall,
+    TextContent,
     TurnOutcome,
     normalize_finish_reason,
 )
@@ -27,6 +31,10 @@ __all__ = [
     "LLM",
     "Config",
     "Message",
+    "MessageContent",
+    "ContentBlock",
+    "TextContent",
+    "ImageContent",
     "Response",
     "StreamAccumulator",
     "StreamChunk",

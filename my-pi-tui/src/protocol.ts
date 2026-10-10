@@ -22,9 +22,14 @@ export interface JsonRpcNotification {
   params: Record<string, unknown>;
 }
 
+export type MessageContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mime_type: "image/png" | "image/jpeg" | "image/webp" | "image/gif" };
+export type MessageContent = string | MessageContentBlock[];
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system" | "tool";
-  content: string;
+  content: MessageContent;
 }
 
 export interface AgentStartEvent {

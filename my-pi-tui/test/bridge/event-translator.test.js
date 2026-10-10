@@ -63,6 +63,19 @@ test("EventTranslator translates message_update deltas into assistant message bl
   assert.equal(translator.getCurrentAssistantMessage(), null);
 });
 
+test("EventTranslator preserves user/tool completion roles during assistant streaming", () => {
+  const translator = new EventTranslator();
+  translator.translate({ type: "message_start", message: { role: "assistant", content: "" } });
+  for (const role of ["user", "tool"]) {
+    const message = { role, content: [{ type: "text", text: "Not assistant output" }] };
+    const event = translator.translate({ type: "message_end", message });
+    assert.deepEqual(event.message, message);
+    assert.deepEqual(translator.getCurrentAssistantMessage().content, []);
+  }
+  const end = translator.translate({ type: "message_end", message: { role: "assistant", content: "Answer" } });
+  assert.deepEqual(end.message.content, [{ type: "text", text: "Answer" }]);
+});
+
 test("EventTranslator handles JSON-RPC notification wrapper with method: 'event'", () => {
   const translator = new EventTranslator();
 

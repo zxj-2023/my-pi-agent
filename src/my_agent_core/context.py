@@ -18,13 +18,14 @@ from my_agent_llm import Message  # pyright: ignore[reportMissingImports]
 if TYPE_CHECKING:
     from my_agent_core.session import Session
 
+IMAGE_EQUIVALENT_CHARS = 4000  # 一张图片约等效 1000 Tokens (4000 字符)
 CHARS_PER_TOKEN = 4
 DEFAULT_CONTEXT_BUDGET = 100_000  # 默认 token 预算（约 gpt-4 context 上限）
 
 
 def estimate_tokens(messages: list[Message], ratio: float | None = None) -> int:
     """估算 token 数。ratio 为 usage 锚定比例（每字符 token 数）；None 用 chars/4 兜底。"""
-    chars = len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))
+    chars = _chars_of(messages)
     if ratio is not None:
         return max(1, round(chars * ratio))
     return max(1, chars // CHARS_PER_TOKEN)
@@ -58,7 +59,7 @@ def budget_tool_results(
     """
     result = list(messages)
     for i, m in enumerate(result):
-        if m.role != "tool" or len(m.content) <= max_chars:
+        if m.role != "tool" or not isinstance(m.content, str) or len(m.content) <= max_chars:
             continue
         if results_dir is None:
             continue
@@ -219,13 +220,16 @@ def _serialize_messages(messages: list[Message]) -> str:
     """逐条 'role: content'（tool_calls 只列名称）——摘要器好读，省 token。"""
     lines = []
     for m in messages:
+        content = m.content if isinstance(m.content, str) else "".join(
+            part["text"] if part["type"] == "text" else "[image]" for part in m.content
+        )
         if m.role == "assistant" and m.metadata and m.metadata.get("tool_calls"):
             names = [tc.get("function", {}).get("name", "?") for tc in m.metadata["tool_calls"]]
-            lines.append(f"assistant: [tool_calls: {', '.join(names)}] {m.content}")
+            lines.append(f"assistant: [tool_calls: {', '.join(names)}] {content}")
         elif m.role == "tool":
-            lines.append(f"tool: {m.content[:4000]}")
+            lines.append(f"tool: {content[:4000]}")
         else:
-            lines.append(f"{m.role}: {m.content}")
+            lines.append(f"{m.role}: {content}")
     return "\n".join(lines)
 
 
@@ -290,7 +294,9 @@ class ContextManager:
         if total_prompt_tokens > 0:
             self._last_prompt_tokens = total_prompt_tokens
         if total_prompt_tokens > 0 and self._last_view_chars > 0:
-            self._ratio = total_prompt_tokens / self._last_view_chars
+            raw_ratio = total_prompt_tokens / self._last_view_chars
+            # 限制 ratio 在合理自然语言区间 [0.1, 2.5]，防止多模态或极短文本引发比例污染 (Ratio Poisoning)
+            self._ratio = max(0.1, min(raw_ratio, 2.5))
 
     @property
     def context_tokens(self) -> int:
@@ -434,7 +440,7 @@ class ContextManager:
         acc = 0
         cut = len(messages)
         for i in range(len(messages) - 1, 0, -1):  # 跳过 system（index 0）
-            acc += len(messages[i].content)
+            acc += len(messages[i].text_content)
             if acc >= budget_chars:
                 cut = i
                 break
@@ -522,4 +528,18 @@ class ContextSessionBridge:
 
 
 def _chars_of(messages: list[Message]) -> int:
-    return len(json.dumps([m.model_dump() for m in messages], ensure_ascii=False, default=str))
+    """计算消息列表的等效字符数。对图片赋予合理等效字符权重，防止比例失真。"""
+    total_chars = 0
+    for m in messages:
+        if isinstance(m.content, str):
+            total_chars += len(m.content)
+        elif isinstance(m.content, list):
+            for part in m.content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        total_chars += len(str(part.get("text", "")))
+                    elif part.get("type") == "image":
+                        total_chars += IMAGE_EQUIVALENT_CHARS
+        if m.metadata:
+            total_chars += len(json.dumps(m.metadata, ensure_ascii=False))
+    return max(1, total_chars)

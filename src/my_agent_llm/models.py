@@ -1,10 +1,13 @@
 """统一数据模型：保证内部数据流通，屏蔽 provider 差异。"""
 
+from __future__ import annotations
+
 import json
 from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+from typing_extensions import TypedDict
 
 
 class TurnOutcome(str, Enum):
@@ -62,12 +65,60 @@ def normalize_finish_reason(reason: str | None, has_tool_calls: bool = False) ->
     return TurnOutcome.TOOL_CALLS if has_tool_calls else TurnOutcome.UNKNOWN
 
 
+class TextContent(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ImageContent(TypedDict):
+    type: Literal["image"]
+    data: str
+    mime_type: Literal["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]
+
+
+ContentBlock = TextContent | ImageContent
+MessageContent = str | list[ContentBlock]
+
+
 class Message(BaseModel):
-    """统一消息：role + content + 附加元数据（tool_calls / tool_call_id 等）。"""
+    """统一消息：content 为纯文本或有序的文字/图片块，metadata 保存工具调用等信息。"""
 
     role: Literal["system", "developer", "user", "assistant", "tool"]
-    content: str
+    content: MessageContent
     metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _validate_content(self) -> Message:
+        if isinstance(self.content, list):
+            valid_blocks: list[ContentBlock] = []
+            for part in self.content:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type == "text":
+                    valid_blocks.append({"type": "text", "text": str(part.get("text", ""))})
+                elif part_type == "image":
+                    raw_data = str(part.get("data", "")).strip()
+                    if not raw_data:
+                        # 剔除空图片数据，防范大模型提供商报 400
+                        continue
+                    mime = str(part.get("mime_type", "image/png")).lower()
+                    if mime == "image/jpg":
+                        mime = "image/jpeg"
+                    valid_blocks.append({
+                        "type": "image",
+                        "data": raw_data,
+                        "mime_type": mime,  # type: ignore[typeddict-item]
+                    })
+            self.content = valid_blocks
+        return self
+
+    @property
+    def text_content(self) -> str:
+        """纯文字视图，供文字事件与上下文长度计算使用。"""
+        if isinstance(self.content, str):
+            return self.content
+        return "".join(part.get("text", "") for part in self.content if isinstance(part, dict) and part.get("type") == "text")
 
 
 class ToolCallFunction(BaseModel):
