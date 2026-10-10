@@ -76,7 +76,7 @@ async def test_coding_tools_argument_aliases(tmp_path: Path):
     assert "hello python" in r_res.data
 
     # 3. edit: filePath 别名
-    e_res = await t_edit.execute({"filePath": "sample.txt", "oldText": "python", "newText": "tau"})
+    e_res = await t_edit.execute({"filePath": "sample.txt", "edits": [{"oldText": "python", "newText": "tau"}]})
     assert e_res.ok is True
     assert (tmp_path / "sample.txt").read_text(encoding="utf-8") == "hello tau"
 

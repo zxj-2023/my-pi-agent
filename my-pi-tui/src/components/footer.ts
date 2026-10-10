@@ -21,7 +21,6 @@ export interface FooterData {
   cacheWriteTokens?: number;
   cacheHitRate?: number;
   totalTokens?: number;
-  tokensUsed?: number; // 兼容旧版调用场景
   contextTokens?: number;
   contextWindow?: number;
   autoCompactEnabled?: boolean;
@@ -131,6 +130,14 @@ export class FooterComponent extends Container {
     if (this.data.outputTokens && this.data.outputTokens > 0) {
       statsParts.push(`↓${this.formatTokens(this.data.outputTokens)}`);
     }
+    if (
+      (!this.data.inputTokens || this.data.inputTokens <= 0) &&
+      (!this.data.outputTokens || this.data.outputTokens <= 0) &&
+      this.data.totalTokens &&
+      this.data.totalTokens > 0
+    ) {
+      statsParts.push(this.formatTokens(this.data.totalTokens));
+    }
     if (this.data.cacheReadTokens && this.data.cacheReadTokens > 0) {
       statsParts.push(`R${this.formatTokens(this.data.cacheReadTokens)}`);
     }
@@ -157,14 +164,6 @@ export class FooterComponent extends Container {
         (this.data.cacheWriteTokens && this.data.cacheWriteTokens > 0))
     ) {
       statsParts.push(`CH${chRate.toFixed(1)}%`);
-    }
-    if (
-      this.data.tokensUsed &&
-      this.data.tokensUsed > 0 &&
-      !this.data.inputTokens &&
-      !this.data.outputTokens
-    ) {
-      statsParts.push(this.formatTokens(this.data.tokensUsed));
     }
     if (this.data.costUsd && this.data.costUsd > 0) {
       statsParts.push(`$${this.data.costUsd.toFixed(3)}`);

@@ -138,8 +138,8 @@ class SessionStorage(Protocol):
 
 `SessionStore` 负责在 `<workspace>/.my_agent_core/sessions/` 目录下管理会话文件生命周期：
 
-- **`create() / create_session()`**：生成以时间戳和 UUID 命名的持久化会话；
-- **`open(id_or_prefix) / open_session(id_or_prefix)`**：根据全 ID 或短前缀模糊匹配加载已有会话；
+- **`create()`**：生成以时间戳和 UUID 命名的持久化会话；
+- **`open(id_or_prefix)`**：根据全 ID 或短前缀模糊匹配加载已有会话；
 - **`list() -> list[SessionMeta]`**：扫描目录并按 `created_at` 倒序返回会话元信息列表；
 - **`delete(id_or_prefix)`**：安全物理删除会话文件及锁文件；
 - **`fork(id_or_prefix, entry_id)`**：从指定会话的历史分叉点派生新分支会话；

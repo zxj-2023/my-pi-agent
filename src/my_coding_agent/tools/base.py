@@ -75,7 +75,6 @@ class StringCompatibleToolResult(ToolResult):
 
 def wrap_tool_executor(
     target_tool: Tool,
-    result_cls: type[StringCompatibleToolResult],
     aliases: dict[str, tuple[str, ...]] | None = None,
     normalizer: Callable[[dict[str, Any]], None] | None = None,
 ) -> Tool:
@@ -106,11 +105,11 @@ def wrap_tool_executor(
             on_update=on_update,
             tool_call_id=tool_call_id,
         )
-        if isinstance(res, result_cls):
+        if isinstance(res, StringCompatibleToolResult):
             return res
-        if isinstance(getattr(res, "data", None), result_cls):
+        if isinstance(getattr(res, "data", None), StringCompatibleToolResult):
             return res.data
-        return result_cls(
+        return StringCompatibleToolResult(
             ok=res.ok,
             data=res.data,
             error=res.error,

@@ -56,7 +56,7 @@ test("FooterComponent formats cwd, branch, and tokens properly", () => {
     workspace: "/test/my-project",
     gitBranch: "feat/tui",
     modelName: "gemini-3.8-flash",
-    tokensUsed: 14200,
+    totalTokens: 14200,
     elapsedSeconds: 2.3,
   });
 

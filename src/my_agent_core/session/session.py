@@ -385,7 +385,3 @@ class Session:
             messages=tuple(self.get_current_path_messages()),
             active_leaf_id=self.tree.current_id,
         )
-
-    def get_history(self) -> list[Message]:
-        """获取当前路径的对话历史列表。"""
-        return self.get_current_path_messages()

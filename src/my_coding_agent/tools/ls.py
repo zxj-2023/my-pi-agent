@@ -9,16 +9,11 @@ from my_agent_core.tools import Tool, tool
 from my_coding_agent.tools.base import (
     DEFAULT_MAX_BYTES,
     PATH_ALIASES,
-    StringCompatibleToolResult,
     resolve_path,
     wrap_tool_executor,
 )
 
 DEFAULT_LS_LIMIT = 500
-
-
-class LsResult(StringCompatibleToolResult):
-    """Ls 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_ls_tool(workspace: Path | str) -> Tool:
@@ -86,6 +81,5 @@ def make_ls_tool(workspace: Path | str) -> Tool:
 
     return wrap_tool_executor(
         ls,
-        LsResult,
         aliases={"path": ("directory", "dir", "folder", *PATH_ALIASES)},
     )

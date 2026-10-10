@@ -25,15 +25,6 @@ async def test_edit_single_block(tmp_path: Path):
     assert f.read_text(encoding="utf-8") == "def foo():\n    return 42\n"
 
 
-async def test_edit_legacy_single_params(tmp_path: Path):
-    f = tmp_path / "code.py"
-    f.write_text("val = 10\n", encoding="utf-8")
-    tool = make_edit_tool(tmp_path)
-    res = await tool.execute(path="code.py", old_text="10", new_text="20")
-    assert "Successfully applied 1 edit(s)" in res
-    assert f.read_text(encoding="utf-8") == "val = 20\n"
-
-
 async def test_edit_multiple_disjoint_blocks(tmp_path: Path):
     f = tmp_path / "multi.py"
     f.write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")
@@ -111,7 +102,7 @@ async def test_edit_overlapping_regions_error(tmp_path: Path):
 
 async def test_edit_file_not_found_error(tmp_path: Path):
     tool = make_edit_tool(tmp_path)
-    res = await tool.execute(path="nonexistent.py", old_text="a", new_text="b")
+    res = await tool.execute(path="nonexistent.py", edits=[{"oldText": "a", "newText": "b"}])
     assert "Error: File not found: nonexistent.py" in res
 
 
@@ -119,7 +110,7 @@ async def test_edit_directory_error(tmp_path: Path):
     d = tmp_path / "subdir"
     d.mkdir()
     tool = make_edit_tool(tmp_path)
-    res = await tool.execute(path="subdir", old_text="a", new_text="b")
+    res = await tool.execute(path="subdir", edits=[{"oldText": "a", "newText": "b"}])
     assert "Error: Path is a directory: subdir" in res
 
 
@@ -127,7 +118,7 @@ async def test_edit_binary_file_error(tmp_path: Path):
     f = tmp_path / "binary.bin"
     f.write_bytes(b"hello\x00world")
     tool = make_edit_tool(tmp_path)
-    res = await tool.execute(path="binary.bin", old_text="hello", new_text="hi")
+    res = await tool.execute(path="binary.bin", edits=[{"oldText": "hello", "newText": "hi"}])
     assert "Error: Cannot edit binary file: binary.bin" in res
 
 
@@ -136,7 +127,7 @@ async def test_edit_no_params_error(tmp_path: Path):
     f.write_text("test", encoding="utf-8")
     tool = make_edit_tool(tmp_path)
     res = await tool.execute(path="code.py")
-    assert "Error: Either 'edits' or ('old_text' and 'new_text') must be provided." in res
+    assert "Error: 'edits' must be provided as a list of edit blocks." in res
 
     res_empty = await tool.execute(path="code.py", edits=[])
     assert "Error: No edits provided." in res_empty
@@ -183,7 +174,7 @@ async def test_edit_dict_call_and_is_parallel_safe(tmp_path: Path):
     tool = make_edit_tool(tmp_path)
     assert tool.is_parallel_safe is True
 
-    res = await tool.execute({"path": "dict_call.py", "old_text": "world", "new_text": "friend"})
+    res = await tool.execute({"path": "dict_call.py", "edits": [{"old_text": "world", "new_text": "friend"}]})
     assert res.ok is True
     assert "Successfully applied 1 edit(s)" in str(res.data)
     assert f.read_text(encoding="utf-8") == "hello friend\n"

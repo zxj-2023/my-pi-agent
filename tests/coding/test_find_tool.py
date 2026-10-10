@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from my_coding_agent.tools.find import FindResult, make_find_tool
+from my_coding_agent.tools.find import make_find_tool
 
-from my_coding_agent.tools.base import DEFAULT_IGNORE_DIRS
+from my_coding_agent.tools.base import DEFAULT_IGNORE_DIRS, StringCompatibleToolResult
 
 pytestmark = pytest.mark.anyio
 
@@ -141,7 +141,7 @@ async def test_find_result_semantics(tmp_path: Path):
     tool = make_find_tool(tmp_path)
     res = await tool.execute(pattern="*.py")
 
-    assert isinstance(res, FindResult)
+    assert isinstance(res, StringCompatibleToolResult)
     assert res.ok is True
     assert "foo.py" in res
     assert res == "foo.py"

@@ -51,10 +51,6 @@ class SessionStore:
                 session.save()
                 return session
 
-    def create_session(self) -> Session:
-        """创建新会话（等同于 self.create()）。"""
-        return self.create()
-
     def list(self) -> list[SessionMeta]:
         """全部会话，按 created_at 倒序（新→旧）。损坏/缺字段文件跳过。"""
         metas: list[SessionMeta] = []
@@ -103,10 +99,6 @@ class SessionStore:
     def open(self, id_or_prefix: str) -> Session:
         """按 id 或唯一前缀打开会话（恢复整棵树）。"""
         return Session.load(self._resolve(id_or_prefix))
-
-    def open_session(self, id_or_prefix: str) -> Session:
-        """打开会话（等同于 self.open(id_or_prefix)）。"""
-        return self.open(id_or_prefix)
 
     def delete(self, id_or_prefix: str) -> None:
         """删除会话文件。未找到 → ValueError。"""

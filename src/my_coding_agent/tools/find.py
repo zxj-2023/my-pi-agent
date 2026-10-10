@@ -9,17 +9,12 @@ from my_agent_core.tools import Tool, tool
 from my_coding_agent.tools.base import (
     DEFAULT_IGNORE_DIRS,
     PATH_ALIASES,
-    StringCompatibleToolResult,
     resolve_path,
     truncate_output,
     wrap_tool_executor,
 )
 
 DEFAULT_FIND_LIMIT = 1000
-
-
-class FindResult(StringCompatibleToolResult):
-    """Find 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_find_tool(workspace: Path | str) -> Tool:
@@ -83,7 +78,6 @@ def make_find_tool(workspace: Path | str) -> Tool:
 
     return wrap_tool_executor(
         find,
-        FindResult,
         aliases={
             "pattern": ("query", "glob"),
             "path": ("directory", "dir", "folder", *PATH_ALIASES),

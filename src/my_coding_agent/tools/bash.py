@@ -299,6 +299,5 @@ def make_bash_tool(
 
     return wrap_tool_executor(
         bash,
-        BashResult,
         aliases={"command": ("cmd", "script")},
     )

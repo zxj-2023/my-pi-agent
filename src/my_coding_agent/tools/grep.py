@@ -10,16 +10,11 @@ from my_agent_core.tools import Tool, tool
 from my_coding_agent.tools.base import (
     DEFAULT_IGNORE_DIRS,
     PATH_ALIASES,
-    StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
     truncate_output,
     wrap_tool_executor,
 )
-
-
-class GrepResult(StringCompatibleToolResult):
-    """Grep 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_grep_tool(workspace: Path | str) -> Tool:
@@ -136,7 +131,6 @@ def make_grep_tool(workspace: Path | str) -> Tool:
 
     return wrap_tool_executor(
         grep,
-        GrepResult,
         aliases={
             "pattern": ("query", "search"),
             "path": ("directory", "dir", "folder", *PATH_ALIASES),

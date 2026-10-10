@@ -8,15 +8,10 @@ from my_coding_agent.tools.base import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
     PATH_ALIASES,
-    StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
     wrap_tool_executor,
 )
-
-
-class ReadResult(StringCompatibleToolResult):
-    """Read 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_read_tool(workspace: Path) -> Tool:
@@ -84,4 +79,4 @@ def make_read_tool(workspace: Path) -> Tool:
         except Exception as e:
             return f"Error: {e}"
 
-    return wrap_tool_executor(read, ReadResult, {"path": PATH_ALIASES})
+    return wrap_tool_executor(read, aliases={"path": PATH_ALIASES})

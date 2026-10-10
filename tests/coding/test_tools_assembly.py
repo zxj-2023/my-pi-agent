@@ -91,22 +91,17 @@ async def test_file_mutation_queue_acquire_works(tmp_path: Path):
     assert target.read_text(encoding="utf-8") == "hello"
 
 
-def test_shared_string_compatible_tool_result(tmp_path: Path):
-    """StringCompatibleToolResult 被所有 6 个工具的 Result 类继承。"""
+def test_string_compatible_tool_result_operations():
+    """验证 StringCompatibleToolResult 的字符串转换、比较与包含操作。"""
     from my_coding_agent.tools.base import StringCompatibleToolResult
-    from my_coding_agent.tools.bash import BashResult
-    from my_coding_agent.tools.edit import EditResult
-    from my_coding_agent.tools.find import FindResult
-    from my_coding_agent.tools.grep import GrepResult
-    from my_coding_agent.tools.read import ReadResult
-    from my_coding_agent.tools.write import WriteResult
 
-    for cls in (
-        ReadResult,
-        WriteResult,
-        EditResult,
-        BashResult,
-        GrepResult,
-        FindResult,
-    ):
-        assert issubclass(cls, StringCompatibleToolResult), f"{cls.__name__} should inherit StringCompatibleToolResult"
+    res = StringCompatibleToolResult(ok=True, data="hello world")
+    assert res == "hello world"
+    assert "world" in res
+    assert str(res) == "hello world"
+    assert repr(res) == "'hello world'"
+
+    err_res = StringCompatibleToolResult(ok=False, error="some error")
+    assert err_res == "some error"
+    assert "error" in err_res
+    assert str(err_res) == "some error"

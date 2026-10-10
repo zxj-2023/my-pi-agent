@@ -121,13 +121,6 @@ class Message(BaseModel):
         return "".join(part.get("text", "") for part in self.content if isinstance(part, dict) and part.get("type") == "text")
 
 
-class ToolCallFunction(BaseModel):
-    """tool_call 的 function 子对象（保留以兼容历史导入）。"""
-
-    name: str
-    arguments: str
-
-
 class ToolCall(BaseModel):
     """统一结构化工具调用对象（对标 Tau / Pi）。
 

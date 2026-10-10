@@ -7,14 +7,9 @@ from my_agent_core.tools import Tool, tool
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.tools.base import (
     PATH_ALIASES,
-    StringCompatibleToolResult,
     resolve_path,
     wrap_tool_executor,
 )
-
-
-class WriteResult(StringCompatibleToolResult):
-    """Write 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
 def make_write_tool(workspace: Path, mutation_queue: FileMutationQueue | None = None) -> Tool:
@@ -50,6 +45,5 @@ def make_write_tool(workspace: Path, mutation_queue: FileMutationQueue | None = 
 
     return wrap_tool_executor(
         write,
-        WriteResult,
         aliases={"path": PATH_ALIASES, "content": ("contents", "text")},
     )

@@ -1,7 +1,7 @@
-"""Unit tests for pure stateless ReAct microkernel (loop.py) and _provider_context.
+"""Unit tests for pure stateless ReAct microkernel (loop.py) and clean_provider_context.
 
 Milestone 3 / Task 5 tests:
-- _provider_context: cleans empty failure/aborted assistant messages and repairs tool history.
+- clean_provider_context: cleans empty failure/aborted assistant messages and repairs tool history.
 - CancellationToken: cooperative cancellation.
 - run_agent_loop: pure async generator event stream, tool execution, steering, follow-up, cancellation.
 """
@@ -35,7 +35,7 @@ from my_agent_core.loop import (
     CancellationToken,
     run_agent_loop,
 )
-from my_agent_core.tool_history import clean_provider_context as _provider_context
+from my_agent_core.tool_history import clean_provider_context
 from my_agent_core.registry import ToolRegistry
 from my_agent_core.tools import ToolResult, tool
 from tests.core.conftest import (  # pyright: ignore[reportMissingImports]
@@ -62,11 +62,11 @@ def _make_registry(*tools) -> ToolRegistry:
     return reg
 
 
-# ── _provider_context Tests ──────────────────────────────────────────────────
+# ── clean_provider_context Tests ─────────────────────────────────────────────
 
 
-def test_provider_context_filters_empty_error_aborted_assistant():
-    """验证 _provider_context 剔除 content 为空且 stop_reason in {'error', 'aborted'} 的助手消息。"""
+def test_clean_provider_context_filters_empty_error_aborted_assistant():
+    """验证 clean_provider_context 剔除 content 为空且 stop_reason in {'error', 'aborted'} 的助手消息。"""
     messages = [
         Message(role="system", content="sys"),
         Message(role="user", content="query 1"),
@@ -86,7 +86,7 @@ def test_provider_context_filters_empty_error_aborted_assistant():
         Message(role="user", content=""),
     ]
 
-    cleaned = _provider_context(messages)
+    cleaned = clean_provider_context(messages)
     contents = [m.content for m in cleaned]
     roles = [m.role for m in cleaned]
 
@@ -94,8 +94,8 @@ def test_provider_context_filters_empty_error_aborted_assistant():
     assert roles == ["system", "user", "assistant", "assistant", "user"]
 
 
-def test_provider_context_repairs_tool_history():
-    """验证 _provider_context 串联 repair_tool_history，补齐断头工具结果并丢弃孤儿结果。"""
+def test_clean_provider_context_repairs_tool_history():
+    """验证 clean_provider_context 串联 repair_tool_history，补齐断头工具结果并丢弃孤儿结果。"""
     tc = [
         {
             "id": "call_1",
@@ -110,7 +110,7 @@ def test_provider_context_repairs_tool_history():
         Message(role="tool", content="orphan", metadata={"tool_call_id": "call_999"}),
     ]
 
-    cleaned = _provider_context(messages)
+    cleaned = clean_provider_context(messages)
 
     # 1. 孤儿结果 call_999 应被丢弃
     # 2. call_1 应被合成中断结果补齐
@@ -377,7 +377,7 @@ async def test_run_agent_loop_cancellation_with_token():
 
 @pytest.mark.anyio
 async def test_run_agent_loop_provider_context_cleaning_in_loop():
-    """验证送入 LLM 的上下文通过 _provider_context 剥离历史空失败记录。"""
+    """验证送入 LLM 的上下文通过 clean_provider_context 剥离历史空失败记录。"""
     llm = FakeLLM([_response(content="re-run ok")])
     # 历史记录包含一条之前失败残余的空 assistant(stop_reason="error")
     messages = [
@@ -395,7 +395,7 @@ async def test_run_agent_loop_provider_context_cleaning_in_loop():
     # 检查 LLM 收到的 messages 视图
     assert len(llm.calls) == 1
     call_msgs = llm.calls[0]["messages"]
-    # 失败的空消息应已被 _provider_context 剔除
+    # 失败的空消息应已被 clean_provider_context 剔除
     assert not any(
         m.role == "assistant" and m.content == "" and m.metadata and m.metadata.get("stop_reason") == "error"
         for m in call_msgs

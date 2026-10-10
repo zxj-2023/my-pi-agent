@@ -17,29 +17,20 @@ def find_tui_entry() -> Path | None:
     """Find the my-agent.js TUI entrypoint across dev and packaged locations."""
     repo_root = Path(__file__).resolve().parent.parent.parent
 
-    # 1. Development workspace tree: <repo_root>/my-pi-tui/bin/my-agent.js (fallback: tui/bin/my-agent.js)
+    # 1. Development workspace tree: <repo_root>/my-pi-tui/bin/my-agent.js
     dev_path = repo_root / "my-pi-tui" / "bin" / "my-agent.js"
     if dev_path.exists():
         return dev_path
-    legacy_dev_path = repo_root / "tui" / "bin" / "my-agent.js"
-    if legacy_dev_path.exists():
-        return legacy_dev_path
 
-    # 2. Package-bundled data directory: <package_dir>/my-pi-tui/bin/my-agent.js (fallback: tui/bin/my-agent.js)
+    # 2. Package-bundled data directory: <package_dir>/my-pi-tui/bin/my-agent.js
     pkg_bundled = Path(__file__).resolve().parent / "my-pi-tui" / "bin" / "my-agent.js"
     if pkg_bundled.exists():
         return pkg_bundled
-    legacy_pkg_bundled = Path(__file__).resolve().parent / "tui" / "bin" / "my-agent.js"
-    if legacy_pkg_bundled.exists():
-        return legacy_pkg_bundled
 
     # 3. System prefix share directory: <sys.prefix>/share/my-pi-agent/my-pi-tui/bin/my-agent.js
     prefix_path = Path(sys.prefix) / "share" / "my-pi-agent" / "my-pi-tui" / "bin" / "my-agent.js"
     if prefix_path.exists():
         return prefix_path
-    legacy_prefix_path = Path(sys.prefix) / "share" / "my-pi-agent" / "tui" / "bin" / "my-agent.js"
-    if legacy_prefix_path.exists():
-        return legacy_prefix_path
 
     return None
 

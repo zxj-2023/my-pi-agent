@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.tools.base import (
     PATH_ALIASES,
-    StringCompatibleToolResult,
     is_binary_file,
     resolve_path,
     wrap_tool_executor,
@@ -43,10 +42,6 @@ class EditBlock(BaseModel):
     new_text: str = Field(..., alias="newText", description="New code block to insert")
 
 
-class EditResult(StringCompatibleToolResult):
-    """Edit 工具执行结果：继承 StringCompatibleToolResult。"""
-
-
 def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = None) -> Tool:
     """创建工作区绑定的 edit 工具。
 
@@ -71,8 +66,6 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
     async def edit(
         path: str,
         edits: list[dict] | list[EditBlock] | None = None,
-        old_text: str | None = None,
-        new_text: str | None = None,
     ) -> str:
         try:
             target = resolve_path(workspace, path)
@@ -104,10 +97,8 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
                         edit_blocks.append(EditBlock(old_text=str(old_val), new_text=str(new_val)))
                     else:
                         return f"Error: Invalid edit block type: {type(item).__name__}"
-            elif old_text is not None and new_text is not None:
-                edit_blocks.append(EditBlock(old_text=old_text, new_text=new_text))
             else:
-                return "Error: Either 'edits' or ('old_text' and 'new_text') must be provided."
+                return "Error: 'edits' must be provided as a list of edit blocks."
 
             if not edit_blocks:
                 return "Error: No edits provided."
@@ -198,14 +189,9 @@ def make_edit_tool(workspace: Path, mutation_queue: FileMutationQueue | None = N
             norm = _normalize_edits_arg(call_args["edits"])
             if norm is not None:
                 call_args["edits"] = norm
-        if "oldText" in call_args and "old_text" not in call_args:
-            call_args["old_text"] = call_args.pop("oldText")
-        if "newText" in call_args and "new_text" not in call_args:
-            call_args["new_text"] = call_args.pop("newText")
 
     return wrap_tool_executor(
         edit,
-        EditResult,
         aliases={"path": PATH_ALIASES},
         normalizer=_edit_normalizer,
     )

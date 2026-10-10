@@ -78,7 +78,7 @@ async def test_edit_replaces_once(tmp_path):
     """精确替换一次（#4）。"""
     edit = make_edit_tool(tmp_path)
     (tmp_path / "a.txt").write_text("hello world hello", encoding="utf-8")
-    result = await edit.execute({"path": "a.txt", "old_text": "world", "new_text": "earth"})
+    result = await edit.execute({"path": "a.txt", "edits": [{"oldText": "world", "newText": "earth"}]})
     # 新工具返回 "Successfully applied N edit(s) to ..."
     assert "a.txt" in result.data or "edit" in result.data.lower()
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "hello earth hello"
@@ -90,7 +90,7 @@ async def test_edit_text_not_found(tmp_path):
     """old_text 不存在 → 包含路径名与行数提示。"""
     edit = make_edit_tool(tmp_path)
     (tmp_path / "a.txt").write_text("line1\nline2", encoding="utf-8")
-    result = await edit.execute({"path": "a.txt", "old_text": "nope", "new_text": "x"})
+    result = await edit.execute({"path": "a.txt", "edits": [{"oldText": "nope", "newText": "x"}]})
     assert "a.txt" in result.data
     assert "2 lines" in result.data or "not found" in result.data.lower()
 
@@ -100,7 +100,7 @@ async def test_edit_multiple_matches(tmp_path):
     """old_text 命中多处 → 提示提供更多上下文。"""
     edit = make_edit_tool(tmp_path)
     (tmp_path / "a.txt").write_text("dup\ndup\n", encoding="utf-8")
-    result = await edit.execute({"path": "a.txt", "old_text": "dup", "new_text": "unique"})
+    result = await edit.execute({"path": "a.txt", "edits": [{"oldText": "dup", "newText": "unique"}]})
     # 新工具: "'oldText' matched 2 times"
     assert "matched 2" in result.data or "2 times" in result.data
     assert "Please provide more surrounding context lines" in result.data
