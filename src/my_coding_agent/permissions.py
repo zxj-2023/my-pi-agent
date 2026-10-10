@@ -10,7 +10,7 @@ from typing import Any, Literal
 from my_agent_core.hooks import HookResult, ToolCallHook
 
 PermissionMode = Literal["review", "autonomous", "yolo", "strict"]
-READONLY_TOOLS = frozenset({"read", "grep", "find"})
+READONLY_TOOLS = frozenset({"read", "grep", "find", "ls"})
 SAFE_BASH_PREFIXES = (
     "git status",
     "git diff",

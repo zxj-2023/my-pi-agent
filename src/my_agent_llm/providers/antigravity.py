@@ -407,9 +407,11 @@ class AntigravityProvider(OpenAIProvider):
                     if r.status_code == 200:
                         resp = r
                         break
-                    elif r.status_code != 429:
+                    if r.status_code in (429, 500, 502, 503, 504):
                         resp = r
-                        break
+                        continue
+                    resp = r
+                    break
                 except Exception:
                     continue
 

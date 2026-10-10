@@ -13,7 +13,7 @@ async def test_permission_gate_readonly_tools_always_allowed():
     mock_cb = AsyncMock(return_value=False)
     gate = PermissionGate(mode="review", confirm_callback=mock_cb)
 
-    for tool_name in ("read", "grep", "find"):
+    for tool_name in ("read", "grep", "find", "ls"):
         hook = ToolCallHook(tool_call_id="c1", tool_name=tool_name, args={"path": "a.txt"})
         result = await gate(hook)
         assert result.block is False

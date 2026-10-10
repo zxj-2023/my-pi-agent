@@ -76,3 +76,32 @@ def test_chat_web_search_enhancement():
     )
     call = p.client.calls[0]
     assert {"type": "web_search_20250305", "name": "web_search", "max_uses": 3} in call["tools"]
+
+
+def test_consecutive_tool_messages_merged_into_single_user_message():
+    """多工具并行调用返回的连续 tool 消息应合并至同一个 user 消息，避免 Anthropic roles alternate 400 错误。"""
+    p = _provider([make_anthropic_response(text="done")])
+    p.chat(
+        [
+            Message(
+                role="assistant",
+                content="running tools",
+                metadata={
+                    "tool_calls": [
+                        {"id": "call_1", "type": "function", "function": {"name": "read", "arguments": '{"path": "a"}'}},
+                        {"id": "call_2", "type": "function", "function": {"name": "grep", "arguments": '{"path": "b"}'}},
+                    ]
+                },
+            ),
+            Message(role="tool", content="content a", metadata={"tool_call_id": "call_1"}),
+            Message(role="tool", content="content b", metadata={"tool_call_id": "call_2"}),
+        ],
+        model="claude-sonnet-4-5",
+    )
+    call = p.client.calls[0]
+    assert len(call["messages"]) == 2
+    assert call["messages"][1]["role"] == "user"
+    assert len(call["messages"][1]["content"]) == 2
+    assert call["messages"][1]["content"][0]["tool_use_id"] == "call_1"
+    assert call["messages"][1]["content"][1]["tool_use_id"] == "call_2"
+

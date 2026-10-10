@@ -89,16 +89,22 @@ class AnthropicProvider(Provider):
                         )
                 anthropic_messages.append({"role": "assistant", "content": content or [{"type": "text", "text": ""}]})
             elif msg.role == "tool" and msg.metadata:
+                tool_result_item = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.metadata.get("tool_call_id"),
+                    "content": message_content,
+                }
+                if anthropic_messages and anthropic_messages[-1]["role"] == "user":
+                    last_content = anthropic_messages[-1]["content"]
+                    if isinstance(last_content, list) and all(
+                        isinstance(c, dict) and c.get("type") == "tool_result" for c in last_content
+                    ):
+                        last_content.append(tool_result_item)
+                        continue
                 anthropic_messages.append(
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": msg.metadata.get("tool_call_id"),
-                                "content": message_content,
-                            }
-                        ],
+                        "content": [tool_result_item],
                     }
                 )
             else:

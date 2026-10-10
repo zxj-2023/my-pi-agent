@@ -220,18 +220,17 @@ def make_memory_tool(store: MemoryStore) -> Tool:
             if not content:
                 raise ValueError("`content` is required when action is 'add'.")
             return store.add(target, content)
-        elif action == "replace":
+        if action == "replace":
             if not old_text:
                 raise ValueError("`old_text` is required when action is 'replace'.")
             effective_new = new_content or content
             if not effective_new:
                 raise ValueError("`new_content` is required when action is 'replace'.")
             return store.replace(target, old_text, effective_new)
-        elif action == "remove":
+        if action == "remove":
             if not old_text:
                 raise ValueError("`old_text` is required when action is 'remove'.")
             return store.remove(target, old_text)
-        else:
-            raise ValueError(f"Unknown action '{action}'. Must be 'add', 'replace', or 'remove'.")
+        raise ValueError(f"Unknown action '{action}'. Must be 'add', 'replace', or 'remove'.")
 
     return memory

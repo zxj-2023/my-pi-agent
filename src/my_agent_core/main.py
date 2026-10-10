@@ -76,7 +76,6 @@ def print_events(event: Event) -> None:
         print(f"  [Obs] {event.result}")
     elif isinstance(event, AgentEnd):
         print(f"\n[End] stop_reason={event.stop_reason}, iterations={event.iterations}")
-    return None  # 纯观察，不干预
 
 
 def build_llm() -> LLM:

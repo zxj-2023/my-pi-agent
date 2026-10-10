@@ -253,3 +253,46 @@ async def test_antigravity_provider_achat_stream_with_fake():
         "completion_tokens": 2,
         "total_tokens": 6,
     }
+
+
+@pytest.mark.anyio
+async def test_antigravity_achat_stream_endpoint_5xx_failover(monkeypatch):
+    """当首个候选端点报 503 时，应容灾重试下一个端点。"""
+    import httpx
+
+    calls = []
+
+    async def mock_post(url, headers=None, json=None):
+        calls.append(url)
+        if len(calls) == 1:
+            return SimpleNamespace(status_code=503, text="Service Unavailable")
+        return SimpleNamespace(
+            status_code=200,
+            text='data: {"response": {"candidates": [{"content": {"parts": [{"text": "recovered"}]}}]}}\n\n',
+        )
+
+    class MockAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        async def post(self, url, headers=None, json=None):
+            return await mock_post(url, headers=headers, json=json)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    cfg = Config(provider="antigravity", model="gemini-3.8-flash", api_key="ya29.test")
+    provider = AntigravityProvider(cfg)
+
+    chunks = []
+    async for chunk in provider.achat_stream([Message(role="user", content="hello")], model="gemini-3.8-flash"):
+        chunks.append(chunk)
+
+    assert len(calls) >= 2
+    assert any(c.content == "recovered" for c in chunks)
+
