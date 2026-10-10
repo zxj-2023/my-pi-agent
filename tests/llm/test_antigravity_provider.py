@@ -295,4 +295,3 @@ async def test_antigravity_achat_stream_endpoint_5xx_failover(monkeypatch):
 
     assert len(calls) >= 2
     assert any(c.content == "recovered" for c in chunks)
-

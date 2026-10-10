@@ -88,8 +88,16 @@ def test_consecutive_tool_messages_merged_into_single_user_message():
                 content="running tools",
                 metadata={
                     "tool_calls": [
-                        {"id": "call_1", "type": "function", "function": {"name": "read", "arguments": '{"path": "a"}'}},
-                        {"id": "call_2", "type": "function", "function": {"name": "grep", "arguments": '{"path": "b"}'}},
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "read", "arguments": '{"path": "a"}'},
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {"name": "grep", "arguments": '{"path": "b"}'},
+                        },
                     ]
                 },
             ),
@@ -104,4 +112,3 @@ def test_consecutive_tool_messages_merged_into_single_user_message():
     assert len(call["messages"][1]["content"]) == 2
     assert call["messages"][1]["content"][0]["tool_use_id"] == "call_1"
     assert call["messages"][1]["content"][1]["tool_use_id"] == "call_2"
-

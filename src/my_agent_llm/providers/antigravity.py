@@ -152,9 +152,9 @@ class AntigravityProvider(OpenAIProvider):
                 parts = [{"text": msg.content}] if msg.content else []
             else:
                 parts = [
-                    {"text": part["text"]} if part["type"] == "text" else {
-                        "inlineData": {"mimeType": part["mime_type"], "data": part["data"]}
-                    }
+                    {"text": part["text"]}
+                    if part["type"] == "text"
+                    else {"inlineData": {"mimeType": part["mime_type"], "data": part["data"]}}
                     for part in msg.content
                 ]
             if msg.role == "system":

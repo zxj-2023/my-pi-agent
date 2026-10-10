@@ -36,13 +36,19 @@ class AnthropicProvider(Provider):
         system_message = None
         anthropic_messages = []
         for msg in messages:
-            message_content = msg.content if isinstance(msg.content, str) else [
-                part if part["type"] == "text" else {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": part["mime_type"], "data": part["data"]},
-                }
-                for part in msg.content
-            ]
+            message_content = (
+                msg.content
+                if isinstance(msg.content, str)
+                else [
+                    part
+                    if part["type"] == "text"
+                    else {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": part["mime_type"], "data": part["data"]},
+                    }
+                    for part in msg.content
+                ]
+            )
             if msg.role == "system":
                 system_message = msg.text_content
             elif msg.role == "assistant":
