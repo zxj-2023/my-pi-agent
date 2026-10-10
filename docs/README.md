@@ -107,7 +107,7 @@
 
 ### 4. 自动化评测层 (`docs/eval/`)
 
-- [01-evaluation-harness-architecture.md](eval/01-evaluation-harness-architecture.md)：自动化评测系统架构与设计规范（基于 Harbor Framework 官方标准、MyPiAgent 宿主编排型适配器、Scheme 1 沙箱零污染隔离、Terminal-Bench 2.1 斩获 72 胜 / 80.90% 胜率终局战报与全量 Token 缓存核算）。
+- [01-evaluation-harness-architecture.md](eval/01-evaluation-harness-architecture.md)：自动化评测系统架构与设计规范（基于 Harbor Framework 官方标准、MyPiAgent 宿主编排型适配器、Scheme 1 沙箱零污染隔离、Terminal-Bench 2.1 斩获 71 胜 / 83.53% 有效胜率终局战报与全量 Token 缓存核算）。
 
 ### 5. 原厂对齐审计与分发部署 (`docs/`)
 
