@@ -18,7 +18,6 @@ packages/
 .pi/
 .pi-glla/
 .mcp.json
-.skills/
 
 # 本地私有文档（不上传远程 GitHub）
 CLAUDE.md
