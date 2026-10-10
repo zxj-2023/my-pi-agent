@@ -6,10 +6,11 @@
       "duration_sec": 528,
       "tests_passed": 11,
       "tests_total": 11,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 55835,
+      "cost_usd": 0.038617,
       "summary": "PASSED via MyPiAgent (11/11 tests)",
-      "finished_at": "2026-10-08T23:05:00"
+      "finished_at": "2026-10-08T23:05:00",
+      "cache_read_tokens": 2036352
     },
     "pypi-server": {
       "status": "PASSED",
@@ -39,10 +40,11 @@
       "duration_sec": 195,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 17177,
+      "cost_usd": 0.006865,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-08T23:43:04.717664"
+      "finished_at": "2026-10-08T23:43:04.717664",
+      "cache_read_tokens": 234112
     },
     "cancel-async-tasks": {
       "status": "PASSED",
@@ -62,10 +64,11 @@
       "duration_sec": 466,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 34820,
+      "cost_usd": 0.016519,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-08T23:47:44.467346"
+      "finished_at": "2026-10-08T23:47:44.467346",
+      "cache_read_tokens": 761216
     },
     "circuit-fibsqrt": {
       "status": "PASSED",
@@ -73,10 +76,11 @@
       "duration_sec": 393,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 33353,
+      "cost_usd": 0.015455,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-08T23:54:20.065538"
+      "finished_at": "2026-10-08T23:54:20.065538",
+      "cache_read_tokens": 534784
     },
     "cobol-modernization": {
       "status": "PASSED",
@@ -84,10 +88,11 @@
       "duration_sec": 264,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 55355,
+      "cost_usd": 0.036306,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-08T23:58:48.435848"
+      "finished_at": "2026-10-08T23:58:48.435848",
+      "cache_read_tokens": 1726976
     },
     "chess-best-move": {
       "status": "PASSED",
@@ -95,10 +100,11 @@
       "duration_sec": 828,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 732427,
+      "cost_usd": 0.123161,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:00:05.306866"
+      "finished_at": "2026-10-09T00:00:05.306866",
+      "cache_read_tokens": 1000960
     },
     "bn-fit-modify": {
       "status": "PASSED",
@@ -130,10 +136,11 @@
       "duration_sec": 169,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 6593,
+      "cost_usd": 0.001839,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:06:30.605672"
+      "finished_at": "2026-10-09T00:06:30.605672",
+      "cache_read_tokens": 31488
     },
     "configure-git-webserver": {
       "status": "PASSED",
@@ -153,10 +160,11 @@
       "duration_sec": 277,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 6927,
+      "cost_usd": 0.002044,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:13:13.530349"
+      "finished_at": "2026-10-09T00:13:13.530349",
+      "cache_read_tokens": 61440
     },
     "count-dataset-tokens": {
       "status": "PASSED",
@@ -164,10 +172,11 @@
       "duration_sec": 544,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 7523,
+      "cost_usd": 0.002044,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:15:40.748742"
+      "finished_at": "2026-10-09T00:15:40.748742",
+      "cache_read_tokens": 51712
     },
     "custom-memory-heap-crash": {
       "status": "PASSED",
@@ -175,10 +184,11 @@
       "duration_sec": 157,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 18387,
+      "cost_usd": 0.006261,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:15:53.602825"
+      "finished_at": "2026-10-09T00:15:53.602825",
+      "cache_read_tokens": 199424
     },
     "distribution-search": {
       "status": "PASSED",
@@ -186,10 +196,11 @@
       "duration_sec": 146,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 12452,
+      "cost_usd": 0.003649,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:18:26.571474"
+      "finished_at": "2026-10-09T00:18:26.571474",
+      "cache_read_tokens": 69888
     },
     "db-wal-recovery": {
       "status": "PASSED",
@@ -197,10 +208,11 @@
       "duration_sec": 168,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 6561,
+      "cost_usd": 0.001854,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:18:33.328433"
+      "finished_at": "2026-10-09T00:18:33.328433",
+      "cache_read_tokens": 45056
     },
     "dna-insert": {
       "status": "PASSED",
@@ -208,10 +220,11 @@
       "duration_sec": 306,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 38448,
+      "cost_usd": 0.016157,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:23:41.469018"
+      "finished_at": "2026-10-09T00:23:41.469018",
+      "cache_read_tokens": 536192
     },
     "dna-assembly": {
       "status": "FAILED",
@@ -255,10 +268,11 @@
       "duration_sec": 1954,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 1662946,
+      "cost_usd": 0.2609,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:31:28.759028"
+      "finished_at": "2026-10-09T00:31:28.759028",
+      "cache_read_tokens": 1255296
     },
     "compile-compcert": {
       "status": "PASSED",
@@ -266,10 +280,11 @@
       "duration_sec": 1992,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 17306,
+      "cost_usd": 0.007386,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:33:17.837427"
+      "finished_at": "2026-10-09T00:33:17.837427",
+      "cache_read_tokens": 297600
     },
     "fix-code-vulnerability": {
       "status": "PASSED",
@@ -277,10 +292,11 @@
       "duration_sec": 55,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 10165,
+      "cost_usd": 0.003118,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:34:19.427584"
+      "finished_at": "2026-10-09T00:34:19.427584",
+      "cache_read_tokens": 97152
     },
     "fix-git": {
       "status": "PASSED",
@@ -288,10 +304,11 @@
       "duration_sec": 86,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 6612,
+      "cost_usd": 0.001887,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:35:45.751400"
+      "finished_at": "2026-10-09T00:35:45.751400",
+      "cache_read_tokens": 49280
     },
     "feal-differential-cryptanalysis": {
       "status": "PASSED",
@@ -299,10 +316,11 @@
       "duration_sec": 647,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 28676,
+      "cost_usd": 0.012215,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:35:49.943091"
+      "finished_at": "2026-10-09T00:35:49.943091",
+      "cache_read_tokens": 377984
     },
     "filter-js-from-html": {
       "status": "FAILED",
@@ -322,10 +340,11 @@
       "duration_sec": 90,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 3783,
+      "cost_usd": 0.001033,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:38:01.425039"
+      "finished_at": "2026-10-09T00:38:01.425039",
+      "cache_read_tokens": 19584
     },
     "git-multibranch": {
       "status": "PASSED",
@@ -333,10 +352,11 @@
       "duration_sec": 163,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 13814,
+      "cost_usd": 0.005298,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:40:45.070689"
+      "finished_at": "2026-10-09T00:40:45.070689",
+      "cache_read_tokens": 187136
     },
     "gcode-to-text": {
       "status": "FAILED",
@@ -356,10 +376,11 @@
       "duration_sec": 168,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 14100,
+      "cost_usd": 0.005193,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:48:28.540330"
+      "finished_at": "2026-10-09T00:48:28.540330",
+      "cache_read_tokens": 124160
     },
     "financial-document-processor": {
       "status": "PASSED",
@@ -367,10 +388,11 @@
       "duration_sec": 1153,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 26201,
+      "cost_usd": 0.010896,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:50:46.011850"
+      "finished_at": "2026-10-09T00:50:46.011850",
+      "cache_read_tokens": 414848
     },
     "hf-model-inference": {
       "status": "PASSED",
@@ -378,10 +400,11 @@
       "duration_sec": 141,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 8487,
+      "cost_usd": 0.002526,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:50:56.345183"
+      "finished_at": "2026-10-09T00:50:56.345183",
+      "cache_read_tokens": 57600
     },
     "fix-ocaml-gc": {
       "status": "PASSED",
@@ -389,10 +412,11 @@
       "duration_sec": 921,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 34852,
+      "cost_usd": 0.020456,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:51:09.473843"
+      "finished_at": "2026-10-09T00:51:09.473843",
+      "cache_read_tokens": 1019392
     },
     "kv-store-grpc": {
       "status": "PASSED",
@@ -400,10 +424,11 @@
       "duration_sec": 102,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 5360,
+      "cost_usd": 0.00149,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T00:52:40.693849"
+      "finished_at": "2026-10-09T00:52:40.693849",
+      "cache_read_tokens": 33536
     },
     "large-scale-text-editing": {
       "status": "FAILED",
@@ -435,10 +460,11 @@
       "duration_sec": 96,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 9859,
+      "cost_usd": 0.002481,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:01:59.304314"
+      "finished_at": "2026-10-09T01:01:59.304314",
+      "cache_read_tokens": 56960
     },
     "largest-eigenval": {
       "status": "PASSED",
@@ -446,10 +472,11 @@
       "duration_sec": 989,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 920102,
+      "cost_usd": 0.164768,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:09:15.895018"
+      "finished_at": "2026-10-09T01:09:15.895018",
+      "cache_read_tokens": 1876352
     },
     "mailman": {
       "status": "PASSED",
@@ -457,10 +484,11 @@
       "duration_sec": 599,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 49141,
+      "cost_usd": 0.038129,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:12:03.140548"
+      "finished_at": "2026-10-09T01:12:03.140548",
+      "cache_read_tokens": 2079488
     },
     "make-mips-interpreter": {
       "status": "PASSED",
@@ -480,10 +508,11 @@
       "duration_sec": 230,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 22621,
+      "cost_usd": 0.009079,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:22:25.574371"
+      "finished_at": "2026-10-09T01:22:25.574371",
+      "cache_read_tokens": 329600
     },
     "gpt2-codegolf": {
       "status": "PASSED",
@@ -502,10 +531,11 @@
       "duration_sec": 252,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 12693,
+      "cost_usd": 0.004015,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:26:42.543552"
+      "finished_at": "2026-10-09T01:26:42.543552",
+      "cache_read_tokens": 85760
     },
     "mcmc-sampling-stan": {
       "status": "PASSED",
@@ -513,10 +543,11 @@
       "duration_sec": 905,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 13572,
+      "cost_usd": 0.004531,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:27:08.622907"
+      "finished_at": "2026-10-09T01:27:08.622907",
+      "cache_read_tokens": 151808
     },
     "modernize-scientific-stack": {
       "status": "PASSED",
@@ -524,10 +555,11 @@
       "duration_sec": 102,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 7698,
+      "cost_usd": 0.002291,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:27:36.127501"
+      "finished_at": "2026-10-09T01:27:36.127501",
+      "cache_read_tokens": 47232
     },
     "multi-source-data-merger": {
       "status": "PASSED",
@@ -535,10 +567,11 @@
       "duration_sec": 126,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 5966,
+      "cost_usd": 0.001706,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:29:46.706255"
+      "finished_at": "2026-10-09T01:29:46.706255",
+      "cache_read_tokens": 24832
     },
     "nginx-request-logging": {
       "status": "PASSED",
@@ -546,10 +579,11 @@
       "duration_sec": 122,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 6052,
+      "cost_usd": 0.001602,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:31:55.550433"
+      "finished_at": "2026-10-09T01:31:55.550433",
+      "cache_read_tokens": 30720
     },
     "mteb-retrieve": {
       "status": "PASSED",
@@ -593,10 +627,11 @@
       "duration_sec": 130,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 27960,
+      "cost_usd": 0.010904,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:36:13.285347"
+      "finished_at": "2026-10-09T01:36:13.285347",
+      "cache_read_tokens": 419200
     },
     "overfull-hbox": {
       "status": "PASSED",
@@ -604,10 +639,11 @@
       "duration_sec": 199,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 13602,
+      "cost_usd": 0.004114,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:37:12.721072"
+      "finished_at": "2026-10-09T01:37:12.721072",
+      "cache_read_tokens": 117760
     },
     "polyglot-c-py": {
       "status": "PASSED",
@@ -639,10 +675,11 @@
       "duration_sec": 355,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 19647,
+      "cost_usd": 0.007149,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T01:49:31.769355"
+      "finished_at": "2026-10-09T01:49:31.769355",
+      "cache_read_tokens": 186624
     },
     "protein-assembly": {
       "status": "PASSED",
@@ -662,10 +699,11 @@
       "duration_sec": 1673,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 8420635,
+      "cost_usd": 1.224136,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T02:03:46.176697"
+      "finished_at": "2026-10-09T02:03:46.176697",
+      "cache_read_tokens": 1007744
     },
     "prove-plus-comm": {
       "status": "PASSED",
@@ -673,10 +711,11 @@
       "duration_sec": 158,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 6021,
+      "cost_usd": 0.001802,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T02:04:09.472874"
+      "finished_at": "2026-10-09T02:04:09.472874",
+      "cache_read_tokens": 38400
     },
     "mteb-leaderboard": {
       "status": "PASSED",
@@ -707,10 +746,11 @@
       "duration_sec": 234,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 26031,
+      "cost_usd": 0.011131,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T02:20:07.690891"
+      "finished_at": "2026-10-09T02:20:07.690891",
+      "cache_read_tokens": 448256
     },
     "path-tracing-reverse": {
       "status": "PASSED",
@@ -729,10 +769,11 @@
       "duration_sec": 1151,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 13317,
+      "cost_usd": 0.004419,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T02:23:21.100951"
+      "finished_at": "2026-10-09T02:23:21.100951",
+      "cache_read_tokens": 105728
     },
     "regex-chess": {
       "status": "PASSED",
@@ -752,10 +793,11 @@
       "duration_sec": 186,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 14814,
+      "cost_usd": 0.005018,
       "summary": "PASSED via MyPiAgent",
-      "finished_at": "2026-10-09T02:28:46.931230"
+      "finished_at": "2026-10-09T02:28:46.931230",
+      "cache_read_tokens": 105856
     },
     "query-optimize": {
       "status": "FAILED",
@@ -823,9 +865,9 @@
       "duration_sec": 13258,
       "tests_passed": 1,
       "tests_total": 1,
-      "tokens": 0,
-      "cache_read_tokens": 0,
-      "cost_usd": 0.0,
+      "tokens": 1334477,
+      "cache_read_tokens": 6654080,
+      "cost_usd": 0.290721,
       "summary": "PASSED via MyPiAgent",
       "finished_at": "2026-10-09T21:48:46.664760"
     },
