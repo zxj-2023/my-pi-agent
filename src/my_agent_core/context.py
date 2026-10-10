@@ -526,18 +526,16 @@ class ContextSessionBridge:
 
 
 def _chars_of(messages: list[Message]) -> int:
-    """计算消息列表的等效字符数。对图片赋予合理等效字符权重，防止比例失真。"""
-    total_chars = 0
+    """计算消息列表的等效字符数。对纯文本保持原生序列化规模，对图片排除 base64 并赋予合理等效权重。"""
+    base_chars = len(
+        json.dumps(
+            [m.model_dump(exclude={"content": {"__all__": {"data"}}}) for m in messages],
+            ensure_ascii=False,
+            default=str,
+        )
+    )
+    image_count = 0
     for m in messages:
-        if isinstance(m.content, str):
-            total_chars += len(m.content)
-        elif isinstance(m.content, list):
-            for part in m.content:
-                if isinstance(part, dict):
-                    if part.get("type") == "text":
-                        total_chars += len(str(part.get("text", "")))
-                    elif part.get("type") == "image":
-                        total_chars += IMAGE_EQUIVALENT_CHARS
-        if m.metadata:
-            total_chars += len(json.dumps(m.metadata, ensure_ascii=False))
-    return max(1, total_chars)
+        if isinstance(m.content, list):
+            image_count += sum(1 for p in m.content if isinstance(p, dict) and p.get("type") == "image")
+    return base_chars + image_count * IMAGE_EQUIVALENT_CHARS
