@@ -52,7 +52,7 @@ from my_agent_core.tools.builtin.task import (
 )
 from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMissingImports]
     TaskGuardHook,
-    make_task_tools,
+    make_todo_tool,
 )
 from my_agent_llm import LLM, Message, MessageContent, TextContent  # pyright: ignore[reportMissingImports]
 
@@ -187,10 +187,10 @@ class Agent:
                 raise ValueError("Tool name 'memory' conflicts with the built-in memory tool")
             self.registry.register(make_memory_tool(self.memory_store))
         if self.task_store:
-            for task_tool in make_task_tools(self.task_store):
-                if self.registry.get(task_tool.name) is not None:
-                    raise ValueError(f"Tool name '{task_tool.name}' conflicts with built-in task tool")
-                self.registry.register(task_tool)
+            todo_tool = make_todo_tool(self.task_store)
+            if self.registry.get(todo_tool.name) is not None:
+                raise ValueError(f"Tool name '{todo_tool.name}' conflicts with built-in todo tool")
+            self.registry.register(todo_tool)
 
     def _init_messages(self, session: Session, system_prompt: str | None) -> list[Message]:
         """拼 system（Agent 配置）+ 恢复 session 纯对话，合成初始 messages。"""

@@ -348,3 +348,49 @@ def test_auth_manager_default_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     mgr = AuthManager()
     assert mgr.auth_path == (custom_home / "auth.json").resolve()
     assert mgr.lock_path == (custom_home / "auth.json.lock").resolve()
+
+
+def test_auth_manager_concurrent_oauth_refresh_deduplication(tmp_path: Path) -> None:
+    """验证并发刷新 OAuth Token 时，同一进程内的重复网络请求被合并（防重防抖）。"""
+    auth_file = tmp_path / "auth.json"
+    mgr = AuthManager(auth_path=auth_file)
+    mgr.set_oauth(
+        provider="antigravity",
+        access="ya29.expired",
+        refresh="1//refresh-token",
+        expires=int(1e12),
+    )
+
+    mock_resp = MagicMock(
+        status_code=200,
+        json=MagicMock(
+            return_value={
+                "access_token": "ya29.refreshed_concurrent",
+                "expires_in": 3600,
+                "refresh_token": "1//new-refresh",
+            }
+        ),
+    )
+
+    call_count = 0
+
+    async def mock_post(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0.05)
+        return mock_resp
+
+    async def _run_concurrent():
+        with patch("httpx.AsyncClient.post", side_effect=mock_post):
+            tokens = await asyncio.gather(
+                mgr.get_valid_token("antigravity"),
+                mgr.get_valid_token("antigravity"),
+                mgr.get_valid_token("antigravity"),
+            )
+            return tokens
+
+    tokens = asyncio.run(_run_concurrent())
+    assert all(t == "ya29.refreshed_concurrent" for t in tokens)
+    # 确认 3 个并发协程仅触发了 1 次网络调用
+    assert call_count == 1
+

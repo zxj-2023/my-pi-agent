@@ -76,11 +76,6 @@ def _filter_tools(parent: Agent, sub: Subagent) -> list[Tool]:  # pyright: ignor
         "task",
         "memory",
         "todo",
-        "task_create",
-        "task_update",
-        "task_get",
-        "task_list",
-        "todo_write",
     )
     tools = [t for t in parent.registry.list() if t.name not in builtins]
     if sub.tools is not None:
