@@ -4,7 +4,7 @@
 > **底座模型**：`deepseek/deepseek-chat` (DeepSeek-V4.1 / DS-V4.1-Flash)  
 > **评测框架**：Harbor (Terminal-Bench 2.1 官方评测运行器)  
 > **有效赛题**：85 道 (已剔除 4 道物理单机瓶颈题: make-doom-for-mips, caffe-cifar-10, extract-moves-from-video, sam-cell-seg)  
-> **终局完成时间**：2026-10-10 16:07:09  
+> **终局完成时间**：2026-10-10 16:30:51  
 
 ---
 

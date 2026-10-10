@@ -424,8 +424,8 @@
       "finished_at": "2026-10-08T01:21:56.664756"
     },
     "git-multibranch": {
-      "status": "PASSED",
-      "reward": 1.0,
+      "status": "FAILED",
+      "reward": 0.0,
       "duration_sec": 465,
       "tests_passed": 0,
       "tests_total": 1,
@@ -490,8 +490,8 @@
       "finished_at": "2026-10-08T08:11:59.098832"
     },
     "model-extraction-relu-logits": {
-      "status": "PASSED",
-      "reward": 1.0,
+      "status": "FAILED",
+      "reward": 0.0,
       "duration_sec": 718,
       "tests_passed": 0,
       "tests_total": 1,

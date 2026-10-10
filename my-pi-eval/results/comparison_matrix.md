@@ -3,7 +3,7 @@
 > **底座大模型**：DeepSeek-V4.1 (`deepseek/deepseek-chat`)  
 > **运行环境**：完全一致的本地物理机、相同 Docker 镜像与评测脚本  
 > **总有效题目**：85 道 (排除 4 道单机物理极限题) / 89 道 (全量题集)  
-> **生成时间**：2026-10-10 16:07:09  
+> **生成时间**：2026-10-10 16:30:51  
 
 ---
 
@@ -11,21 +11,23 @@
 
 | 指标 | 自研 MyPiAgent | 官方 Pi Coding Agent | 胜出方与差距 |
 | :--- | :---: | :---: | :--- |
-| **89 题全量通过题数** | **71 道 (79.78%)** | **74 道 (83.15%)** | 工业基准高度逼近 |
-| **85 题常规有效通过题数** | **71 道 (83.53%)** | **74 道 (87.06%)** | 均展现顶级自动化能力 |
-| **双胜题目数 (两边均通过)** | **67 道** | 67 道 | 67 道高难度赛题两边均满分攻克 |
-| **MyPiAgent 独占胜出题目** | **4 道** 🌟 | - | 自研 Agent 满分（官方 Pi 彻底折戟） |
+| **89 题全量通过题数** | **71 道 (79.78%)** | **72 道 (80.90%)** | 工业基准高度逼近 |
+| **85 题常规有效通过题数** | **71 道 (83.53%)** | **72 道 (84.71%)** | 均展现顶级自动化能力 |
+| **双胜题目数 (两边均通过)** | **65 道** | 65 道 | 67 道高难度赛题两边均满分攻克 |
+| **MyPiAgent 独占胜出题目** | **6 道** 🌟 | - | 自研 Agent 满分（官方 Pi 彻底折戟） |
 | **官方 Pi 独占胜出题目** | - | **7 道** | 官方 Pi 满分（自研 Agent 格式微差） |
 | **双负题目数 (两边均未过)** | **11 道** | 11 道 | 包含 4 道单机物理极限及上游环境断言题 |
 
 ---
 
-## 二、 自研 MyPiAgent 独占胜出赛题 (4 道 🌟)
+## 二、 自研 MyPiAgent 独占胜出赛题 (6 道 🌟)
 
 在完全相同的物理环境与模型下，自研 Agent 在以下高难度赛题上斩获满分，而官方 Pi 彻底失败：
 
 - **`cancel-async-tasks`**：原厂 Pi 失败，自研 Agent 斩获 1.0 满分！
+- **`git-multibranch`**：原厂 Pi 失败，自研 Agent 斩获 1.0 满分！
 - **`make-mips-interpreter`**：原厂 Pi 失败，自研 Agent 斩获 1.0 满分！
+- **`model-extraction-relu-logits`**：原厂 Pi 失败，自研 Agent 斩获 1.0 满分！
 - **`polyglot-c-py`**：原厂 Pi 失败，自研 Agent 斩获 1.0 满分！
 - **`pytorch-model-cli`**：原厂 Pi 失败，自研 Agent 斩获 1.0 满分！
 
@@ -80,7 +82,7 @@
 | 31 | `fix-ocaml-gc` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
 | 32 | `gcode-to-text` | ❌ FAILED | ✅ PASSED | 📌 官方 Pi 胜出 |
 | 33 | `git-leak-recovery` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
-| 34 | `git-multibranch` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
+| 34 | `git-multibranch` | ✅ PASSED | ❌ FAILED | 🏆 **MyPi 独占胜出** |
 | 35 | `gpt2-codegolf` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
 | 36 | `headless-terminal` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
 | 37 | `hf-model-inference` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
@@ -95,7 +97,7 @@
 | 46 | `make-mips-interpreter` | ✅ PASSED | ❌ FAILED | 🏆 **MyPi 独占胜出** |
 | 47 | `mcmc-sampling-stan` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
 | 48 | `merge-diff-arc-agi-task` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
-| 49 | `model-extraction-relu-logits` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
+| 49 | `model-extraction-relu-logits` | ✅ PASSED | ❌ FAILED | 🏆 **MyPi 独占胜出** |
 | 50 | `modernize-scientific-stack` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
 | 51 | `mteb-leaderboard` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
 | 52 | `mteb-retrieve` | ✅ PASSED | ✅ PASSED | 🤝 双双满分 |
