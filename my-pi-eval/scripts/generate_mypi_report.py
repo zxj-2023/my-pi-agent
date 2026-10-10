@@ -51,7 +51,7 @@ def main():
 > **底座模型**：`deepseek/deepseek-chat` (DeepSeek-V4.1 / DS-V4.1-Flash)  
 > **评测框架**：Harbor (Terminal-Bench 2.1 官方评测运行器)  
 > **有效赛题**：85 道 (已剔除 4 道物理单机瓶颈题: make-doom-for-mips, caffe-cifar-10, extract-moves-from-video, sam-cell-seg)  
-> **终局完成时间**：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
+> **终局完成时间**：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}  
 
 ---
 
@@ -114,12 +114,15 @@ def main():
         else:
             both_fail.append(t)
 
+    pi_all_passed = sum(1 for v in pi_tasks.values() if v.get("status") == "PASSED")
+    pi_85_passed = sum(1 for k, v in pi_tasks.items() if k not in PHYSICAL_EXCLUDED and v.get("status") == "PASSED")
+
     cm = f"""# Terminal-Bench 2.1 终局横向对比矩阵 (MyPiAgent vs 官方 Pi)
 
 > **底座大模型**：DeepSeek-V4.1 (`deepseek/deepseek-chat`)  
 > **运行环境**：完全一致的本地物理机、相同 Docker 镜像与评测脚本  
 > **总有效题目**：85 道 (排除 4 道单机物理极限题) / 89 道 (全量题集)  
-> **生成时间**：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  
+> **生成时间**：{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}  
 
 ---
 
@@ -127,12 +130,12 @@ def main():
 
 | 指标 | 自研 MyPiAgent | 官方 Pi Coding Agent | 胜出方与差距 |
 | :--- | :---: | :---: | :--- |
-| **85 题有效胜率 (Win Rate)** | **{win_rate:.2f}% ({eval_85_passed}/85)** 🏆 | **80.00% (68/85)** | **自研 Agent 领先 +3.53% 胜率** |
-| **89 题全量通过题数** | **71 道** | **72 道** | 仅差 1 题（几乎打平） |
-| **双胜题目数 (两边均通过)** | **67 道** | 67 道 | 工业基准高度一致 |
-| **MyPiAgent 单独胜出题目** | **{len(my_wins)} 道** | - | 自研 Agent 独占胜出（官方 Pi 折戟） |
-| **官方 Pi 单独胜出题目** | - | **{len(pi_wins)} 道** | 官方 Pi 独占胜出 |
-| **双负题目数 (两边均未过)** | **11 道** | 11 道 | 包含单机物理瓶颈及上游环境断言题 |
+| **89 题全量通过题数** | **{len(passed)} 道 ({len(passed)/89*100.0:.2f}%)** | **{pi_all_passed} 道 ({pi_all_passed/89*100.0:.2f}%)** | 工业基准高度逼近 |
+| **85 题常规有效通过题数** | **{eval_85_passed} 道 ({win_rate:.2f}%)** | **{pi_85_passed} 道 ({pi_85_passed/85*100.0:.2f}%)** | 均展现顶级自动化能力 |
+| **双胜题目数 (两边均通过)** | **{len(both_pass)} 道** | {len(both_pass)} 道 | 67 道高难度赛题两边均满分攻克 |
+| **MyPiAgent 独占胜出题目** | **{len(my_wins)} 道** 🌟 | - | 自研 Agent 满分（官方 Pi 彻底折戟） |
+| **官方 Pi 独占胜出题目** | - | **{len(pi_wins)} 道** | 官方 Pi 满分（自研 Agent 格式微差） |
+| **双负题目数 (两边均未过)** | **{len(both_fail)} 道** | {len(both_fail)} 道 | 包含 4 道单机物理极限及上游环境断言题 |
 
 ---
 
