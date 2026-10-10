@@ -64,10 +64,15 @@
 ### 2. 高保真沙箱工具桥接 (`HarborToolRegistry`)
 
 `HarborToolRegistry` 将微内核的 7 大编码工具映射至 Docker 容器的 `environment.exec` 管道：
-- **`bash` 容器命令执行**：内置超时熔断保护（默认 120 秒），并实施对齐 Pi 原厂的 50KB / 2000 行执行期输出定型截断；
-- **`write` CRLF ➔ LF 自动规整**：在 Windows 宿主机上运行时，开发者环境可能产生 CRLF 换行；工具在写入容器前自动替换为 `\n`，防止 Linux 下 Shell 脚本报 `\r: command not found`；
-- **`edit` 外科手术替换**：首先在宿主机内存中执行单义性匹配校验（`oldText` 必须且仅出现一次），成功替换后整块覆写回容器，确保代码修改的高精度与确定性；
-- **`read`、`grep`、`find`、`ls`**：直接在容器文件系统上进行快速检索与分片读取。
+- **`bash` 容器命令执行与动态 CWD 状态保持**：
+  - *动态 CWD 探针*：由于 Docker Exec 本身具有无状态性（Stateless），每次命令执行均为全新进程，导致大模型 `cd build` 后的路径状态立刻丢失。适配层在每条命令前后自动包装 `cd {self._cwd} 2>/dev/null || true; {command}; __MY_PI_RC__=$?; echo "__MY_PI_CWD__:$(pwd)"; exit $__MY_PI_RC__`，自动解析容器内真实工作目录并同步至宿主机 `self._cwd`，完美维持长程多轮路径记忆；
+  - *输出与环境清洗*：内置超时熔断保护（默认 120 秒），正则剥除 ANSI 终端转义码与 `\r` 进度条，并对齐 Pi 原厂实施 50KB / 2000 行执行期输出定型截断；
+  - *免交互与镜像加速*：自动注入 `DEBIAN_FRONTEND=noninteractive` 与阿里 PyTorch CPU 镜像源，防止进程阻塞；
+- **`write` CRLF 规整与 Base64 安全管道**：
+  - 自动将 Windows 宿主机的 `\r\n` 规范化为 Linux `\n`，防止脚本报 `\r: command not found`；
+  - 彻底废除命令行字符串拼接，统一采用 `echo <base64> | base64 -d > path` 管道安全写入，杜绝 Shell 特殊字符二次求值导致代码损坏；
+- **`edit` 外科手术替换**：首先在宿主机内存中执行单义性匹配校验（`oldText` 必须且仅出现一次），成功替换后通过 Base64 管道整块覆写回容器，确保代码修改的高精度与确定性；
+- **`read`、`grep`、`find`、`ls`**：直接在容器文件系统上进行快速检索与分片读取，强制使用 `posixpath` 规整 Linux 风格路径。
 
 ### 3. Session 全量 Token 采集与前缀缓存核算
 
