@@ -27,6 +27,8 @@
   ·
   <a href="#-核心特性全景-what-my-pi-agent-can-do">核心特性</a>
   ·
+  <a href="#-工业级基准评测对决-evaluation--benchmark">基准对决 (Benchmark)</a>
+  ·
   <a href="#-设计哲学-philosophy">设计哲学</a>
   ·
   <a href="#-作为-python-库使用-use-as-a-library">Python SDK</a>
@@ -218,7 +220,7 @@ npm start
 - **自动化基准评测体系与 Terminal-Bench 2.1 终局战报 (`my-pi-eval`)**：
   - **Scheme 1 宿主机编排型轻量架构**：基于 Harbor Framework 实现 `MyPiAgent` 适配，Agent 核心运行于宿主机，通过 Docker 管道桥接 7 大工具，实现沙箱零污染与秒级冷启动；
   - **凭据物理隔离**：严格读取专属 `my-pi-eval/.env`，禁止读取宿主 `~/.my-pi-agent/auth.json`，杜绝沙箱逃逸泄露 API Key；
-  - **Terminal-Bench 2.1 终局大胜**：在 89 道真实环境 Linux 赛题中斩获 **72 胜 / 80.90% 绝对胜率**（突破 80% 行业大关，底座大模型：DeepSeek-V4.1-Flash）；
+  - **Terminal-Bench 2.1 终局大胜**：在 89 道真实环境 Linux 赛题中斩获 **71 胜 / 79.78% 胜率**（高度逼近原厂 Pi 72 胜 / 80.90%，仅差 1 题；底座大模型：DeepSeek-V4.1-Flash）；
   - **全量 Token 采集与缓存核算**：从底层 session.jsonl 逐条提取真实 Token 与缓存指标，实测 `build-cython-ext` 复杂编译任务斩获 **96.7% 前缀缓存命中率**。
 - **动态即时转向（Steering）与排队追问（Follow-up）双层调度 (`message_queue.py`)**：
   - 支持在智能体运行处理对话期间，用户直接键入文本按回车即时插话（Steering），或按 **`Ctrl+Q`** 提交排队追问（Follow-up）；
@@ -237,6 +239,54 @@ npm start
 - **纯粹自主无界长任务循环与凭据原地热重载**：
   - 彻底移除人为硬编码的最大循环步数限制（`max_iterations`），循环完全由模型自身停顿与人类主动取消驱动，支持长耗时复杂任务自主推进；
   - `/reload` 重新载入 `AuthManager` 并原地重新绑定当前活跃 LLM 实例；`/login` 绑定凭据后当场原地刷新内存模型客户端，无需重启终端。
+
+---
+
+## 🏆 工业级基准评测对决 (Evaluation & Benchmark)
+
+为了以工业级严谨度衡量 Agent 在真实终端环境下的代码编写、依赖排错、系统运维与逆向攻坚能力，本项目构建了基于 **Harbor Framework**（Terminal-Bench 官方运行器）的专用评测子系统 `my-pi-eval`，在 **Terminal-Bench 2.1** 全量 89 道真实 Linux 系统工程赛题下，与 **原厂 Pi 官方 Agent (`@earendil-works/pi-coding-agent`)** 展开了严格可复现的同场竞技。
+
+> **评测环境**：完全一致的本地物理机（Windows 宿主机 + Docker Sandbox）、统一底座大模型采用 DeepSeek-V4.1 (`deepseek/deepseek-chat` / DS-V4.1-Flash)。
+
+### 1. 核心终局总榜 (Head-to-Head Overview)
+
+| 核心指标 | 自研 MyPiAgent (Python) | 原厂 Pi 官方 Agent (Node.js) | 对比与胜出分析 |
+| :--- | :---: | :---: | :--- |
+| **89 题全量通过题数** | **71 道 (79.78%)** | **72 道 (80.90%)** | **工业基准高度逼近（双方仅差 1 题）**，均展现顶级自动化自愈能力 |
+| **双胜题目数 (双方均通过)** | **65 道** | 65 道 | 覆盖绝大多数 Linux 系统工程、复杂依赖排错与逆向赛题 |
+| **自研 MyPiAgent 独占胜出** | **6 道** 🌟 | - | 自研斩获 1.0 满分，官方 Pi 彻底折戟 |
+| **原厂 Pi 独占胜出** | - | **7 道** | 原厂 Pi 满分，自研 Agent 格式微差或超时 |
+| **双负赛题 (双方均未过)** | **11 道** | 11 道 | 包含单机物理算力极限与上游环境断言题 |
+| **全量 Token 消耗** | **41,737,271 Tokens** | 93,322,290 Tokens | **自研节省 55.3% Token**（开销仅为原厂的 44.7%） |
+| **Prompt Cache 实测命中率** | **96.7% ~ 97.3%** | 官方分段截断 | 离散 Epoch 块级压缩保障严格 Append-Only 前缀一致性 |
+| **全量 89 题评测总开销** | **$4.62 美元** (约 33.5 元) | ~$10.5 美元 (约 76 元) | 极致经济高效，成本大幅领先 |
+
+### 2. 自研独占胜出高难赛题亮点 (6 道 🌟)
+
+在完全一致的物理环境与模型下，自研 Agent 在以下 6 道高难度赛题上斩获满分，而官方 Pi 彻底失败：
+
+1. **`make-mips-interpreter`**：纯手写 MIPS 寄存器机与指令集模拟器（自研 Agent 鏖战 50 分钟单步调试满分通过，官方 Pi 超时失败）；
+2. **`cancel-async-tasks`**：高并发异步任务优雅取消状态机（自研 Agent 满分通过，官方 Pi 失败）；
+3. **`polyglot-c-py`**：编写同时符合 C 语法与 Python 语法的同源文件（自研 Agent 满分通过，官方 Pi 失败）；
+4. **`pytorch-model-cli`**：PyTorch 模型 CLI 动态装配推理（自研 Agent 满分通过，官方 Pi 失败）；
+5. **`git-multibranch`**：多分支自动化部署与 Hook 脚本调度（自研 Agent 满分通过，官方 Pi 失败）；
+6. **`model-extraction-relu-logits`**：深度学习模型网络权重逆向提取（自研 Agent 满分通过，官方 Pi 失败）。
+
+### 3. 架构对比优势：Scheme 1 宿主驱动 vs Scheme 2 容器安装
+
+| 维度 | 原厂 Pi Agent (Node.js/TS) | 自研 MyPiAgent (Python) | 理论与工程优势 |
+| :--- | :--- | :--- | :--- |
+| **评测编排拓扑** | **Scheme 2 (容器内安装型)**<br>Harbor 在测试容器内在线下载 Node.js、npm 并编译安装 Pi | **Scheme 1 (宿主机驱动型)**<br>Agent 驻留宿主机，通过 Docker 管道桥接驱动沙箱 | **冷启动从 2.5 分钟缩减至 < 2 秒**；容器零污染，彻底杜绝容器内网络抖动造成的依赖安装失败。 |
+| **凭据安全隔离** | 需向容器内部注入 `API_KEY` 环境变量 | 宿主机本地严格隔离读取 `my-pi-eval/.env`，API Key 绝不流入容器沙箱 | **沙箱零凭据泄露风险**：即使评测任务包含恶意代码或攻击载荷，也无法窃取宿主机的 API Key。 |
+| **工具映射与防御** | 容器内原生 bash/fs 进程调用 | `HarborToolRegistry` 桥接，附加 50KB 截断防御与 Windows CRLF ➔ LF 自动规整 | 精细化错误拦截，彻底防止 Windows 宿主机回车换行符破坏 Linux 容器 Shell 脚本。 |
+| **能效与成本** | 纯客户端 session 统计 | 离散 Epoch 块级压缩，逐条扫描 session 转录本核算真实 Prompt Cache 命中率 | 具备超长会话防溢出保护与精准财务级成本审计能力，Token 开销仅为原厂 44.7%。 |
+
+### 4. 深度报告与报告索引
+
+完整逐题矩阵、执行耗时明细与评测系统设计详见：
+- 📄 [`my-pi-eval/results/README.md`](my-pi-eval/results/README.md)：Terminal-Bench 2.1 评测结果中心总览；
+- 📄 [`my-pi-eval/results/comparison_matrix.md`](my-pi-eval/results/comparison_matrix.md)：89 题逐题全量横向对比矩阵（状态对比、独占分析与技术反思）；
+- 📄 [`docs/eval/01-evaluation-harness-architecture.md`](docs/eval/01-evaluation-harness-architecture.md)：评测子系统架构设计与 Harbor Framework 适配规范。
 
 ---
 
@@ -361,7 +411,7 @@ my-pi-agent/
 │   │   └── theme/                  # Pi 原厂 24-bit TrueColor dark.json 调色盘
 │   └── test/                       # 前端 71 个自动化测试与端到端测试套件
 │
-├── my-pi-eval/                     # ⭐ Harbor 评测套件 (Terminal-Bench 2.1 斩获 72 胜/80.90% 胜率)
+├── my-pi-eval/                     # ⭐ Harbor 评测套件 (Terminal-Bench 2.1 斩获 71 胜/79.78% 胜率)
 │   ├── configs/                    # SWE-bench / Terminal-bench 评测声明
 │   ├── datasets/                   # 本地快速回归基准集
 │   ├── results/                    # Terminal-Bench 2.1 终局战报与对比矩阵
@@ -386,7 +436,7 @@ my-pi-agent/
 - [**Pi-TUI 终端交互表现层**](docs/coding/06-pi-tui-interactive-terminal.md)：`CustomEditor` 边框动效、思考等级自适应与三大交互选择器；
 - [**工程分发与全局 CLI 架构**](docs/coding/07-distribution-and-packaging.md)：npm 全球发布、双引擎自愈启动与跨平台打包；
 - [**上下文离散块压缩与前缀一致性规范**](docs/core/05-context-compaction.md)：动态 80% 水位线门控、Append-Only 前缀一致性与实测 96.7% Cache 命中率；
-- [**自动化基准评测架构与战报**](docs/eval/01-evaluation-harness-architecture.md)：Harbor BaseAgent 适配、Scheme 1 宿主驱动与 Terminal-Bench 2.1 80.90% 终局战报。
+- [**自动化基准评测架构与战报**](docs/eval/01-evaluation-harness-architecture.md)：Harbor BaseAgent 适配、Scheme 1 宿主驱动与 Terminal-Bench 2.1 终局战报（71 胜 / 79.78% 胜率，逼近原厂 72 胜）。
 
 ---
 
