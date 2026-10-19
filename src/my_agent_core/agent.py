@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import inspect
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
@@ -54,7 +55,7 @@ from my_agent_core.tools.builtin.task_tools import (  # pyright: ignore[reportMi
     TaskGuardHook,
     make_todo_tool,
 )
-from my_agent_llm import LLM, Message, MessageContent, TextContent  # pyright: ignore[reportMissingImports]
+from my_agent_llm import LLM, Message, MessageContent  # pyright: ignore[reportMissingImports]
 
 
 class Agent:
@@ -305,34 +306,21 @@ class Agent:
 
         # ── Hook 1: UserInputHook 拦截与改写（在进入 Session 和消息历史之前触发）
         prompt = Message(role="user", content=user_input)
-        # 混合输入逐个改写文字块，保留图片位置；纯图片仍触发一次空文字 Hook。
-        text_parts: list[TextContent] = (
-            [{"type": "text", "text": prompt.content}]
-            if isinstance(prompt.content, str)
-            else [part for part in prompt.content if part["type"] == "text"]
-        )
-        fallback_part: TextContent = {"type": "text", "text": ""}
-        parts_to_inspect = text_parts if text_parts else [fallback_part]
-        for part in parts_to_inspect:
-            user_input_decision = await self.hooks.emit(UserInputHook(input_text=part["text"]))
-            if isinstance(user_input_decision, HookResult):
-                if user_input_decision.block:
-                    reason = f": {user_input_decision.reason}" if user_input_decision.reason else ""
-                    end_ev = AgentEnd(
-                        messages=list(self.messages),
-                        final_text=f"(blocked{reason})",
-                        iterations=0,
-                        stop_reason="blocked",
-                    )
-                    await self._notify(end_ev)
-                    yield end_ev
-                    return
-                if user_input_decision.updated_input is not None:
-                    part["text"] = user_input_decision.updated_input
-        if isinstance(prompt.content, str):
-            prompt.content = text_parts[0]["text"] if text_parts else fallback_part["text"]
-        elif not text_parts and fallback_part["text"]:
-            prompt.content.insert(0, fallback_part)
+        user_input_decision = await self.hooks.emit(UserInputHook(input_content=copy.deepcopy(prompt.content)))
+        if isinstance(user_input_decision, HookResult):
+            if user_input_decision.block:
+                reason = f": {user_input_decision.reason}" if user_input_decision.reason else ""
+                end_ev = AgentEnd(
+                    messages=list(self.messages),
+                    final_text=f"(blocked{reason})",
+                    iterations=0,
+                    stop_reason="blocked",
+                )
+                await self._notify(end_ev)
+                yield end_ev
+                return
+            if user_input_decision.updated_input is not None:
+                prompt.content = copy.deepcopy(user_input_decision.updated_input)
 
         # 同步到 session 当前指针：rewind 后同 Agent 续跑时，内存 transcript 以文件为准。
         system = [m for m in self.messages if m.role == "system"]
