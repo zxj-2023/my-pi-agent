@@ -90,8 +90,8 @@ class Event:
 ```python
 @dataclass(frozen=True)
 class UserInputHook:
-    """Hook 1: 拦截或改写用户原始输入文本。"""
-    input_text: str
+    """Hook 1: 拦截或改写用户原始多模态输入。"""
+    input_content: MessageContent
 
 @dataclass(frozen=True)
 class AgentStartHook:
@@ -130,7 +130,7 @@ class HookResult:
     """Hook 拦截点的统一干预结果。"""
     block: bool = False
     reason: str | None = None
-    updated_input: str | None = None
+    updated_input: MessageContent | None = None
     updated_system_prompt: str | None = None
     updated_messages: list[Message] | None = None
     updated_args: dict[str, Any] | None = None

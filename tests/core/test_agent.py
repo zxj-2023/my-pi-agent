@@ -51,7 +51,23 @@ async def test_ordered_content_survives_hook_and_session_reload(tmp_path, image_
     llm = FakeLLM()
     path = tmp_path / "images.jsonl"
     agent = _agent(llm, session=Session(path=path))
-    agent.hooks.register(UserInputHook, lambda hook: HookResult(updated_input=hook.input_text.replace("foo", "bar")))
+    inspected = []
+
+    def rewrite_input(hook: UserInputHook):
+        content = hook.input_content
+        inspected.append(content)
+        if isinstance(content, str):
+            updated = content.replace("foo", "bar")
+        else:
+            updated = [
+                {"type": "text", "text": part["text"].replace("foo", "bar")}
+                if part["type"] == "text"
+                else part
+                for part in content
+            ]
+        return HookResult(updated_input=updated if updated != content else None)
+
+    agent.hooks.register(UserInputHook, rewrite_input)
     image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
     content = (
         [image]
@@ -68,6 +84,7 @@ async def test_ordered_content_survives_hook_and_session_reload(tmp_path, image_
     agent.subscribe(events.append)
 
     assert await agent.run(content) == "ok"
+    assert inspected == [content]
     user = next(m for m in llm.calls[0]["messages"] if m.role == "user")
     assert user.content == expected
     assert user.metadata is None
@@ -100,8 +117,19 @@ async def test_ordered_content_survives_hook_and_session_reload(tmp_path, image_
 async def test_ordered_input_can_be_blocked_before_persistence(tmp_path, content):
     llm = FakeLLM()
     agent = _agent(llm, session=Session(path=tmp_path / "s.jsonl"))
-    agent.hooks.register(UserInputHook, lambda hook: HookResult(block=hook.input_text in ("blocked", "")))
+    inspected = []
+
+    def block_input(hook: UserInputHook):
+        content = hook.input_content
+        inspected.append(content)
+        text = content if isinstance(content, str) else "".join(
+            part["text"] for part in content if part["type"] == "text"
+        )
+        return HookResult(block=not text or "blocked" in text)
+
+    agent.hooks.register(UserInputHook, block_input)
     assert await agent.run(content) == "(blocked)"
+    assert inspected == [content]
     assert llm.calls == []
     assert agent.session.get_full_history_messages() == []
 
@@ -110,7 +138,10 @@ async def test_ordered_input_can_be_blocked_before_persistence(tmp_path, content
 async def test_image_only_input_hook_can_add_text(tmp_path):
     llm = FakeLLM()
     agent = _agent(llm, session=Session(path=tmp_path / "s.jsonl"))
-    agent.hooks.register(UserInputHook, lambda hook: HookResult(updated_input="inspect"))
+    agent.hooks.register(
+        UserInputHook,
+        lambda hook: HookResult(updated_input=[{"type": "text", "text": "inspect"}, *hook.input_content]),
+    )
     image = {"type": "image", "data": "aGVsbG8=", "mime_type": "image/png"}
     await agent.run([image])
     user = next(m for m in llm.calls[0]["messages"] if m.role == "user")
@@ -515,7 +546,7 @@ async def test_agent_user_input_hook_block():
     agent = _agent(llm, session=session)
 
     def guard_input(hook: UserInputHook):
-        if "drop database" in hook.input_text:
+        if "drop database" in hook.input_content:
             return HookResult(block=True, reason="SQL injection detected")
         return None
 
@@ -537,8 +568,8 @@ async def test_agent_user_input_hook_rewrite():
     agent = _agent(llm, session=session)
 
     def rewrite_input(hook: UserInputHook):
-        if "foo" in hook.input_text:
-            return HookResult(updated_input=hook.input_text.replace("foo", "bar"))
+        if "foo" in hook.input_content:
+            return HookResult(updated_input=hook.input_content.replace("foo", "bar"))
         return None
 
     agent.hooks.register(UserInputHook, rewrite_input)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -117,9 +118,22 @@ class CodingAgent:
 
     @staticmethod
     def _expand_refs(parser: FileReferenceParser, hook: UserInputHook) -> HookResult | None:
-        expanded = parser.expand_references(hook.input_text)
-        if expanded != hook.input_text:
-            return HookResult(updated_input=expanded)
+        if isinstance(hook.input_content, str):
+            expanded = parser.expand_references(hook.input_content)
+            if expanded != hook.input_content:
+                return HookResult(updated_input=expanded)
+            return None
+
+        expanded_content = deepcopy(hook.input_content)
+        changed = False
+        for part in expanded_content:
+            if part["type"] == "text":
+                expanded = parser.expand_references(part["text"])
+                if expanded != part["text"]:
+                    part["text"] = expanded
+                    changed = True
+        if changed:
+            return HookResult(updated_input=expanded_content)
         return None
 
     @property

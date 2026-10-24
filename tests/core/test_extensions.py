@@ -394,8 +394,8 @@ from my_agent_llm import Message
 def extension(api):
     @api.on(UserInputHook)
     def rewrite_input(hook, api):
-        if "bad_word" in hook.input_text:
-            return HookResult(updated_input=hook.input_text.replace("bad_word", "good_word"))
+        if "bad_word" in hook.input_content:
+            return HookResult(updated_input=hook.input_content.replace("bad_word", "good_word"))
         return None
 
     @api.on(AgentStartHook)

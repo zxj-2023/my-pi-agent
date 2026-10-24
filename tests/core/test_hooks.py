@@ -26,12 +26,12 @@ from my_agent_core.hooks import (  # pyright: ignore[reportMissingImports]
 
 def test_hook_points_attributes_and_frozen():
     """五大专职 Hook 拦截点包含预期字段且为不可变 frozen dataclass，不继承 Event。"""
-    uid = UserInputHook(input_text="hello")
-    assert uid.input_text == "hello"
+    uid = UserInputHook(input_content="hello")
+    assert uid.input_content == "hello"
     assert is_dataclass(uid) and uid.__dataclass_params__.frozen  # pyright: ignore[reportAttributeAccessIssue]
     assert not isinstance(uid, Event)
     with pytest.raises(FrozenInstanceError):
-        uid.input_text = "mutated"  # pyright: ignore[reportAttributeAccessIssue]
+        uid.input_content = "mutated"  # pyright: ignore[reportAttributeAccessIssue]
 
     ash = AgentStartHook(system_prompt="you are a helpful assistant")
     assert ash.system_prompt == "you are a helpful assistant"
@@ -125,18 +125,18 @@ async def test_hook_registry_sync_and_async_mix():
     calls = []
 
     def sync_observer(d: UserInputHook):
-        calls.append(f"sync:{d.input_text}")
+        calls.append(f"sync:{d.input_content}")
         return None
 
     async def async_observer(d: UserInputHook):
         await asyncio.sleep(0.001)
-        calls.append(f"async:{d.input_text}")
+        calls.append(f"async:{d.input_content}")
         return None
 
     reg.register(UserInputHook, sync_observer)
     reg.register(UserInputHook, async_observer)
 
-    res = await reg.emit(UserInputHook(input_text="hello"))
+    res = await reg.emit(UserInputHook(input_content="hello"))
     assert res is None
     assert calls == ["sync:hello", "async:hello"]
 

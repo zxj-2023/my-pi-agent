@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from my_agent_llm import Message  # pyright: ignore[reportMissingImports]
+from my_agent_llm import Message, MessageContent  # pyright: ignore[reportMissingImports]
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,9 @@ logger = logging.getLogger(__name__)
 # ── 五大专职 Hook 拦截点契约（独立门禁系统，非 Event）
 @dataclass(frozen=True)
 class UserInputHook:
-    """Hook 1 (input): 拦截或改写用户原始输入文本。"""
+    """Hook 1 (input): 拦截或改写用户原始输入内容。"""
 
-    input_text: str
+    input_content: MessageContent
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ class HookResult:
 
     block: bool = False
     reason: str | None = None
-    updated_input: str | None = None
+    updated_input: MessageContent | None = None
     updated_system_prompt: str | None = None
     updated_messages: list[Message] | None = None
     updated_args: dict[str, Any] | None = None
