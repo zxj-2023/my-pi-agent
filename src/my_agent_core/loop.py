@@ -608,8 +608,7 @@ async def run_agent_loop(
             yield TurnStart(iteration)
 
             # 前置清洗与上下文准备
-            clean_messages = clean_provider_context(messages)
-            view = await context_manager.prepare(clean_messages) if context_manager else clean_messages
+            view = await context_manager.prepare(messages) if context_manager else messages
             view = clean_provider_context(view)
 
             # 派发上下文压缩事件（若触发了 compact 压缩）

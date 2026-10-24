@@ -92,7 +92,6 @@ class HookRegistry:
 
     def __init__(self) -> None:
         self._handlers: dict[type, list[Callable[..., Any]]] = {}
-        self._hooks = self._handlers
 
     def register(self, hook_cls: type, callback: Callable[..., Any]) -> None:
         """挂一个 hook 回调到 hook 类型。同一 hook 可挂多个，按注册顺序触发。"""

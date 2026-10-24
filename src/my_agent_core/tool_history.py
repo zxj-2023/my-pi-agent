@@ -3,8 +3,7 @@
 对齐 Tau (tau_agent.tool_history) 与 Pi 架构，采用三阶段状态机：
 1. Phase 1: 预留就近配对（防止同名 ID 误抢夺）；
 2. Phase 2: 贪心匹配或合成中断结果（"Tool call interrupted by user"）；
-3. Phase 2.5: 真实结果反超合成中断；
-4. Phase 3: 重构转录本、孤儿结果丢弃与保序重排。
+3. Phase 3: 重构转录本、孤儿结果丢弃与保序重排。
 """
 
 from __future__ import annotations
@@ -138,19 +137,6 @@ def repair_tool_history(messages: Sequence[Message]) -> ToolHistoryRepair:
             )
             selected_results[occurrence] = (None, synthetic)
             synthesized_results += 1
-
-    # ── Phase 2.5: 真实结果反超合成中断 ──
-    for occurrence, call, _ in call_occurrences:
-        pos, _ = selected_results[occurrence]
-        if pos is not None:
-            continue
-        call_id = str(call.get("id", ""))
-        for cand_pos, cand_msg in results_by_id.get(call_id, []):
-            if cand_pos not in used_result_positions:
-                selected_results[occurrence] = (cand_pos, cand_msg)
-                used_result_positions.add(cand_pos)
-                synthesized_results -= 1
-                break
 
     # ── Phase 3: 重建转录本、孤儿丢弃与保序重排 ──
     repaired: list[Message] = []

@@ -17,8 +17,6 @@ ENTRY_DELIMITER = "\n§\n"
 MEMORY_CHAR_LIMIT = 2200
 USER_CHAR_LIMIT = 1375
 
-TargetType = Literal["memory", "user"]
-
 
 class MemoryStore:
     """管理 MEMORY.md 与 USER.md 的持久化记忆存储仓储（支持 Frozen Snapshot 与原子落盘）。"""

@@ -8,11 +8,13 @@ from .entries import (
     BranchSummaryEntry,
     CompactionEntry,
     CustomEntry,
+    CustomMessageEntry,
     LabelEntry,
     LeafEntry,
     MessageEntry,
     ModelChangeEntry,
     SessionEntry,
+    SessionHeaderEntry,
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
 )
@@ -61,6 +63,8 @@ __all__ = [
     "LabelEntry",
     "LeafEntry",
     "CustomEntry",
+    "CustomMessageEntry",
+    "SessionHeaderEntry",
     "SessionEntry",
     # Tree algorithms
     "SessionTreeError",

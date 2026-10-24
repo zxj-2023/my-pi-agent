@@ -335,26 +335,13 @@ class ContextManager:
         超阈值时执行离散块压缩（compact 结构化摘要），建立下一个周期的静态稳定前缀。
         """
         self.pending_compaction = None
-        if self._summary is not None:
-            view = self._build_cached_view(messages)
-            tokens = estimate_tokens(view, self._ratio)
-            if tokens <= self.budget_threshold:
-                self._record_view(view, tokens)
-                return view
-            if self.results_dir:
-                spilled_view = self._apply_free_layers(view)
-                tokens = estimate_tokens(spilled_view, self._ratio)
-                if tokens <= self.budget_threshold:
-                    self._record_view(spilled_view, tokens)
-                    return spilled_view
-            # 缓存视图仍超阈 → 迭代再摘要（_call_summarizer 附旧摘要）
-            return await self._do_summarize(messages)
-        tokens = estimate_tokens(messages, self._ratio)
+        view = self._build_cached_view(messages) if self._summary is not None else list(messages)
+        tokens = estimate_tokens(view, self._ratio)
         if tokens <= self.budget_threshold:
-            self._record_view(messages, tokens)
-            return list(messages)
+            self._record_view(view, tokens)
+            return view
         if self.results_dir:
-            spilled_view = self._apply_free_layers(list(messages))
+            spilled_view = self._apply_free_layers(view)
             tokens = estimate_tokens(spilled_view, self._ratio)
             if tokens <= self.budget_threshold:
                 self._record_view(spilled_view, tokens)
