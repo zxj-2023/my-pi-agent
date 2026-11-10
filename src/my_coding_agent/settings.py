@@ -60,6 +60,10 @@ class Settings(BaseModel):
     )
     project_trust: Literal["ask", "always", "never"] = Field(default="ask", alias="projectTrust")
 
+    # ── 代码模式 (Codemode) ──
+    codemode_enabled: bool = Field(default=True, alias="codemodeEnabled")
+    codemode_mode: Literal["off", "on", "only"] = Field(default="on", alias="codemodeMode")
+
     model_config = ConfigDict(populate_by_name=True)
 
 

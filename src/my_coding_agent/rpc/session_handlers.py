@@ -103,6 +103,7 @@ class SessionRpcMixin:
             session=new_session,
             permission_gate=gate,
             skill_dirs=skill_dirs,
+            settings=self.settings,
         )
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, new_session.id)
@@ -248,6 +249,7 @@ class SessionRpcMixin:
             session=new_session,
             permission_gate=gate,
             skill_dirs=skill_dirs,
+            settings=self.settings,
         )
 
         if self.debug_mode:
@@ -385,6 +387,7 @@ class SessionRpcMixin:
             llm=self.agent.llm,
             session=new_session,
             permission_gate=gate,
+            settings=self.settings,
         )
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, new_session.id)
@@ -430,6 +433,7 @@ class SessionRpcMixin:
             llm=self.agent.llm,
             session=new_session,
             permission_gate=gate,
+            settings=self.settings,
         )
         if self.debug_mode:
             self._bind_tracer_to_session(workspace_path, new_session.id)

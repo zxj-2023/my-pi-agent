@@ -13,7 +13,7 @@ from my_agent_core import Agent  # pyright: ignore[reportMissingImports]
 from my_agent_core.events import Event  # pyright: ignore[reportMissingImports]
 from my_agent_core.hooks import HookResult, ToolCallHook, UserInputHook  # pyright: ignore[reportMissingImports]
 from my_agent_core.session import Session  # pyright: ignore[reportMissingImports]
-from my_agent_core.tools import Tool  # pyright: ignore[reportMissingImports]
+from my_agent_core.tools import Tool, make_codemode_tool  # pyright: ignore[reportMissingImports]
 from my_agent_llm import MessageContent
 
 from my_coding_agent.file_reference import FileReferenceParser
@@ -23,6 +23,7 @@ from my_coding_agent.mutation_queue import FileMutationQueue
 from my_coding_agent.paths import AgentPaths
 from my_coding_agent.permissions import PermissionGate
 from my_coding_agent.prompt import build_default_coding_prompt
+from my_coding_agent.settings import Settings, load_settings
 from my_coding_agent.tools import build_coding_tools
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class CodingAgent:
         extra_tools: list[Tool] | tuple[Tool, ...] = (),
         permission_gate: PermissionGate | None = None,
         auto_load_mcp: bool = True,
+        settings: Settings | None = None,
         **kw,
     ):
         self.workspace = Path(workspace).resolve()
@@ -53,6 +55,7 @@ class CodingAgent:
         self._mcp_loaded: bool = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self.thinking_level = "off"
+        self.settings = settings if settings is not None else load_settings(cwd=self.workspace)
 
         if isinstance(session, (str, Path)):
             session = Session(path=Path(session), cwd=str(self.workspace))
@@ -115,6 +118,19 @@ class CodingAgent:
             UserInputHook,
             lambda hook: self._expand_refs(self.file_reference_parser, hook),
         )
+
+        # 6. 装配并注册 codemode 工具（如果配置启用）
+        if self.settings.codemode_enabled and self.settings.codemode_mode != "off":
+            codemode_tool = make_codemode_tool(self.agent.registry, session=self.session)
+            self.agent.registry.register(codemode_tool)
+            if self.settings.codemode_mode == "only":
+                for name, tool in self.agent.registry._tools.items():
+                    if name != "codemode":
+                        tool.hidden = True
+                orig_get_schemas = self.agent.registry.get_schemas
+                self.agent.registry.get_schemas = (  # type: ignore[method-assign]
+                    lambda orig=orig_get_schemas: [s for s in orig() if s.get("function", {}).get("name") == "codemode"]
+                )
 
     @staticmethod
     def _expand_refs(parser: FileReferenceParser, hook: UserInputHook) -> HookResult | None:

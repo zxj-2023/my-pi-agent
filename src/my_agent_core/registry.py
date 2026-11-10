@@ -33,7 +33,7 @@ class ToolRegistry:
 
     def get_schemas(self) -> list[dict[str, Any]]:
         """生成全部工具的 OpenAI tools 参数。"""
-        return [t.to_openai_schema() for t in self._tools.values()]
+        return [t.to_openai_schema() for t in self._tools.values() if not getattr(t, "hidden", False)]
 
     async def execute_tool(
         self,

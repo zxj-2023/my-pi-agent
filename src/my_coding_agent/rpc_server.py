@@ -225,6 +225,7 @@ class RpcServer(SessionRpcMixin, ModelRpcMixin, SystemRpcMixin):
             session=target_session,
             permission_gate=gate,
             skill_dirs=skill_dirs,
+            settings=settings,
         )
 
         if initial_name := params.get("name"):
