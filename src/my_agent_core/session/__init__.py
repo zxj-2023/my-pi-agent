@@ -6,6 +6,7 @@ from __future__ import annotations
 from .entries import (
     BaseSessionEntry,
     BranchSummaryEntry,
+    CodemodeStoreEntry,
     CompactionEntry,
     CustomEntry,
     CustomMessageEntry,
@@ -64,6 +65,7 @@ __all__ = [
     "LeafEntry",
     "CustomEntry",
     "CustomMessageEntry",
+    "CodemodeStoreEntry",
     "SessionHeaderEntry",
     "SessionEntry",
     # Tree algorithms

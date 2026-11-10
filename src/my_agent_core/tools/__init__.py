@@ -1,5 +1,11 @@
 """工具声明与分发 —— 上行翻译层。"""
 
+from .codemode import (
+    CodemodeResult,
+    CodemodeSourceError,
+    CodemodeTool,
+    make_codemode_tool,
+)
 from .core import (
     DEFAULT_TOOL_MAX_BYTES,
     DEFAULT_TOOL_MAX_LINES,
@@ -20,4 +26,8 @@ __all__ = [
     "format_cwd_section",
     "format_rules_section",
     "format_tools_section",
+    "CodemodeResult",
+    "CodemodeSourceError",
+    "CodemodeTool",
+    "make_codemode_tool",
 ]

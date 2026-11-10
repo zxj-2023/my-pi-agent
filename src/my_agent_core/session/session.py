@@ -18,7 +18,9 @@ from uuid import uuid4
 from my_agent_llm import Message, MessageContent
 
 from .entries import (
+    CodemodeStoreEntry,
     CompactionEntry,
+    CustomEntry,
     MessageEntry,
     SessionEntry,
     SessionHeaderEntry,
@@ -221,6 +223,10 @@ class Session:
             return message.model_copy(update={"content": hydrated_blocks})
         return message
 
+    def get_current_path_entries(self) -> list[SessionEntry]:
+        """当前路径上的所有多态 SessionEntry 列表（按时序从根到叶）。"""
+        return self.tree.get_current_path()
+
     def get_current_path_messages(self, hydrate_images: bool = True) -> list[Message]:
         """当前路径上的纯对话消息列表（自动排除非 MessageEntry 节点）。
 
@@ -365,11 +371,38 @@ class Session:
                 self.metadata["title"] = name_val
             if entry.cwd:
                 self.cwd = entry.cwd
+        if entry.parent_id is None and self.tree.current_id is not None:
+            object.__setattr__(entry, "parent_id", self.tree.current_id)
         self.tree.entries[entry.id] = entry
         if self.tree.root_id is None:
             self.tree.root_id = entry.id
         self.tree.current_id = entry.id
         self.save()
+
+    def add_custom_entry(
+        self,
+        custom_type: str,
+        data: dict[str, Any],
+        parent_id: str | None = None,
+        **extra: Any,
+    ) -> SessionEntry:
+        """追加一条自定义或状态条目并原子落盘。"""
+        pid = parent_id if parent_id is not None else self.tree.current_id
+        if custom_type == "codemode-store":
+            entry = CodemodeStoreEntry(
+                parent_id=pid,
+                data=data,
+                **extra,
+            )
+        else:
+            entry = CustomEntry(
+                parent_id=pid,
+                custom_type=custom_type,
+                data=data,
+                **extra,
+            )
+        self.append_entry(entry)
+        return entry
 
     def reset(self) -> None:
         """清空树 + 原子重写（纯对话，不含 system）。唯一破坏性操作。"""
@@ -388,6 +421,9 @@ class Session:
         for entry in self.tree.get_path_to_entry(entry_id):
             if isinstance(entry, MessageEntry):
                 new_session.add_message(entry.role, entry.content, **entry.metadata)
+            elif isinstance(entry, (CodemodeStoreEntry, CustomEntry)):
+                copied = entry.model_copy(update={"parent_id": new_session.tree.current_id, "id": uuid4().hex[:8]})
+                new_session.append_entry(copied)
         return new_session
 
     @property

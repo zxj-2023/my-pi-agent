@@ -147,6 +147,13 @@ class SessionHeaderEntry(BaseSessionEntry):
     parent_session: str | None = Field(default=None, alias="parentSession")
 
 
+class CodemodeStoreEntry(BaseSessionEntry):
+    """Codemode 状态持久化键值条目。"""
+
+    type: Literal["codemode-store", "codemode_store", "codemodeStore"] = "codemode-store"
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
 SessionEntry = Annotated[
     SessionInfoEntry
     | SessionHeaderEntry
@@ -158,7 +165,8 @@ SessionEntry = Annotated[
     | LabelEntry
     | LeafEntry
     | CustomEntry
-    | CustomMessageEntry,
+    | CustomMessageEntry
+    | CodemodeStoreEntry,
     Field(discriminator="type"),
 ]
 
@@ -175,5 +183,6 @@ __all__ = [
     "LeafEntry",
     "CustomEntry",
     "CustomMessageEntry",
+    "CodemodeStoreEntry",
     "SessionEntry",
 ]

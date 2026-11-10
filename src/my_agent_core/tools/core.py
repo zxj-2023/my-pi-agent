@@ -68,6 +68,11 @@ class ToolResult:
     meta: dict[str, Any] = field(default_factory=dict)
     terminate: bool = False
 
+    @property
+    def content(self) -> str:
+        """输出文本内容便捷属性。"""
+        return str(self.data if self.ok else (self.error or ""))
+
     def serialize(self) -> Any:
         """转成写入 messages 的内容。多模态内容块列表完整保留，普通文本执行 50KB/2000行 截断。"""
         if not self.ok:
@@ -75,9 +80,7 @@ class ToolResult:
             return truncate_tool_output(str(raw))
         if isinstance(self.data, list):
             # 检查是否为多模态内容块列表 (ContentBlock)
-            is_multimodal = any(
-                isinstance(item, dict) and item.get("type") in ("image", "text") for item in self.data
-            )
+            is_multimodal = any(isinstance(item, dict) and item.get("type") in ("image", "text") for item in self.data)
             if is_multimodal:
                 return self.data
         return truncate_tool_output(str(self.data))
