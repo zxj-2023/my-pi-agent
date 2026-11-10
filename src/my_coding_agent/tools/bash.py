@@ -69,10 +69,12 @@ def _is_wsl_bash(path: str) -> bool:
     if norm.endswith((r"\system32\bash.exe", r"\sysnative\bash.exe")):
         return True
     system_root = (os.environ.get("SystemRoot") or r"C:\Windows").lower()
-    if norm.startswith((
-        os.path.join(system_root, "system32", "bash.exe").lower(),
-        os.path.join(system_root, "sysnative", "bash.exe").lower(),
-    )):
+    if norm.startswith(
+        (
+            os.path.join(system_root, "system32", "bash.exe").lower(),
+            os.path.join(system_root, "sysnative", "bash.exe").lower(),
+        )
+    ):
         return True
 
     # 2. 过滤 Microsoft Store 版 WSL 存根 (WindowsApps 位置)
