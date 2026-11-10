@@ -58,6 +58,30 @@ class BashResult(StringCompatibleToolResult):
     """Bash 工具执行结果：继承 StringCompatibleToolResult。"""
 
 
+def _is_wsl_bash(path: str) -> bool:
+    """检查给定的 bash 路径是否为 WSL 存根 (System32 或 WindowsApps)。
+
+    WSL 存根为 Linux 虚拟机入口，在非 WSL 宿主环境下无法直接运行 Windows 虚拟环境中的 python/uv，
+    且文件系统与进程上下文互不相通，必须在 Windows 环境下排除以防误入 WSL。
+    """
+    norm = os.path.normpath(str(path)).lower()
+    # 1. 过滤 System32 / Sysnative 下的旧版 WSL 存根
+    if norm.endswith((r"\system32\bash.exe", r"\sysnative\bash.exe")):
+        return True
+    system_root = (os.environ.get("SystemRoot") or r"C:\Windows").lower()
+    if norm.startswith((
+        os.path.join(system_root, "system32", "bash.exe").lower(),
+        os.path.join(system_root, "sysnative", "bash.exe").lower(),
+    )):
+        return True
+
+    # 2. 过滤 Microsoft Store 版 WSL 存根 (WindowsApps 位置)
+    if r"\microsoft\windowsapps\bash.exe" in norm or norm.endswith(r"\windowsapps\bash.exe"):
+        return True
+
+    return False
+
+
 def _resolve_shell() -> tuple[str, bool]:
     """解析当前环境最合适的 Shell 执行器。
 
@@ -71,23 +95,34 @@ def _resolve_shell() -> tuple[str, bool]:
         if custom and os.path.exists(custom):
             return custom, True
 
-        # 2. 探查 Git Bash 常见安装路径
+        # 2. 优先通过 PATH 上的 git.exe 动态推导 Git 安装根目录
+        # Git 安装器默认将 Git\cmd 加入 PATH；根据 git.exe 向上反推 bin\bash.exe 或 usr\bin\bash.exe，
+        # 可完美覆盖用户任意自定义安装路径（如 D:\Git、E:\Tools\Git、Scoop、Chocolatey 等），彻底消灭生硬的路径硬编码。
+        git_executable = shutil.which("git") or shutil.which("git.exe")
+        if git_executable:
+            git_path = Path(git_executable).resolve()
+            for parent in [git_path.parent, *git_path.parents]:
+                for rel in ("bin/bash.exe", "usr/bin/bash.exe", "bash.exe"):
+                    candidate = parent / rel
+                    if os.path.exists(str(candidate)):
+                        return str(candidate), True
+
+        # 3. 探查 Git Bash 常见系统安装路径 (基于标准系统环境变量，绝无固定盘符写死)
         candidates = [
-            r"D:\gitbash\Git\bin\bash.exe",
             os.path.expandvars(r"%ProgramFiles%\Git\bin\bash.exe"),
             os.path.expandvars(r"%ProgramFiles(x86)%\Git\bin\bash.exe"),
             os.path.expandvars(r"%LocalAppData%\Programs\Git\bin\bash.exe"),
+            os.path.expandvars(r"%USERPROFILE%\scoop\apps\git\current\bin\bash.exe"),
+            os.path.expandvars(r"%ProgramData%\chocolatey\bin\bash.exe"),
         ]
         for c in candidates:
             if c and os.path.exists(c):
                 return c, True
 
-        # 3. 探查 PATH 上的 bash
+        # 4. 探查 PATH 上的 bash.exe / bash，严格排除 WSL 存根
         found = shutil.which("bash.exe") or shutil.which("bash")
-        if found:
-            norm = found.replace("/", "\\").lower()
-            if not norm.endswith(r"\windows\system32\bash.exe"):
-                return found, True
+        if found and not _is_wsl_bash(found):
+            return found, True
 
         return "cmd.exe", False
 

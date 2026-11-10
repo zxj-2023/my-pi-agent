@@ -211,6 +211,75 @@ def test_resolve_shell_detection():
         assert "bash" in shell_path.lower()
 
 
+def test_is_wsl_bash_stub_detection():
+    """测试 _is_wsl_bash 能准确识别 System32、Sysnative 和 WindowsApps 存根。"""
+    from my_coding_agent.tools.bash import _is_wsl_bash
+
+    assert _is_wsl_bash(r"C:\Windows\System32\bash.exe") is True
+    assert _is_wsl_bash(r"C:\WINDOWS\sysnative\bash.exe") is True
+    assert _is_wsl_bash(r"C:\Users\user\AppData\Local\Microsoft\WindowsApps\bash.exe") is True
+    assert _is_wsl_bash(r"C:\Users\user\AppData\Local\Microsoft\WindowsApps\BASH.EXE") is True
+    assert _is_wsl_bash(r"D:\Git\bin\bash.exe") is False
+    assert _is_wsl_bash(r"C:\Program Files\Git\bin\bash.exe") is False
+    assert _is_wsl_bash(r"C:\msys64\usr\bin\bash.exe") is False
+
+
+def test_resolve_shell_filters_windowsapps_wsl_stub(monkeypatch):
+    """测试 _resolve_shell 必须过滤 Microsoft Store 版 WSL 的 WindowsApps 存根，降级到 cmd.exe。"""
+    from my_coding_agent.tools import bash
+    from my_coding_agent.tools.bash import _resolve_shell
+
+    monkeypatch.setattr(bash.sys, "platform", "win32")
+    monkeypatch.delenv("PI_BASH_PATH", raising=False)
+    monkeypatch.delenv("SHELL_PATH", raising=False)
+
+    # 模拟 which("git") 未命中
+    monkeypatch.setattr(
+        bash.shutil,
+        "which",
+        lambda cmd: (
+            r"C:\Users\test\AppData\Local\Microsoft\WindowsApps\bash.exe"
+            if cmd in ("bash.exe", "bash")
+            else None
+        ),
+    )
+    # 模拟候选路径均不存在
+    monkeypatch.setattr(bash.os.path, "exists", lambda p: False)
+
+    shell_path, is_bash = _resolve_shell()
+    assert is_bash is False
+    assert shell_path.lower() == "cmd.exe"
+
+
+def test_resolve_shell_infers_from_git_executable(monkeypatch):
+    """测试通过 which("git") 动态反推任意自定义目录下的 Git Bash，绝无死板硬编码。"""
+    from my_coding_agent.tools import bash
+    from my_coding_agent.tools.bash import _resolve_shell
+
+    monkeypatch.setattr(bash.sys, "platform", "win32")
+    monkeypatch.delenv("PI_BASH_PATH", raising=False)
+    monkeypatch.delenv("SHELL_PATH", raising=False)
+
+    fake_git = r"D:\CustomGitLocation\cmd\git.exe"
+    fake_bash = r"D:\CustomGitLocation\bin\bash.exe"
+
+    def fake_which(cmd):
+        if cmd in ("git", "git.exe"):
+            return fake_git
+        return None
+
+    def fake_exists(p):
+        return os.path.normcase(os.path.abspath(str(p))) == os.path.normcase(os.path.abspath(fake_bash))
+
+    monkeypatch.setattr(bash.shutil, "which", fake_which)
+    monkeypatch.setattr(bash.os.path, "exists", fake_exists)
+
+    shell_path, is_bash = _resolve_shell()
+    assert is_bash is True
+    assert os.path.normcase(os.path.abspath(shell_path)) == os.path.normcase(os.path.abspath(fake_bash))
+
+
+
 async def test_bash_signal_cancellation_kills_process_immediately(tmp_path: Path):
     """测试在执行长时间命令时，signal.cancel() 能够毫秒级杀死子进程并返回中断结果。"""
     from my_agent_core.loop import CancellationToken
