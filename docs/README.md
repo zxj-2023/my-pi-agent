@@ -92,6 +92,7 @@
 - [10-plugins.md](core/10-plugins.md)：Claude Code 官方标准 Plugin 插件系统、Manifest 优先级查找与智能兜底推断、自包含资源解构分发。
 - [11-dynamic-steering.md](core/11-dynamic-steering.md)：Pi 风格即时转向（Steer）与排队追问（Follow-up）双层调度引擎、三大切入安全点与取消隔离。
 - [12-task-system-and-background.md](core/12-task-system-and-background.md)：统一任务系统（`TaskItem` + `TaskStore` DAG 依赖）、`<TASK_BOARD>` 上下文看板自动投影与具备孤儿进程防御的 `BackgroundRunner` 后台异步执行引擎。
+- [13-codemode.md](core/13-codemode.md)：Codemode（代码模式）系统设计与实现规范（基于 Node.js 受限沙箱与 stdio JSONL IPC 管道、TypeScript 声明动态生成与 3000 Token 内联预算、// @options: 首行指令解析、tools.* 异步双向桥接、`store/load` 会话树原子落盘与 Never-Throw 崩溃免疫）。
 
 ### 3. 产品与编码层 (`docs/coding/`)
 
