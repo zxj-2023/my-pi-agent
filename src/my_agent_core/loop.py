@@ -576,6 +576,7 @@ async def run_agent_loop(
 
     iteration = 0
     final_text: str | None = None
+    final_stop_reason = "end_turn"
     pending_messages: list[Message] = []
     length_continuations = 0
     MAX_LENGTH_CONTINUATIONS = 3
@@ -596,6 +597,7 @@ async def run_agent_loop(
         # ──────────────────────────────────────────────────────
         while has_more_tools or pending_messages:
             iteration += 1
+            final_stop_reason = "end_turn"
 
             # 轮次开端：先注入并清空 pending_messages (Steering)
             if pending_messages:
@@ -735,6 +737,8 @@ async def run_agent_loop(
             else:
                 has_more_tools = False
                 final_text = assistant.text_content
+                if is_truncated:
+                    final_stop_reason = "length"
 
             # 严密闭合当前轮次
             yield TurnEnd(message=assistant, tool_results=tool_results)
@@ -766,5 +770,5 @@ async def run_agent_loop(
         messages=list(messages),
         final_text=final_text,
         iterations=iteration,
-        stop_reason="end_turn",
+        stop_reason=final_stop_reason,
     )

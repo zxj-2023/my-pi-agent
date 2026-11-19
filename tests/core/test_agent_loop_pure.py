@@ -806,3 +806,32 @@ async def test_loop_continuation_on_length_truncation_without_tools():
     assert len(agent_ends) == 1
     assert agent_ends[0].iterations == 2  # 自动触发续写，进入第二轮！
     assert agent_ends[0].final_text == "Finally done with implementation."
+    assert agent_ends[0].stop_reason == "end_turn"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("follow_up", [False, True])
+async def test_loop_reports_length_when_continuations_are_exhausted(follow_up):
+    partial_text = "The result is"
+    responses = [_response(content=partial_text, finish_reason="length") for _ in range(4)]
+    followups = iter([[Message(role="user", content="Answer briefly")]] if follow_up else [])
+    if follow_up:
+        responses.append(_response(content="42"))
+
+    llm = FakeLLM(responses)
+    agent_ends = []
+    async for event in run_agent_loop(
+        llm=llm,
+        messages=[],
+        prompts=[Message(role="user", content="Write a long answer")],
+        get_follow_up_messages=lambda: next(followups, []),
+    ):
+        if isinstance(event, AgentEnd):
+            agent_ends.append(event)
+
+    assert len(agent_ends) == 1
+    assert len(llm.calls) == (5 if follow_up else 4)
+    assert agent_ends[0].final_text == ("42" if follow_up else partial_text)
+    assert agent_ends[0].stop_reason == ("end_turn" if follow_up else "length")
+    if follow_up:
+        assert llm.calls[4]["messages"][-1].text_content == "Answer briefly"

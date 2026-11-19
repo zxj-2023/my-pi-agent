@@ -67,7 +67,7 @@ class Event:
 | 分类 | 事件名 | 核心属性 | 广播时机与作用 |
 | :--- | :--- | :--- | :--- |
 | **宏观生命周期** | `AgentStart` | `system_prompt`, `user_input` | Agent 全流程启动时广播 |
-| | `AgentEnd` | `messages`, `final_text`, `iterations`, `stop_reason` | Agent 结束（`"end_turn"` / `"cancelled"` / `"blocked"` / `"error"`） |
+| | `AgentEnd` | `messages`, `final_text`, `iterations`, `stop_reason` | Agent 结束（`"end_turn"` / `"length"` / `"cancelled"` / `"blocked"` / `"error"`）；`"length"` 表示自动续写次数耗尽，`final_text` 保留最后一段未完成的输出 |
 | **微观轮次** | `TurnStart` | `iteration` | 单轮推理循环开始 |
 | | `TurnEnd` | `message`, `tool_results` | 单轮推理循环结束（**严格保证成对闭合**，即使中途报错或拦截） |
 | **模型重试** | `AutoRetryStart` | `attempt`, `max_attempts`, `delay_ms`, `error_message` | 遇到 429/5xx/网络断流瞬时抖动，启动带退避的自动重试时广播 |
